@@ -30,7 +30,10 @@ import { createDictView, type DictView } from "./ui/dictView";
 import { aiRewrite } from "./ui/aiRewrite";
 import { renderMarkdown } from "./ui/markdown";
 import { initAppearance, zoomBy } from "./ui/appearance";
-import { menu, type MenuItem } from "./ui/menu";
+import type { MenuItem } from "./ui/menu";
+import { menuDrawer } from "./ui/menuDrawer";
+import { createSaveHistory } from "./ui/saveHistory";
+import { createFileGroups } from "./ui/fileGroups";
 import { buildFromJapanese } from "./ui/jpBuildDialog";
 import { sampleTemplate } from "./ai/jpBuild";
 import { explainError } from "./ai/errorExplain";
@@ -77,6 +80,8 @@ export class App {
   private tracePoll: number | undefined;
   /** 「値を見る」の結果があるファイル */
   private valuesShown = new Set<string>();
+  private groups!: ReturnType<typeof createFileGroups>;
+  private history!: ReturnType<typeof createSaveHistory>;
   /** 「値を見る」の記録（ファイルごと）と、ステップ表示の位置 */
   private traceRaw = new Map<string, TraceResult>();
   private traceStep: { docId: string; line: number; index: number } | null = null;
@@ -132,6 +137,24 @@ export class App {
       onRenamed: (from, to) => this.handleRenamed(from, to),
       onDeleted: (p) => this.handleDeleted(p),
       onChanged: () => void this.reindex(),
+      extraMenu: (p) => (settings.get("ui.fileGroups") ? this.groups.menuItemsFor(p) : []),
+    });
+    this.groups = createFileGroups({
+      root: () => this.root,
+      openFile: (p) => void this.openFile(p),
+      activePath: () => this.activeDoc()?.path ?? null,
+      closeFiles: (paths) => {
+        for (const d of [...this.docs]) if (d.path && paths.includes(d.path)) void this.closeDoc(d.id);
+      },
+    });
+    this.history = createSaveHistory({
+      home: () => this.sys.home,
+      activeDoc: () => this.activeDoc() ?? null,
+      getText: (id) => this.editor.getText(id),
+      applyText: (id, text) => {
+        if (id === this.activeId) this.editor.applyText(text);
+        else this.editor.setText(id, text);
+      },
     });
     this.terminal = new TerminalPanel({
       cwd: () => this.root ?? undefined,
@@ -345,10 +368,11 @@ export class App {
       h("span", { class: "menu-btn-caret", html: icon("chevronDown", 12) }),
     );
     menuBtn.addEventListener("click", () => {
-      if (menu.isOpen) return menu.close();
+      // 画面の左側から半透明のメニューがすっと出てくる
+      if (menuDrawer.isOpen) return menuDrawer.close();
       menuBtn.setAttribute("aria-expanded", "true");
       menuBtn.classList.add("open");
-      menu.open(menuBtn, this.menuItems(), () => {
+      menuDrawer.open(() => this.menuItems(), () => {
         menuBtn.setAttribute("aria-expanded", "false");
         menuBtn.classList.remove("open");
       });
@@ -412,7 +436,15 @@ export class App {
       h("p", {}, t("explorer.empty")),
       h("button", { class: "btn primary", onclick: () => this.openFolder() }, t("cmd.openFolder")),
     );
-    const explorer = h("div", { class: "view explorer-view" }, this.explorerEmpty, this.tree.el);
+    const explorer = h(
+      "div",
+      { class: "view explorer-view" },
+      this.groups.el,
+      h("div", { class: "explorer-tree" }, this.explorerEmpty, this.tree.el),
+      this.history.el,
+    );
+    this.groups.render();
+    void this.history.refresh();
     this.views.set("explorer", explorer);
     this.views.set("search", this.searchView.el);
     this.views.set("dict", this.dictView.el);
@@ -588,6 +620,7 @@ export class App {
       if (this.docs.length) return;
     }
     this.root = root;
+    this.groups.render();
     settings.set("workspace.last", root);
     settings.set("workspace.recent", [root, ...settings.get("workspace.recent").filter((r) => r !== root)].slice(0, 10));
     await this.tree.setRoot(root);
@@ -785,6 +818,8 @@ export class App {
   private activate(id: string) {
     this.activeId = id;
     this.editor.activate(id);
+    this.groups?.render();
+    void this.history?.refresh();
     const doc = this.activeDoc();
     this.tree.setActive(doc?.path ?? null);
     this.renderTabs();
@@ -1000,8 +1035,16 @@ export class App {
     if (directive && extname(path) && extname(path).toLowerCase() !== directive.ext) {
       toast(t("lang.savedOtherExt", { name: directive.label, file: basename(path) }), "warn", 8000);
     }
+    // 保存記録のために、保存する前のファイルの中身を読んでおく
+    const before = settings.get("ui.saveHistory")
+      ? await fs
+          .readFileEnc(path, doc.encoding)
+          .then((r) => r.text.replace(/\r\n/g, "\n"))
+          .catch(() => null)
+      : null;
     try {
       await fs.writeFileEnc(path, text, doc.encoding, doc.bom, doc.eol);
+      void this.history.record(path, before, text);
     } catch (err) {
       const msg = String(err);
       const bad = /UNMAPPABLE: (.*)/.exec(msg);
@@ -1761,6 +1804,8 @@ export class App {
     this.applyUiToggles();
     bus.on("settings:changed", ({ key }) => {
       if (key.startsWith("ui.")) this.applyUiToggles();
+      if (key === "ui.fileGroups") this.groups.render();
+      if (key === "ui.saveHistory") void this.history.refresh();
       if (key === "ui.selectionCount") this.renderStatus();
     });
     bus.on("settings:changed", ({ key }) => {
@@ -1983,7 +2028,32 @@ export class App {
     });
   }
 
+  /**
+   * Esc で、いちばん上に開いているものから閉じる（メニュー → 右クリックメニュー → ヘルプ → 設定）。
+   * 検索欄や確認の窓が開いているときは、そちらに任せる
+   */
+  private installEscape() {
+    window.addEventListener(
+      "keydown",
+      (e) => {
+        if (e.key !== "Escape" || e.isComposing) return;
+        if (document.querySelector(".palette-backdrop, .modal-backdrop")) return;
+        const stop = () => {
+          e.preventDefault();
+          e.stopPropagation();
+        };
+        if (menuDrawer.isOpen) return (stop(), menuDrawer.close());
+        const ctx = document.querySelector(".context-menu");
+        if (ctx) return (stop(), ctx.remove());
+        if (helpPage.isOpen) return (stop(), helpPage.close(), this.editor.focus());
+        if (settingsPage.isOpen) return (stop(), settingsPage.close(), this.editor.focus());
+      },
+      true,
+    );
+  }
+
   private bindEvents() {
+    this.installEscape();
     this.editor.onChange((id) => {
       const doc = this.docs.find((d) => d.id === id);
       if (doc && this.traceRaw.has(doc.id)) {

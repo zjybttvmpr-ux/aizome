@@ -306,6 +306,8 @@ function sections(): Section[] {
         row(t("feat.ui_dictButton"), toggle("ui.dictButton"), t("feat.ui_dictButton.help"), true),
         row(t("feat.ui_sideSwitch"), toggle("ui.sideSwitch"), undefined, true),
         row(t("feat.ui_selectionCount"), toggle("ui.selectionCount"), undefined, true),
+        row(t("feat.fileGroups"), toggle("ui.fileGroups"), t("feat.fileGroups.help"), true),
+        row(t("feat.saveHistory"), toggle("ui.saveHistory"), t("feat.saveHistory.help"), true),
         row(t("feat.ui_errorButton"), toggle("ui.errorButton"), undefined, true),
         row(t("feat.terminal_smartCopy"), toggle("terminal.smartCopy"), t("feat.terminal_smartCopy.help"), true),
       ],

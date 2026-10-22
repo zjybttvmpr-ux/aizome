@@ -12,6 +12,8 @@ export interface FileTreeDeps {
   onRenamed: (from: string, to: string) => void;
   onDeleted: (path: string) => void;
   onChanged: () => void;
+  /** 右クリックに足す項目（グループに追加など） */
+  extraMenu?: (path: string, isDir: boolean) => { label: string; run: () => void }[];
 }
 
 interface MenuItem {
@@ -160,6 +162,14 @@ export class FileTree {
         this.deps.openFile(e.path);
       }
     });
+    // グループへドラッグで入れられるように
+    if (!e.isDir) {
+      row.draggable = true;
+      row.addEventListener("dragstart", (ev) => {
+        ev.dataTransfer?.setData("text/x-aizome-path", e.path);
+        ev.dataTransfer?.setData("text/plain", e.path);
+      });
+    }
     row.addEventListener("contextmenu", (ev) => {
       ev.preventDefault();
       ev.stopPropagation();
@@ -179,6 +189,7 @@ export class FileTree {
       items.push({ label: t("tree.delete"), run: () => this.remove(path), danger: true });
     }
     items.push({ label: t("tree.copyPath"), run: () => navigator.clipboard?.writeText(path) });
+    if (!isDir && this.deps.extraMenu) items.push(...this.deps.extraMenu(path, isDir));
     contextMenu(x, y, items);
   }
 

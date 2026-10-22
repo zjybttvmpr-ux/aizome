@@ -92,6 +92,13 @@ export interface Settings {
   "ui.sideSwitch": boolean;
   /** ステータスバーに選んだ文字数 */
   "ui.selectionCount": boolean;
+  /** エクスプローラーの「グループ」 */
+  "ui.fileGroups": boolean;
+  /** エクスプローラーの下の「保存記録」 */
+  "ui.saveHistory": boolean;
+  "explorer.groups": Record<string, { name: string; files: string[]; open?: boolean }[]>;
+  "explorer.groupsOpen": boolean;
+  "explorer.historyOpen": boolean;
   /** 新しいファイル（保存前）を何語として扱うか（拡張子） */
   "files.newFileLanguage": string;
   /** 新しく保存するファイルの文字コード */
@@ -172,6 +179,11 @@ export const defaults: Settings = {
   "ui.errorButton": true,
   "ui.sideSwitch": true,
   "ui.selectionCount": true,
+  "ui.fileGroups": true,
+  "ui.saveHistory": true,
+  "explorer.groups": {},
+  "explorer.groupsOpen": true,
+  "explorer.historyOpen": true,
   "files.newFileLanguage": ".py",
   "files.encoding": "utf-8",
   "files.guessEncoding": true,
