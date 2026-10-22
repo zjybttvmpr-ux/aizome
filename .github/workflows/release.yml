@@ -52,6 +52,12 @@ jobs:
       - name: 依存パッケージ
         run: npm install
 
+      # Windows 10 の古い ConPTY だと日本語が 2 回ずつ表示されるので、新しい ConPTY を同梱する
+      - name: ConPTY を取ってくる（Windows）
+        if: matrix.platform == 'windows-latest'
+        shell: pwsh
+        run: ./scripts/fetch-conpty.ps1
+
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
