@@ -192,7 +192,7 @@ export class App {
     // ほかのアプリから戻ってきたら Git の状態を更新、離れたら自動保存
     window.addEventListener("focus", () => void this.refreshGit());
     window.addEventListener("blur", () => {
-      if (settings.get("editor.autoSave") === "focus") void this.saveAllDirty();
+      if (settings.get("editor.autoSave") === "focus") void this.saveAllDirty(true);
     });
     // 見ていないあいだは Git を調べない
     window.setInterval(() => document.hasFocus() && void this.refreshGit(), 30000);
@@ -241,8 +241,8 @@ export class App {
     return true;
   }
 
-  private async saveAllDirty() {
-    for (const d of this.docs) if (d.dirty && d.path) await this.save(d.id);
+  private async saveAllDirty(auto = false) {
+    for (const d of this.docs) if (d.dirty && d.path) await this.save(d.id, false, { keepDirective: auto });
   }
 
   // ───────────── ドラッグ＆ドロップ
@@ -745,7 +745,11 @@ export class App {
     this.renderPreview();
   }
 
-  async save(id = this.activeId, forceAs = false): Promise<boolean> {
+  /**
+   * 保存する。1 行目の「## py ##」のような言語の指定は、ファイルには書かずに取り除く（普通のコメントはそのまま）。
+   * 自動保存や実行前の保存では取り除かない（書いた直後に消えたり、実行する言語が変わったりしないように）
+   */
+  async save(id = this.activeId, forceAs = false, opts: { keepDirective?: boolean } = {}): Promise<boolean> {
     const doc = this.docs.find((d) => d.id === id);
     if (!doc) return false;
     let path = doc.path;
@@ -756,9 +760,19 @@ export class App {
     }
     let text = this.editor.getText(doc.id);
     const original = text;
+    const firstLine = text.split("\n", 1)[0] ?? "";
+    const directive = opts.keepDirective ? null : parseDirective(firstLine);
+    if (directive) text = text.slice(firstLine.length).replace(/^\r?\n/, "");
     if (settings.get("editor.trimTrailingWhitespace")) text = text.replace(/[ \t]+$/gm, "");
     if (settings.get("editor.insertFinalNewline") && text.length && !text.endsWith("\n")) text += "\n";
-    if (text !== original) this.editor.setText(doc.id, text);
+    if (text !== original) {
+      // 表示中のファイルは変わったところだけ書き換える（カーソルがずれないように）
+      if (doc.id === this.activeId) this.editor.applyText(text);
+      else this.editor.setText(doc.id, text);
+    }
+    if (directive && extname(path) && extname(path).toLowerCase() !== directive.ext) {
+      toast(t("lang.savedOtherExt", { name: directive.label, file: basename(path) }), "warn", 8000);
+    }
     try {
       await fs.writeFile(path, text);
     } catch (err) {
@@ -860,7 +874,7 @@ export class App {
     const first = this.editor.getText(doc.id).split("\n", 1)[0] ?? "";
     const directive = parseDirective(first);
     // 保存してあるファイルは、変更を保存してから
-    if (doc.path && doc.dirty && !(await this.save(doc.id))) return null;
+    if (doc.path && doc.dirty && !(await this.save(doc.id, false, { keepDirective: true }))) return null;
     if (!directive && doc.path) return { path: doc.path, cwd: dirname(doc.path) };
     const ext = directive?.ext ?? extname(this.effectiveName(doc));
     if (!ext || ext === ".txt" || ext === ".md") {
@@ -1592,7 +1606,7 @@ export class App {
       if (doc && settings.get("editor.autoSave") === "delay" && doc.path) {
         window.clearTimeout(this.autoSaveTimer);
         this.autoSaveTimer = window.setTimeout(() => {
-          if (doc.dirty) void this.save(doc.id);
+          if (doc.dirty) void this.save(doc.id, false, { keepDirective: true });
         }, 1200);
       }
       if (this.previewOn && id === this.activeId) {

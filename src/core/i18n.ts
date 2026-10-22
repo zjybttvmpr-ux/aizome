@@ -479,6 +479,7 @@ const ja: Dict = {
   "trace.truncated": "{n} 行に値を表示しました（とても長く動いたので、途中までの記録です）",
   "trace.changed": "実行中にファイルが書き換えられたので、値は表示しませんでした。もう一度「値を見る」を押してください",
   "trace.failed": "記録を読めませんでした：{err}",
+  "lang.savedOtherExt": "{name} として書いていましたが「{file}」で保存しました。拡張子に合わせた言語で扱います",
 };
 
 const en: Dict = {
@@ -939,6 +940,7 @@ const en: Dict = {
   "trace.truncated": "Showing values on {n} lines (ran very long, so recording stopped partway)",
   "trace.changed": "The file changed while running, so values were not shown. Run \"Show values\" again",
   "trace.failed": "Could not read the recording: {err}",
+  "lang.savedOtherExt": "You were writing {name}, but saved as \"{file}\". The file is now treated by its extension",
 };
 
 const dicts: Record<string, Dict> = { ja, en };
