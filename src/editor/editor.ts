@@ -26,6 +26,7 @@ import { buildLens } from "./buildLens";
 import { lineExplanations } from "./explain";
 import { smartCompletion } from "./smartComplete";
 import { zenkakuMarks } from "./zenkaku";
+import { langTag } from "./langTag";
 import { settings } from "../core/settings";
 import { filenameForLanguage } from "../core/languages";
 import type { EditorAction, EditorHost } from "./types";
@@ -95,6 +96,7 @@ class CodeMirrorHost implements EditorHost {
       lineExplanations(),
       smartCompletion(),
       zenkakuMarks(),
+      langTag(),
       languageSlot.of([]),
       configSlot.of(configExtensions()),
     ];
@@ -178,6 +180,11 @@ class CodeMirrorHost implements EditorHost {
     this.docs.set(newId, entry);
     if (this.activeId === oldId) this.activeId = newId;
     await this.loadLanguage(newId, filename);
+  }
+
+  peek(id: string, max: number) {
+    const state = id === this.activeId && this.view ? this.view.state : this.docs.get(id)?.state;
+    return state ? state.doc.sliceString(0, Math.min(max, state.doc.length)) : "";
   }
 
   getText(id?: string) {

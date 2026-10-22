@@ -45,6 +45,8 @@ export interface Settings {
   "editor.suggestList": "smart" | "off";
   "editor.listKey": "tab" | "enter";
   "editor.zenkaku": boolean;
+  /** 新しいファイル（保存前）を何語として扱うか（拡張子） */
+  "files.newFileLanguage": string;
   "dict.user": { lang: string; title: string; code: string; keys?: string }[];
   "update.skipVersion": string;
 }
@@ -94,6 +96,7 @@ export const defaults: Settings = {
   "editor.suggestList": "smart",
   "editor.listKey": "tab",
   "editor.zenkaku": true,
+  "files.newFileLanguage": ".py",
   "dict.user": [],
   "update.skipVersion": "",
 };

@@ -5,7 +5,8 @@ import { bus } from "./core/events";
 import { settings } from "./core/settings";
 import { commands, formatKey, installKeybindings } from "./core/commands";
 import { fs, dialog, sys, git, appWindow, osIntegration, runtimes, type SysInfo } from "./core/platform";
-import { basename, dirname, extname, isInside, relative, resolveIn } from "./core/paths";
+import { basename, dirname, extname, isInside, join, relative, resolveIn, stripExt } from "./core/paths";
+import { LANG_CHOICES, directiveAsComment, guessLanguage, parseDirective, setDirective } from "./core/langDirective";
 import { createEditorHost } from "./editor/editor";
 import type { EditorHost } from "./editor/types";
 import { TerminalPanel } from "./terminal/panel";
@@ -54,6 +55,11 @@ export class App {
   private root: string | null = null;
   private fileIndex: string[] = [];
   private untitledSeq = 0;
+  /** 各ファイルを今どの言語（ファイル名）として扱っているか */
+  private appliedName = new Map<string, string>();
+  private langTimer: number | undefined;
+  /** 実行用のコピー → 元のファイル（エラーの場所をクリックしたとき元を開くため） */
+  private runCopies = new Map<string, string>();
   private lastRunDir: string | null = null;
   private sys: SysInfo = { os: "unknown", home: "", defaultShell: "", pathSep: "/" };
   private statusItems = new Map<string, { text: string; tooltip?: string }>();
@@ -598,6 +604,8 @@ export class App {
       doc = { id: path, path, name: basename(path), dirty: false };
       this.docs.push(doc);
       await this.editor.open(doc.id, text, doc.name);
+      this.appliedName.set(doc.id, doc.name);
+      this.refreshLanguage(doc);
       bus.emit("file:opened", { path });
       this.saveSession();
     }
@@ -606,6 +614,16 @@ export class App {
   }
 
   private async openLocation(p: string, line: number, col: number) {
+    // 実行用のコピーの場所なら、元のファイルを開く
+    for (const [copy, docId] of this.runCopies) {
+      if (p === copy || p.replace(/\\/g, "/").endsWith(copy.replace(/\\/g, "/").split("/").slice(-3).join("/"))) {
+        if (this.docs.some((d) => d.id === docId)) {
+          this.activate(docId);
+          this.editor.goTo(line, col);
+          return;
+        }
+      }
+    }
     const candidates = [p];
     if (this.lastRunDir) candidates.push(resolveIn(this.lastRunDir, p));
     if (this.root) candidates.push(resolveIn(this.root, p));
@@ -622,7 +640,52 @@ export class App {
     const id = `untitled:${++this.untitledSeq}`;
     const doc: Doc = { id, path: null, name: t("file.untitled", { n: String(this.untitledSeq) }), dirty: false };
     this.docs.push(doc);
-    void this.editor.open(id, "", "untitled.txt").then(() => this.activate(id));
+    const name = `untitled${settings.get("files.newFileLanguage") || ".py"}`;
+    this.appliedName.set(id, name);
+    void this.editor.open(id, "", name).then(() => this.activate(id));
+  }
+
+  /**
+   * このファイルを何語として扱うか。
+   * 1 行目の「## py ##」などの指定 → 保存前なら中身から推測 → 新しいファイルの言語（設定）→ 拡張子
+   */
+  private effectiveName(doc: Doc): string {
+    const head = this.editor.peek(doc.id, 4000);
+    const directive = parseDirective(head.split("\n", 1)[0] ?? "");
+    const base = doc.path ? doc.name : `untitled${settings.get("files.newFileLanguage") || ".py"}`;
+    if (directive) return stripExt(base) + directive.ext;
+    if (!doc.path) {
+      const guessed = guessLanguage(head);
+      if (guessed) return "untitled" + guessed;
+      // 推測できないときは、今の扱いを続ける（入力のたびに言語が変わらないように）
+      return this.appliedName.get(doc.id) ?? base;
+    }
+    return doc.name;
+  }
+
+  /** 言語の扱いを見直して、変わっていたらエディタ（色分け・AI・実行）に反映する */
+  private refreshLanguage(doc: Doc) {
+    if (!this.editor.has(doc.id)) return;
+    const name = this.effectiveName(doc);
+    if (this.appliedName.get(doc.id) === name) return;
+    this.appliedName.set(doc.id, name);
+    void this.editor.rename(doc.id, doc.id, name).then(() => this.renderStatus());
+  }
+
+  /** ステータスバーの言語をクリック：1 行目に「## 言語 ##」を書いて切り替える */
+  private async pickLanguage() {
+    const doc = this.activeDoc();
+    if (!doc) return;
+    const current = extname(this.appliedName.get(doc.id) ?? doc.name);
+    const choice = await quickPick(
+      LANG_CHOICES.map((c) => ({ label: c.label, detail: c.ext === current ? t("lang.current") : `## ${c.tag} ##`, value: c })),
+      t("lang.pick"),
+    );
+    if (!choice) return;
+    this.editor.activate(doc.id);
+    this.editor.applyText(setDirective(this.editor.getText(doc.id), choice));
+    this.refreshLanguage(doc);
+    toast(t("lang.set", { name: choice.label, tag: `## ${choice.tag} ##` }), "success", 5000);
   }
 
   private activate(id: string) {
@@ -679,7 +742,8 @@ export class App {
     if (!doc) return false;
     let path = doc.path;
     if (!path || forceAs) {
-      path = await dialog.saveFile(this.root ? resolveIn(this.root, doc.path ? basename(doc.path) : "untitled.txt") : undefined);
+      const suggested = doc.path ? basename(doc.path) : stripExt(doc.name) + (extname(this.appliedName.get(doc.id) ?? "") || ".txt");
+      path = await dialog.saveFile(this.root ? resolveIn(this.root, suggested) : suggested);
       if (!path) return false;
     }
     let text = this.editor.getText(doc.id);
@@ -700,6 +764,9 @@ export class App {
       doc.name = basename(path);
       await this.editor.rename(oldId, path, doc.name);
       if (this.activeId === oldId) this.activeId = path;
+      this.appliedName.delete(oldId);
+      this.appliedName.set(path, doc.name);
+      this.refreshLanguage(doc);
       if (this.root && isInside(this.root, path)) void this.tree.refresh().then(() => this.reindex());
     }
     doc.dirty = false;
@@ -783,19 +850,47 @@ export class App {
       toast(t("run.noFile"), "info");
       return;
     }
-    if (doc.dirty || !doc.path) {
-      if (!(await this.save(doc.id))) return;
+    const text = this.editor.getText(doc.id);
+    const first = text.split("\n", 1)[0] ?? "";
+    const directive = parseDirective(first);
+    // 保存してあるファイルは、変更を保存してから
+    if (doc.path && doc.dirty && !(await this.save(doc.id))) return;
+    if (!directive && doc.path) {
+      await this.runPath(doc.path);
+      return;
     }
-    await this.runPath(doc.path!);
+    // 「## C# ##」の指定がある・まだ保存していない：その言語の拡張子のコピーを作って実行する
+    const ext = directive?.ext ?? extname(this.effectiveName(doc));
+    if (!ext || ext === ".txt" || ext === ".md") {
+      toast(t("run.pickLanguage"), "info", 7000);
+      void this.pickLanguage();
+      return;
+    }
+    const latest = this.editor.getText(doc.id);
+    const latestFirst = latest.split("\n", 1)[0] ?? "";
+    const body = directive ? directiveAsComment(latestFirst, ext) + latest.slice(latestFirst.length) : latest;
+    const runDir = join(join(this.sys.home, ".aizome"), "run");
+    await fs.createDir(runDir).catch(() => {});
+    const stem = stripExt(doc.name).replace(/[\\/:*?"<>|\s]+/g, "_") || "untitled";
+    const copy = join(runDir, stem + ext);
+    try {
+      await fs.writeFile(copy, body);
+    } catch (err) {
+      toast(t("file.saveFailed", { name: basename(copy), err: String(err) }), "error");
+      return;
+    }
+    this.runCopies.set(copy, doc.id);
+    const cwd = doc.path ? dirname(doc.path) : runDir;
+    await this.runPath(copy, { fileDir: cwd, fileBase: copy, file: copy, fileNoExt: join(cwd, stem), fileBaseNoExt: stem });
   }
 
-  private async runPath(path: string) {
+  private async runPath(path: string, overrides?: Record<string, string>) {
     const config = findRunConfig(path);
     if (!config) {
       toast(t("run.noConfig", { name: basename(path) }), "warn", 6000);
       return;
     }
-    let cmd = expandCommand(config, path, this.root ?? "", this.sys.os);
+    let cmd = expandCommand(config, path, this.root ?? "", this.sys.os, overrides);
     if (config.id === "python") {
       const resolved = await this.resolvePython(cmd);
       if (resolved === null) return;
@@ -805,8 +900,9 @@ export class App {
       // 終わったことと終了コードがわかるように（何も出力しないプログラムでも安心できる）
       cmd += `; Write-Host ""; Write-Host "--- ${t("run.finished", { code: "$LASTEXITCODE" })} ---" -ForegroundColor DarkGray`;
     }
-    this.lastRunDir = dirname(path);
-    await this.terminal.run(cmd, dirname(path));
+    const cwd = overrides?.fileDir ?? dirname(path);
+    this.lastRunDir = cwd;
+    await this.terminal.run(cmd, cwd);
   }
 
   /**
@@ -963,7 +1059,7 @@ export class App {
         item(t("status.position", { line: String(pos.line), col: String(pos.col) }), undefined, () => void this.goToLine()),
         item(t("status.spaces", { n: String(settings.get("editor.tabSize")) })),
         item("UTF-8"),
-        item(this.editor.languageName()),
+        item(this.editor.languageName(), t("lang.pick"), () => void this.pickLanguage()),
       );
     }
   }
@@ -1409,6 +1505,10 @@ export class App {
   private bindEvents() {
     this.editor.onChange((id) => {
       const doc = this.docs.find((d) => d.id === id);
+      if (doc) {
+        window.clearTimeout(this.langTimer);
+        this.langTimer = window.setTimeout(() => this.refreshLanguage(doc), 350);
+      }
       if (doc && settings.get("editor.autoSave") === "delay" && doc.path) {
         window.clearTimeout(this.autoSaveTimer);
         this.autoSaveTimer = window.setTimeout(() => {

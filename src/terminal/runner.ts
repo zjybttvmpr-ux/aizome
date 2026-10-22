@@ -32,7 +32,7 @@ export function listRunConfigs(): RunConfig[] {
   return [...configs];
 }
 
-export function expandCommand(c: RunConfig, file: string, workspace: string, os: string): string {
+export function expandCommand(c: RunConfig, file: string, workspace: string, os: string, overrides?: Record<string, string>): string {
   const tpl = os === "windows" && c.windows ? c.windows : c.command;
   const vars: Record<string, string> = {
     file,
@@ -41,6 +41,7 @@ export function expandCommand(c: RunConfig, file: string, workspace: string, os:
     fileNoExt: stripExt(file),
     fileBaseNoExt: stripExt(basename(file)),
     workspace: workspace || dirname(file),
+    ...overrides,
   };
   // PowerShell の "…" の中では $ と ` が特別な意味になるので、パスの中のものは文字として扱わせる
   const esc = os === "windows" && c.windows ? (v: string) => v.replace(/[`$"]/g, (ch) => "`" + ch) : (v: string) => v;

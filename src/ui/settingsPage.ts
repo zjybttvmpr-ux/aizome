@@ -11,6 +11,7 @@ import { describeAiError, ensureLocalAi, useModelFile, useModelsDir } from "../a
 import { listThemes } from "./themes";
 import { icon } from "./icons";
 import { confirmBox } from "./dialog";
+import { LANG_CHOICES } from "../core/langDirective";
 
 type Key = keyof Settings;
 
@@ -324,6 +325,11 @@ function sections(): Section[] {
             { value: "delay", label: t("settings.autoSave.delay") },
             { value: "focus", label: t("settings.autoSave.focus") },
           ]),
+        ),
+        row(
+          t("set.newFileLanguage"),
+          select("files.newFileLanguage", LANG_CHOICES.map((c) => ({ value: c.ext, label: c.label }))),
+          t("set.newFileLanguageHelp"),
         ),
         row(t("settings.trimWhitespace"), toggle("editor.trimTrailingWhitespace"), undefined, true),
         row(t("settings.finalNewline"), toggle("editor.insertFinalNewline"), undefined, true),

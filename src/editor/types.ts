@@ -28,6 +28,8 @@ export interface EditorHost {
   close(id: string): void;
   rename(oldId: string, newId: string, filename: string): Promise<void>;
   getText(id?: string): string;
+  /** 先頭から max 文字だけ（大きいファイルでも速い） */
+  peek(id: string, max: number): string;
   /** 中身をまるごと置き換える（カーソル位置はできるだけ保つ） */
   setText(id: string, text: string): void;
   /** 表示中のファイルの中身を書き換える（変わった部分だけ置き換えるので、カーソルや元に戻すが自然） */

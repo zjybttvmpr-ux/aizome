@@ -2968,3 +2968,19 @@ html.has-bg .settings-page {
   align-items: center;
   gap: 4px;
 }
+
+/* 1 行目の「## py ##」（言語の指定） */
+.cm-lang-directive {
+  background: color-mix(in srgb, var(--accent) 7%, transparent);
+}
+.cm-lang-tag {
+  margin-left: 1.5em;
+  font-family: var(--font-ui);
+  font-size: 11px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  pointer-events: none;
+  user-select: none;
+}

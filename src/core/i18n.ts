@@ -462,6 +462,13 @@ const ja: Dict = {
   "status.selectionTitle": "クリックで詳しい文字数",
   "view.dict": "コード辞書",
   "cmd.dict": "コード辞書を開く",
+  "lang.pick": "このファイルの言語を選ぶ",
+  "lang.current": "今の言語",
+  "lang.set": "{name} として扱います（1 行目に {tag} と書きました。実行もこの言語です）",
+  "run.pickLanguage": "何の言語で実行するか決まっていません。言語を選ぶか、1 行目に ## py ## のように書いてください",
+  "set.newFileLanguage": "新しいファイルの言語",
+  "set.newFileLanguageHelp": "保存する前の新しいファイルを、この言語として扱います（AI の候補・色分け・実行）。中身から言語がわかればそちらを優先し、1 行目に ## py ## ## C# ## ## C++ ## のように書けば、その言語になります。",
+  "lang.tag": "← {name} として扱います（AI の候補・実行もこの言語）",
 };
 
 const en: Dict = {
@@ -905,6 +912,13 @@ const en: Dict = {
   "status.selectionTitle": "Click for details",
   "view.dict": "Code dictionary",
   "cmd.dict": "Open code dictionary",
+  "lang.pick": "Choose this file's language",
+  "lang.current": "Current",
+  "lang.set": "Treated as {name} (wrote {tag} on line 1; runs in this language too)",
+  "run.pickLanguage": "No language to run with. Choose one, or write ## py ## on line 1",
+  "set.newFileLanguage": "Language for new files",
+  "set.newFileLanguageHelp": "Unsaved new files are treated as this language (AI, highlighting, run). Content-based detection wins, and a first line like ## py ## / ## C# ## / ## C++ ## sets it explicitly.",
+  "lang.tag": "← Treated as {name} (AI suggestions and Run use it)",
 };
 
 const dicts: Record<string, Dict> = { ja, en };
