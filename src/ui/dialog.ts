@@ -8,7 +8,7 @@ interface Choice<T> {
   kind?: "primary" | "danger" | "plain";
 }
 
-function modal<T>(build: (close: (v: T) => void) => { body: HTMLElement[]; initialFocus?: HTMLElement }, cancelValue: T): Promise<T> {
+export function modal<T>(build: (close: (v: T) => void) => { body: HTMLElement[]; initialFocus?: HTMLElement }, cancelValue: T): Promise<T> {
   return new Promise((resolve) => {
     const prevFocus = document.activeElement as HTMLElement | null;
     const backdrop = h("div", { class: "modal-backdrop" });

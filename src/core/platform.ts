@@ -136,6 +136,10 @@ export const dialog = {
     });
     return typeof r === "string" ? r : null;
   },
+  async pickFile(filters: { name: string; extensions: string[] }[]): Promise<string | null> {
+    const r = await open({ multiple: false, filters });
+    return typeof r === "string" ? r : null;
+  },
   async pickExe(): Promise<string | null> {
     const r = await open({ multiple: false, filters: [{ name: "python.exe", extensions: ["exe"] }, { name: "*", extensions: ["*"] }] });
     return typeof r === "string" ? r : null;

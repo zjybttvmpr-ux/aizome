@@ -34,6 +34,8 @@ import type { MenuItem } from "./ui/menu";
 import { menuDrawer } from "./ui/menuDrawer";
 import { createSaveHistory } from "./ui/saveHistory";
 import { createFileGroups } from "./ui/fileGroups";
+import { exportSettings, importSettings } from "./ui/settingsTransfer";
+import { contextMenu } from "./ui/fileTree";
 import { buildFromJapanese } from "./ui/jpBuildDialog";
 import { sampleTemplate } from "./ai/jpBuild";
 import { explainError } from "./ai/errorExplain";
@@ -42,6 +44,9 @@ import { listSlash, openSlashPalette } from "./ui/slash";
 import { registerBuiltinSlash, showErrorExplanation } from "./ui/slashCommands";
 import { countChars } from "./core/jpText";
 import { ENCODINGS, encodingById, encodingLabel } from "./core/encodings";
+import { INPUT_WRAPPER_PY, presetCount, type InputPreset } from "./run/inputs";
+import { editInputPreset } from "./ui/inputPresets";
+import { hashText } from "./ai/infer";
 import { TRACER_PY, busiestLine, enclosingLoops, formatTrace, loopPositions, stepLoop, stepTimes, type TraceResult } from "./run/trace";
 import { inferBusy, onInferBusy } from "./editor/inferState";
 import { definitionSearchRegex, setDefinitionFallback } from "./editor/definition";
@@ -476,6 +481,9 @@ export class App {
     this.mountPoint.append(this.el);
 
     this.editor.mount(this.editorMount);
+    this.editor.onFocusDoc((id) => {
+      if (id !== this.activeId) this.activate(id);
+    });
     this.showView("explorer");
     this.dragResize(sideResizer, "x");
     this.dragResize(panelResizer, "y");
@@ -1243,7 +1251,59 @@ export class App {
       return;
     }
     const target = await this.prepareRunTarget(doc);
-    if (target) await this.runPath(target.path, target.overrides, target.cleanup);
+    if (target) await this.runPath(target.path, target.overrides, target.cleanup, await this.inputsFileFor(doc));
+  }
+
+  /** 入力の登録（ファイルごと）。キーは保存してあればパス、なければタブの ID */
+  private presetKey(doc: Doc): string {
+    return doc.path ?? doc.id;
+  }
+
+  private presetFor(doc: Doc): InputPreset | undefined {
+    return (settings.get("run.inputs") ?? {})[this.presetKey(doc)];
+  }
+
+  /** 登録した入力をファイルに書き出す（実行のときに使う）。登録がなければ undefined */
+  private async inputsFileFor(doc: Doc): Promise<string | undefined> {
+    const preset = this.presetFor(doc);
+    if (!presetCount(preset)) return undefined;
+    const dir = join(join(this.sys.home, ".aizome"), "inputs");
+    await fs.createDir(dir).catch(() => {});
+    const file = join(dir, `${hashText(this.presetKey(doc)).replace(/[^\w]/g, "_")}.txt`);
+    try {
+      await fs.writeFile(file, preset!.text);
+      return file;
+    } catch {
+      return undefined;
+    }
+  }
+
+  /** 名前の一括変更（F2） */
+  async renameSymbol() {
+    if (!this.activeDoc()) return toast(t("run.noFile"), "info");
+    const sym = this.editor.symbolAtCursor();
+    if (!sym) return toast(t("rename.noSymbol"), "info", 4000);
+    const next = await inputBox({ title: t("rename.title", { name: sym.name, n: String(sym.count) }), value: sym.name, okLabel: t("rename.ok") });
+    if (!next || next === sym.name) return;
+    if (!/^[A-Za-z_$\u00C0-\uFFFF][\w$\u00C0-\uFFFF]*$/.test(next)) return toast(t("rename.invalid", { name: next }), "warn", 5000);
+    const n = this.editor.renameSymbol(sym.name, next);
+    this.editor.focus();
+    toast(t("rename.done", { from: sym.name, to: next, n: String(n) }), "success", 5000);
+  }
+
+  /** 入力の登録を編集する */
+  async editInputs() {
+    const doc = this.activeDoc();
+    if (!doc) return toast(t("run.noFile"), "info");
+    const next = await editInputPreset(doc.name, this.presetFor(doc));
+    if (!next) return;
+    const all = { ...(settings.get("run.inputs") ?? {}) };
+    if (!next.text.trim()) delete all[this.presetKey(doc)];
+    else all[this.presetKey(doc)] = next;
+    settings.set("run.inputs", all);
+    this.renderStatus();
+    const n = presetCount(next);
+    toast(n ? t("inputs.saved", { n: String(n) }) : t("inputs.off"), "success", 4000);
   }
 
   /** 値を見る：行ごとの変数の値を記録しながら実行して、行の右に表示する（Python） */
@@ -1260,6 +1320,7 @@ export class App {
     }
     const target = await this.prepareRunTarget(doc);
     if (!target) return;
+    const inputsFile = await this.inputsFileFor(doc);
     const home = join(this.sys.home, ".aizome");
     await fs.createDir(home).catch(() => {});
     const tracer = join(home, "tracer.py");
@@ -1273,8 +1334,8 @@ export class App {
     const win = this.sys.os === "windows";
     const q = (p: string) => (win ? `"${p.replace(/[`$"]/g, (ch) => "`" + ch)}"` : `"${p.replace(/(["$`\\])/g, "\\$1")}"`);
     let cmd = win
-      ? `${target.cwd ? `Set-Location ${q(target.cwd)}; ` : ""}python ${q(tracer)} ${q(target.path)} ${q(out)}`
-      : `${target.cwd ? `cd ${q(target.cwd)} && ` : ""}python3 ${q(tracer)} ${q(target.path)} ${q(out)}`;
+      ? `${target.cwd ? `Set-Location ${q(target.cwd)}; ` : ""}python ${q(tracer)} ${q(target.path)} ${q(out)}${inputsFile ? ` ${q(inputsFile)}` : ""}`
+      : `${target.cwd ? `cd ${q(target.cwd)} && ` : ""}python3 ${q(tracer)} ${q(target.path)} ${q(out)}${inputsFile ? ` ${q(inputsFile)}` : ""}`;
     if (settings.get("run.findPython")) {
       const resolved = await this.resolvePython(cmd);
       if (resolved === null) return;
@@ -1319,21 +1380,34 @@ export class App {
     }, 500);
   }
 
-  private async runPath(path: string, overrides?: Record<string, string>, cleanup?: string) {
+  private async runPath(path: string, overrides?: Record<string, string>, cleanup?: string, inputsFile?: string) {
     const config = findRunConfig(path);
     if (!config) {
       toast(t("run.noConfig", { name: basename(path) }), "warn", 6000);
       return;
     }
     let cmd = expandCommand(config, path, this.root ?? "", this.sys.os, overrides);
+    const win = this.sys.os === "windows";
+    if (inputsFile && config.id === "python") {
+      // 入力の登録：input() に登録した値を順に入れる小さな仕組みを通して実行する
+      const wrapper = join(join(this.sys.home, ".aizome"), "input_wrapper.py");
+      await fs.writeFile(wrapper, INPUT_WRAPPER_PY).catch(() => {});
+      const q = (p: string) => (win ? `"${p.replace(/[`$"]/g, (ch) => "`" + ch)}"` : `"${p.replace(/(["$`\\])/g, "\\$1")}"`);
+      const dirPart = overrides?.fileDir && overrides.fileDir !== "." ? (win ? `Set-Location ${q(overrides.fileDir)}; ` : `cd ${q(overrides.fileDir)} && `) : "";
+      cmd = `${dirPart}${win ? "python" : "python3"} ${q(wrapper)} ${q(overrides?.file ?? path)} ${q(inputsFile)}`;
+    } else if (inputsFile) {
+      toast(t("inputs.onlyPython"), "info", 5000);
+    }
     if (config.id === "python" && settings.get("run.findPython")) {
       const resolved = await this.resolvePython(cmd);
       if (resolved === null) return;
       cmd = resolved;
     }
-    if (this.sys.os === "windows" && settings.get("run.showFinished")) {
-      // 終わったことと終了コードがわかるように（何も出力しないプログラムでも安心できる）
-      cmd += `; $aizomeCode = $LASTEXITCODE${this.cleanupCommand(cleanup)}; Write-Host ""; Write-Host "--- ${t("run.finished", { code: "$aizomeCode" })} ---" -ForegroundColor DarkGray`;
+    if (win && settings.get("run.showFinished")) {
+      // 終わったことと終了コード・かかった時間がわかるように（何も出力しないプログラムでも安心できる）
+      const timed = settings.get("run.showTime");
+      const msg = timed ? t("run.finishedTime", { code: "$aizomeCode", sec: "$aizomeSec" }) : t("run.finished", { code: "$aizomeCode" });
+      cmd = `${timed ? "$aizomeStart = Get-Date; " : ""}${cmd}; $aizomeCode = $LASTEXITCODE${timed ? "; $aizomeSec = '{0:N2}' -f ((Get-Date) - $aizomeStart).TotalSeconds" : ""}${this.cleanupCommand(cleanup)}; Write-Host ""; Write-Host "--- ${msg} ---" -ForegroundColor DarkGray`;
     } else {
       cmd += this.cleanupCommand(cleanup);
     }
@@ -1428,19 +1502,51 @@ export class App {
 
   // ───────────── タブ
 
+  /** タブの右クリック：左右に並べる・元に戻す */
+  private tabMenu(id: string, x: number, y: number) {
+    const split = this.editor.isSplit();
+    const inRight = this.editor.paneOf(id) === 1;
+    const items: { label: string; run: () => void; danger?: boolean }[] = [];
+    if (!inRight) items.push({ label: t("split.right"), run: () => this.splitTab(id, "right") });
+    items.push({ label: t("split.left"), run: () => this.splitTab(id, "left") });
+    if (inRight) items.push({ label: t("split.back"), run: () => this.splitTab(id, "back") });
+    if (split) items.push({ label: t("split.off"), run: () => this.unsplit() });
+    items.push({ label: t("tabs.close"), run: () => void this.closeDoc(id), danger: true });
+    contextMenu(x, y, items);
+  }
+
+  private splitTab(id: string | null = this.activeId, side: "right" | "left" | "back" = "right") {
+    if (!id) return;
+    if (!this.editor.moveToPane(id, side)) {
+      toast(t("split.needTwo"), "info", 5000);
+      return;
+    }
+    this.activate(id);
+  }
+
+  private unsplit() {
+    this.editor.unsplit();
+    if (this.activeId) this.activate(this.activeId);
+  }
+
   private renderTabs() {
     clear(this.tabsEl);
+    const split = this.editor.isSplit();
+    const visible = this.editor.visibleIds();
     for (const doc of this.docs) {
       const active = doc.id === this.activeId;
+      const right = split && this.editor.paneOf(doc.id) === 1;
+      const shown = !active && visible.includes(doc.id);
       const tab = h(
         "div",
         {
-          class: "tab" + (active ? " active" : "") + (doc.dirty ? " dirty" : ""),
+          class: "tab" + (active ? " active" : "") + (shown ? " shown" : "") + (right ? " in-right" : "") + (doc.dirty ? " dirty" : ""),
           role: "tab",
           "aria-selected": String(active),
           tabindex: 0,
           title: doc.path ?? doc.name,
         },
+        split ? h("span", { class: "tab-side", title: t(right ? "split.inRight" : "split.inLeft") }, t(right ? "split.badgeRight" : "split.badgeLeft")) : null,
         h("span", { class: "tab-name" }, doc.name),
         h("button", {
           class: "tab-close",
@@ -1454,6 +1560,10 @@ export class App {
         }),
       );
       tab.addEventListener("click", () => this.activate(doc.id));
+      tab.addEventListener("contextmenu", (e) => {
+        e.preventDefault();
+        this.tabMenu(doc.id, e.clientX, e.clientY);
+      });
       tab.addEventListener("auxclick", (e) => {
         if (e.button === 1) void this.closeDoc(doc.id);
       });
@@ -1497,6 +1607,8 @@ export class App {
 
     if (doc) {
       const pos = this.editor.cursor();
+      const presetN = presetCount(this.presetFor(doc));
+      if (presetN) this.statusRight.append(item(t("inputs.status", { n: String(presetN) }), t("inputs.statusTitle"), () => void this.editInputs()));
       const sel = settings.get("ui.selectionCount") ? this.editor.getSelection() : "";
       if (sel) {
         const c = countChars(sel);
@@ -1650,6 +1762,8 @@ export class App {
           c("view.markdownPreview", () => this.previewOn),
           c("view.dict"),
           c("view.sideNext"),
+          c("view.splitRight"),
+          c("view.unsplit"),
           c("view.zen", () => this.el.classList.contains("zen")),
           c("editor.toggleExplain", () => settings.get("editor.explain") !== "off"),
           c("view.fullscreen"),
@@ -1666,7 +1780,7 @@ export class App {
       {
         type: "submenu",
         label: t("menu.run"),
-        items: () => [c("run.file"), c("run.trace"), c("run.stepNext"), c("run.stepPrev"), c("run.clearValues"), sep, c("terminal.new"), c("terminal.toggle", () => this.terminal.isVisible), c("terminal.clear")],
+        items: () => [c("run.file"), c("run.editInputs"), c("run.trace"), c("run.stepNext"), c("run.stepPrev"), c("run.clearValues"), sep, c("terminal.new"), c("terminal.toggle", () => this.terminal.isVisible), c("terminal.clear")],
       },
       {
         type: "submenu",
@@ -2006,6 +2120,14 @@ export class App {
     }, "Mod-Alt-V", true);
     reg("view.sideAuto", "cmd.sideAuto", () => settings.set("editor.sideView", "auto"));
     reg("view.sideOutput", "cmd.sideOutput", () => settings.set("editor.sideView", "output"));
+    reg("view.splitRight", "cmd.splitRight", () => this.splitTab(this.activeId, "right"), "Mod-\\");
+    reg("view.splitLeft", "cmd.splitLeft", () => this.splitTab(this.activeId, "left"));
+    reg("view.splitBack", "cmd.splitBack", () => this.splitTab(this.activeId, "back"));
+    reg("view.unsplit", "cmd.unsplit", () => this.unsplit());
+    reg("settings.export", "cmd.settingsExport", () => exportSettings());
+    reg("settings.import", "cmd.settingsImport", () => importSettings());
+    reg("edit.renameSymbol", "cmd.renameSymbol", () => this.renameSymbol(), "F2");
+    reg("run.editInputs", "cmd.editInputs", () => this.editInputs(), "Mod-Alt-I", true);
     reg("run.stepNext", "cmd.stepNext", () => this.stepTrace(1), "F7", true);
     reg("run.stepPrev", "cmd.stepPrev", () => this.stepTrace(-1), "Shift-F7", true);
     reg("run.stepAll", "cmd.stepAll", () => this.stepTrace(0));

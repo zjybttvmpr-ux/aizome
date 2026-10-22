@@ -200,7 +200,11 @@ export function registerBuiltinSlash(d: SlashDeps) {
 
     // ───── 実行
     cmd("auto", ["自動判定", "じどうはんてい", "予想", "よそう", "自動", "jidou", "推測"], "view.sideAuto", G.ai, "spark", "実行せずに AI が変数の中身とエラーの可能性を予想（変数にマウスを乗せると表示）"),
+    cmd("split", ["左右", "左右に並べる", "さゆう", "並べる", "ならべる", "分割", "ぶんかつ", "右に並べる"], "view.splitRight", G.view, "sidebar", "今のファイルを右に並べる（タブの右クリックでも）"),
+    cmd("unsplit", ["分割をやめる", "元に戻す", "並べるのをやめる", "ひとつに"], "view.unsplit", G.view, "sidebar", "左右に並べるのをやめる"),
     cmd("side", ["表示切替", "表示切り替え", "ひょうじきりかえ", "切り替え", "横の表示"], "view.sideNext", G.view, "sidebar", "行の右の表示：説明 → 値 → 自動判定 → なし"),
+    cmd("rename", ["名前の変更", "なまえのへんこう", "一括変更", "いっかつへんこう", "リネーム", "名前を変える"], "edit.renameSymbol", G.file, "text", "カーソルのある変数・関数の名前を、ファイル内でまとめて変える"),
+    cmd("inputs", ["入力", "にゅうりょく", "入力の登録", "テスト入力", "input", "自動入力", "nyuuryoku"], "run.editInputs", G.run, "keyboard", "input() に入れる値を登録して、実行のたびに自動で入れる"),
     cmd("output", ["出力", "しゅつりょく", "行ごとの出力", "print", "syutsuryoku"], "view.sideOutput", G.run, "terminal", "「値を見る」で記録した、行ごとの出力（print の結果）を行の右に表示"),
     cmd("step", ["ステップ", "すてっぷ", "1回ずつ", "次の回", "その時点", "step"], "run.stepNext", G.run, "chevron", "その行が何回目に動いた瞬間の値・出力を 1 回ずつ見る（F7 / Shift+F7）"),
     cmd("values", ["値", "あたい", "値を見る", "変数", "へんすう", "中身", "なかみ", "トレース", "trace", "デバッグ", "debug", "atai"], "run.trace", G.run, "eye", "行ごとに変数の値を記録しながら実行して、行の右に表示（Python）"),
@@ -453,6 +457,8 @@ export function registerBuiltinSlash(d: SlashDeps) {
       },
       run: () => d.openSettings(),
     },
+    cmd("export", ["設定の書き出し", "書き出し", "かきだし", "持ち運び", "もちはこび", "バックアップ", "backup"], "settings.export", G.settings, "file", "設定・グループ・自分の辞書・入力の登録をファイルに書き出す（ほかのパソコン用）"),
+    cmd("import", ["設定の読み込み", "読み込み", "よみこみ", "引き継ぎ", "ひきつぎ", "restore"], "settings.import", G.settings, "file", "書き出した設定ファイルを読み込む"),
     cmd("extensions", ["拡張機能", "かくちょう", "アドオン", "プラグイン", "kakuchou"], "view.extensions", G.settings, "puzzle"),
   );
 }

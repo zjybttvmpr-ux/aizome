@@ -7,6 +7,7 @@ import { t } from "../core/i18n";
 import { hashText } from "../ai/infer";
 import { icon } from "./icons";
 import { toast } from "./toast";
+import { showDiff } from "./diffView";
 
 export interface SaveHistoryDeps {
   home: () => string;
@@ -130,6 +131,24 @@ export function createSaveHistory(deps: SaveHistoryDeps) {
     }
   }
 
+  /** その時点の中身と、今の中身を左右に並べて比べる */
+  async function compare(path: string, entry: Entry) {
+    const doc = deps.activeDoc();
+    if (!doc || doc.path !== path) return;
+    try {
+      const old = await fs.readFile(join(dirFor(path), entry.file));
+      await showDiff({
+        leftTitle: `${timeLabel(entry.t)}（${t(entry.kind === "before" ? "history.before" : "history.saved")}）`,
+        rightTitle: t("history.now"),
+        left: old,
+        right: deps.getText(doc.id),
+        onRestore: () => void restore(path, entry),
+      });
+    } catch (err) {
+      toast(t("history.failed", { err: String(err) }), "error");
+    }
+  }
+
   let seq = 0;
   async function refresh() {
     const my = ++seq;
@@ -166,6 +185,7 @@ export function createSaveHistory(deps: SaveHistoryDeps) {
         h("span", { class: "history-time" }, timeLabel(entry.t)),
         h("span", { class: "history-kind" }, t(entry.kind === "before" ? "history.before" : "history.saved")),
         h("span", { class: "history-diff" }),
+        h("button", { class: "btn small plain", type: "button", title: t("history.compareTitle"), onclick: () => void compare(path, entry) }, t("history.compare")),
         h("button", { class: "btn small plain", type: "button", title: t("history.restoreTitle"), onclick: () => void restore(path, entry) }, t("history.restore")),
       );
       list.append(row);

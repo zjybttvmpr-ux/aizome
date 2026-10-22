@@ -8,7 +8,23 @@ import sys, os, json, runpy, reprlib, types, traceback, re, linecache
 def main():
     target = os.path.abspath(sys.argv[1])
     out = sys.argv[2]
-    sys.argv = [target] + sys.argv[3:]
+    # 3 つ目があれば「入力の登録」のファイル：input() に順に入れる
+    if len(sys.argv) > 3 and sys.argv[3]:
+        import builtins
+        with open(sys.argv[3], encoding="utf-8") as f:
+            queue = f.read().replace("\r\n", "\n").split("\n")
+        if queue and queue[-1] == "":
+            queue.pop()
+        real_input = builtins.input
+        def registered_input(prompt=""):
+            if queue:
+                value = queue.pop(0)
+                sys.stdout.write(str(prompt) + value + "\n")
+                sys.stdout.flush()
+                return value
+            return real_input(prompt)
+        builtins.input = registered_input
+    sys.argv = [target]
     sys.path.insert(0, os.path.dirname(target))
     rp = reprlib.Repr()
     rp.maxstring = 60; rp.maxother = 60; rp.maxlist = 10; rp.maxtuple = 10

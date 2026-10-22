@@ -16,6 +16,8 @@ import { settings } from "../core/settings";
 import { bus } from "../core/events";
 import { t } from "../core/i18n";
 import { docFilename } from "./ghost";
+import { importSuggestions } from "./codeCheck";
+import { checkLangOfState, insertWithImport } from "./liveCheck";
 
 const PY_MODULES = [
   "os", "sys", "re", "math", "random", "time", "datetime", "json", "csv", "pathlib", "itertools", "functools", "collections",
@@ -131,6 +133,22 @@ async function smartSource(ctx: CompletionContext): Promise<CompletionResult | n
     if (w === typed || !w.toLowerCase().startsWith(typed.toLowerCase())) continue;
     if (labels.has(w)) continue;
     options.push({ label: w, type: "text", boost: Math.min(4, n) - 2 });
+  }
+  // import していない関数・モジュール（その言語の表だけを見るので、ほかの言語のものは出ない）
+  const lang = settings.get("editor.importHelp") && typed.length >= 2 ? checkLangOfState(ctx.state) : null;
+  if (lang) {
+    const sugg = importSuggestions(ctx.state.doc.toString(), lang, typed, from);
+    for (const s of sugg) {
+      const dup = options.findIndex((o) => o.label === s.name && o.type === "text");
+      if (dup >= 0) options.splice(dup, 1);
+      options.push({
+        label: s.name,
+        detail: t("check.completeDetail", { line: s.line }),
+        type: /^[A-Z]/.test(s.name) ? "class" : /^import |^#include|^use /.test(s.line) && !s.line.includes(" as ") && !/[{}]/.test(s.line) && s.line.endsWith(s.name) ? "namespace" : "function",
+        boost: 1,
+        apply: (view, _c, f, to) => insertWithImport(view, s.name, s.line, f, to),
+      });
+    }
   }
   if (!options.length) return null;
   return { from, options, validFor: /^[\w$]*$/ };

@@ -35,6 +35,20 @@ export class TerminalPanel {
   private visible = false;
   private listening = false;
   private lastRun: { command: string; cwd?: string } | null = null;
+  private banner!: HTMLElement;
+  /** 実行中のプログラムの見張り（長く動き続ける・同じ出力をくり返す） */
+  private watch: {
+    ptyId: number;
+    start: number;
+    lastData: number;
+    partial: string;
+    lastLine: string;
+    repeat: number;
+    recent: number[];
+    warned: boolean;
+    done: boolean;
+  } | null = null;
+  private watchTimer: number | undefined;
   private shells: { name: string; command: string }[] | null = null;
 
   constructor(private deps: TerminalDeps) {
@@ -59,7 +73,8 @@ export class TerminalPanel {
       this.button("trash", t("terminal.kill"), () => this.killActive()),
       this.button("x", t("terminal.hide"), () => this.hide()),
     );
-    this.el = h("section", { class: "panel", "aria-label": t("terminal.title") }, h("header", { class: "panel-header" }, this.tabsEl, actions), this.body);
+    this.banner = h("div", { class: "panel-banner", hidden: true });
+    this.el = h("section", { class: "panel", "aria-label": t("terminal.title") }, h("header", { class: "panel-header" }, this.tabsEl, actions), this.banner, this.body);
 
     new ResizeObserver(() => this.fitActive()).observe(this.body);
     bus.on("theme:changed", () => this.sessions.forEach((s) => s.view.applyTheme()));
@@ -75,7 +90,10 @@ export class TerminalPanel {
   private async listen() {
     if (this.listening) return;
     this.listening = true;
-    await pty.onData(({ id, data }) => this.sessions.find((s) => s.ptyId === id)?.view.write(data));
+    await pty.onData(({ id, data }) => {
+      this.sessions.find((s) => s.ptyId === id)?.view.write(data);
+      if (this.watch && this.watch.ptyId === id) this.watchData(data);
+    });
     await pty.onExit(({ id, code }) => {
       const s = this.sessions.find((x) => x.ptyId === id);
       if (!s) return;
@@ -119,6 +137,91 @@ export class TerminalPanel {
     const s = this.active;
     if (s?.alive && s.ptyId !== null) pty.write(s.ptyId, "\x03").catch(() => {});
     s?.view.focus();
+  }
+
+  // ───────── 見張り
+
+  private startWatch(ptyId: number) {
+    this.hideBanner();
+    window.clearInterval(this.watchTimer);
+    if (!settings.get("run.watch")) {
+      this.watch = null;
+      return;
+    }
+    const now = Date.now();
+    this.watch = { ptyId, start: now, lastData: now, partial: "", lastLine: "", repeat: 0, recent: [], warned: false, done: false };
+    this.watchTimer = window.setInterval(() => this.watchTick(), 1000);
+  }
+
+  private stopWatch() {
+    window.clearInterval(this.watchTimer);
+    this.watch = null;
+  }
+
+  private watchData(data: string) {
+    const w = this.watch!;
+    w.lastData = Date.now();
+    const text = (w.partial + data).replace(/\x1b\[[0-9;?]*[A-Za-z]|\x1b\][^\x07]*\x07/g, "").replace(/\r/g, "");
+    // 実行の終わりの印（--- 終了しました …）が出たら見張りをやめる
+    if (/--- (終了しました|記録が終わりました|Finished|Recording finished)/.test(text)) {
+      w.done = true;
+      this.hideBanner();
+      this.stopWatch();
+      return;
+    }
+    const lines = text.split("\n");
+    w.partial = lines.pop() ?? "";
+    const now = Date.now();
+    for (const line of lines) {
+      w.recent.push(now);
+      if (line === w.lastLine && line.trim()) w.repeat++;
+      else {
+        w.lastLine = line;
+        w.repeat = 0;
+      }
+    }
+    while (w.recent.length && now - w.recent[0] > 3000) w.recent.shift();
+    if (w.warned) return;
+    if (w.repeat >= 300) this.warn(t("watch.repeat", { line: w.lastLine.slice(0, 40) }));
+    else if (w.recent.length > 6000) this.warn(t("watch.flood"));
+  }
+
+  private watchTick() {
+    const w = this.watch;
+    if (!w || w.done) return this.stopWatch();
+    const s = this.sessions.find((x) => x.ptyId === w.ptyId);
+    if (!s || !s.alive) return this.stopWatch();
+    if (w.warned) return;
+    const now = Date.now();
+    const limit = Math.max(3, settings.get("run.watchSeconds") ?? 15) * 1000;
+    if (now - w.start < limit) return;
+    // 最後の行が改行で終わらずに止まっている＝input() で入力を待っている、とみなして知らせない
+    if (w.partial.trim() && now - w.lastData > 1200) return;
+    this.warn(t("watch.long", { sec: String(Math.round((now - w.start) / 1000)) }));
+  }
+
+  private warn(message: string) {
+    if (!this.watch) return;
+    this.watch.warned = true;
+    const b = this.banner;
+    clear(b);
+    b.append(
+      h("span", { class: "panel-banner-text" }, "⚠ " + message),
+      h("button", { class: "btn small danger", type: "button", onclick: () => (this.interruptRunner(), this.hideBanner()) }, t("watch.stop")),
+      h("button", { class: "btn small plain", type: "button", onclick: () => this.hideBanner() }, t("watch.keep")),
+    );
+    b.hidden = false;
+    this.show();
+  }
+
+  private hideBanner() {
+    this.banner.hidden = true;
+  }
+
+  /** 実行用のターミナルの実行を止める */
+  private interruptRunner() {
+    const s = this.sessions.find((x) => x.runner && x.alive && x.ptyId !== null) ?? this.active;
+    if (s?.alive && s.ptyId !== null) pty.write(s.ptyId, "\x03").catch(() => {});
   }
 
   /** 最後に実行したものをもう一度 */
@@ -273,7 +376,10 @@ export class TerminalPanel {
       this.show();
       this.select(s);
     }
-    if (s.ptyId !== null && s.alive) await pty.write(s.ptyId, command + "\r");
+    if (s.ptyId !== null && s.alive) {
+      this.startWatch(s.ptyId);
+      await pty.write(s.ptyId, command + "\r");
+    }
   }
 
   /** 実行用ターミナル（なければ表示中のもの）の最近の出力 */

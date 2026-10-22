@@ -42,6 +42,10 @@ export interface EditorHost {
    * 複数行のひな形で、カーソルの行に文字があるときは、次の行に入れる
    */
   insertSnippet(template: string): void;
+  /** カーソルのある名前（変数・関数）。なければ null */
+  symbolAtCursor(): { name: string; count: number } | null;
+  /** ファイル内の名前をまとめて変える。変えた数を返す */
+  renameSymbol(name: string, next: string): number;
   /** 「値を見る」の結果を行の右に出す（null で消す） */
   showValues(id: string, data: { values: Map<number, import("../run/trace").LineValue>; raw: import("../run/trace").TraceResult; time?: number | null } | null): void;
   cursor(): { line: number; col: number };
@@ -54,6 +58,17 @@ export interface EditorHost {
   run(action: EditorAction): Promise<boolean>;
   /** AI 補完をすぐに要求する */
   triggerCompletion(): void;
+  /** 左右に並べる：right = このファイルを右に / left = このファイルを左に（今の左は右へ）/ back = 元に戻す */
+  moveToPane(id: string, side: "right" | "left" | "back"): boolean;
+  /** 左右に分けるのをやめる */
+  unsplit(): void;
+  isSplit(): boolean;
+  /** 0 = 左、1 = 右 */
+  paneOf(id: string): number;
+  /** 今見えているファイル（左右） */
+  visibleIds(): string[];
+  /** もう一方のがわをクリックしたときなど */
+  onFocusDoc(cb: (id: string) => void): void;
   onChange(cb: (id: string) => void): void;
   onCursor(cb: (pos: { line: number; col: number }) => void): void;
 }

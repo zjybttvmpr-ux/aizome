@@ -56,6 +56,14 @@ export interface Settings {
   "run.pythonPath": string;
   /** 実行の最後に「終了しました（終了コード）」を出す */
   "run.showFinished": boolean;
+  /** 実行の最後にかかった時間を出す */
+  "run.showTime": boolean;
+  /** 長く動き続けたり、同じ出力をくり返したりしたら知らせる */
+  "run.watch": boolean;
+  /** 何秒動き続けたら知らせるか */
+  "run.watchSeconds": number;
+  /** 入力の登録（ファイルごと） */
+  "run.inputs": Record<string, { enabled: boolean; text: string }>;
   /** 1 行目の ## py ## で言語を指定できる */
   "files.langDirective": boolean;
   /** 保存するとき 1 行目の ## py ## を取り除く */
@@ -74,6 +82,10 @@ export interface Settings {
   "editor.gotoDefinition": boolean;
   /** インデントを動かしたあと、Tab で下の行もまとめて動かす */
   "editor.indentFollow": boolean;
+  /** 書きながら、文法のまちがい・まだ作っていない名前に波線を引く */
+  "editor.liveCheck": boolean;
+  /** import / using / #include の付け忘れを知らせ、補完から足せるようにする */
+  "editor.importHelp": boolean;
   /** 変数にマウスを乗せてから小窓が出るまで（ミリ秒） */
   "editor.hoverDelay": number;
   /** 1 行目の ## py ## の横の「← Python として扱います」 */
@@ -161,6 +173,10 @@ export const defaults: Settings = {
   "run.findPython": true,
   "run.pythonPath": "",
   "run.showFinished": true,
+  "run.showTime": true,
+  "run.watch": true,
+  "run.watchSeconds": 15,
+  "run.inputs": {},
   "files.langDirective": true,
   "files.stripDirective": true,
   "files.guessLanguage": true,
@@ -170,6 +186,8 @@ export const defaults: Settings = {
   "editor.valueHover": true,
   "editor.gotoDefinition": true,
   "editor.indentFollow": true,
+  "editor.liveCheck": true,
+  "editor.importHelp": true,
   "editor.hoverDelay": 250,
   "editor.langTag": true,
   "terminal.smartCopy": true,

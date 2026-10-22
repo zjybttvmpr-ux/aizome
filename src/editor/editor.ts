@@ -32,6 +32,8 @@ import { langTag } from "./langTag";
 import { setValues, valueLens } from "./valueLens";
 import type { LineValue, TraceResult } from "../run/trace";
 import { autoInfer } from "./autoInfer";
+import { liveCheck } from "./liveCheck";
+import { occurrences, renameAll, symbolAt } from "./rename";
 import { settings } from "../core/settings";
 import { filenameForLanguage } from "../core/languages";
 import type { EditorAction, EditorHost } from "./types";
@@ -62,31 +64,198 @@ function detect(filename: string): LanguageDescription | null {
   return LanguageDescription.matchFilename(languages, filenameForLanguage(filename));
 }
 
+interface Pane {
+  el: HTMLElement;
+  view: EditorView;
+  activeId: string | null;
+  /** 最近このがわで見たファイル（新しい順） */
+  mru: string[];
+}
+
 class CodeMirrorHost implements EditorHost {
-  private view: EditorView | null = null;
+  private panes: Pane[] = [];
+  /** 今さわっているがわ（0 = 左、1 = 右） */
+  private cur = 0;
+  private root: HTMLElement | null = null;
   private docs = new Map<string, DocEntry>();
-  private activeId: string | null = null;
+  private docPane = new Map<string, number>();
   private changeListeners: ((id: string) => void)[] = [];
   private cursorListeners: ((p: { line: number; col: number }) => void)[] = [];
+  private focusListeners: ((id: string) => void)[] = [];
+
+  private get view(): EditorView | null {
+    return this.panes[this.cur]?.view ?? null;
+  }
+  private get activeId(): string | null {
+    return this.panes[this.cur]?.activeId ?? null;
+  }
+
+  /** そのファイルを表示している EditorView（どちらのがわでも） */
+  private viewOf(id: string): EditorView | null {
+    return this.panes.find((p) => p.activeId === id)?.view ?? null;
+  }
 
   mount(parent: HTMLElement) {
-    this.view = new EditorView({
-      parent,
+    this.root = parent;
+    for (let i = 0; i < 2; i++) this.panes.push(this.makePane(i));
+    parent.append(...this.panes.map((p) => p.el));
+    this.layout();
+  }
+
+  private makePane(idx: number): Pane {
+    const el = document.createElement("div");
+    el.className = "editor-pane";
+    const pane = { el, activeId: null, mru: [] } as unknown as Pane;
+    pane.view = new EditorView({
+      parent: el,
       state: EditorState.create({ doc: "" }),
       dispatch: (tr, view) => {
         view.update([tr]);
-        if (this.activeId) {
-          const entry = this.docs.get(this.activeId);
+        const id = pane.activeId;
+        if (id) {
+          const entry = this.docs.get(id);
           if (entry) entry.state = view.state;
-          if (tr.docChanged) this.changeListeners.forEach((l) => l(this.activeId!));
+          if (tr.docChanged) this.changeListeners.forEach((l) => l(id));
         }
-        if (tr.selection || tr.docChanged) {
+        if ((tr.selection || tr.docChanged) && this.panes[this.cur] === pane) {
           const pos = this.cursor();
           this.cursorListeners.forEach((l) => l(pos));
         }
       },
     });
-    this.view.dom.style.display = "none";
+    pane.view.dom.style.display = "none";
+    el.addEventListener("focusin", () => this.focusPane(idx));
+    el.addEventListener("mousedown", () => this.focusPane(idx));
+    return pane;
+  }
+
+  private focusPane(idx: number) {
+    if (this.cur === idx || !this.panes[idx]?.activeId) return;
+    this.cur = idx;
+    this.markFocus();
+    const id = this.panes[idx].activeId!;
+    this.focusListeners.forEach((l) => l(id));
+    const pos = this.cursor();
+    this.cursorListeners.forEach((l) => l(pos));
+  }
+
+  private markFocus() {
+    this.panes.forEach((p, i) => p.el.classList.toggle("focused", i === this.cur));
+  }
+
+  private idsIn(idx: number): string[] {
+    return [...this.docPane].filter(([, p]) => p === idx).map(([id]) => id);
+  }
+
+  /** 右がわにファイルがあるときだけ左右に分ける */
+  private layout() {
+    const split = this.idsIn(1).length > 0;
+    this.root?.classList.toggle("split", split);
+    if (this.panes[1]) this.panes[1].el.hidden = !split;
+    if (!split && this.cur === 1) this.cur = 0;
+    this.markFocus();
+  }
+
+  /** そのがわにファイルを出す */
+  private show(idx: number, id: string) {
+    const pane = this.panes[idx];
+    const entry = this.docs.get(id);
+    if (!pane || !entry) return;
+    pane.mru = [id, ...pane.mru.filter((x) => x !== id)];
+    if (pane.activeId === id) {
+      pane.view.dom.style.display = "";
+      return;
+    }
+    if (pane.activeId) {
+      const prev = this.docs.get(pane.activeId);
+      if (prev) prev.scrollTop = pane.view.scrollDOM.scrollTop;
+    }
+    pane.activeId = id;
+    pane.view.dom.style.display = "";
+    pane.view.setState(entry.state);
+    // 開いていない間に変わった設定を反映
+    pane.view.dispatch({ effects: configSlot.reconfigure(configExtensions()) });
+    requestAnimationFrame(() => {
+      pane.view.scrollDOM.scrollTop = entry.scrollTop;
+    });
+  }
+
+  /** そのがわを空にする（ほかに見ていたファイルがあればそれを出す） */
+  private vacate(idx: number, leaving: string) {
+    const pane = this.panes[idx];
+    pane.mru = pane.mru.filter((x) => x !== leaving);
+    if (pane.activeId !== leaving) return;
+    const entry = this.docs.get(leaving);
+    if (entry) entry.scrollTop = pane.view.scrollDOM.scrollTop;
+    pane.activeId = null;
+    const next = pane.mru.find((x) => this.docPane.get(x) === idx && this.docs.has(x));
+    if (next) this.show(idx, next);
+    else pane.view.dom.style.display = "none";
+  }
+
+  moveToPane(id: string, side: "right" | "left" | "back"): boolean {
+    if (!this.docs.has(id)) return false;
+    const from = this.docPane.get(id) ?? 0;
+    if (side === "right") {
+      if (from === 1) return true;
+      const left = this.idsIn(0).filter((x) => x !== id);
+      if (!left.length) return false;
+      this.docPane.set(id, 1);
+      this.vacate(0, id);
+      if (!this.panes[0].activeId) this.show(0, left[0]);
+      this.show(1, id);
+      this.cur = 1;
+    } else if (side === "left") {
+      // このファイルを左に、今左に出ているファイルを右に
+      const other = this.panes[0].activeId && this.panes[0].activeId !== id ? this.panes[0].activeId : this.idsIn(0).find((x) => x !== id);
+      if (from === 1) this.vacate(1, id);
+      this.docPane.set(id, 0);
+      if (other) {
+        this.docPane.set(other, 1);
+        this.vacate(0, other);
+        this.show(1, other);
+      } else if (!this.idsIn(1).length) return false;
+      this.show(0, id);
+      this.cur = 0;
+    } else {
+      if (from === 1) {
+        this.docPane.set(id, 0);
+        this.vacate(1, id);
+      }
+      this.show(0, id);
+      this.cur = 0;
+    }
+    this.layout();
+    const view = this.view;
+    requestAnimationFrame(() => view?.focus());
+    return true;
+  }
+
+  unsplit() {
+    const right = this.panes[1]?.activeId;
+    for (const id of this.idsIn(1)) {
+      this.docPane.set(id, 0);
+      this.vacate(1, id);
+    }
+    if (right) this.show(0, right);
+    this.cur = 0;
+    this.layout();
+  }
+
+  isSplit() {
+    return this.idsIn(1).length > 0;
+  }
+
+  paneOf(id: string) {
+    return this.docPane.get(id) ?? 0;
+  }
+
+  visibleIds() {
+    return this.panes.map((p) => p.activeId).filter((x): x is string => !!x);
+  }
+
+  onFocusDoc(cb: (id: string) => void) {
+    this.focusListeners.push(cb);
   }
 
   private extensions(filename = ""): Extension[] {
@@ -106,6 +275,7 @@ class CodeMirrorHost implements EditorHost {
       langTag(),
       valueLens(),
       autoInfer(),
+      liveCheck(),
       languageSlot.of([]),
       configSlot.of(configExtensions()),
     ];
@@ -122,11 +292,9 @@ class CodeMirrorHost implements EditorHost {
       const current = this.docs.get(id);
       if (!current) return;
       const effects = languageSlot.reconfigure(support);
-      if (this.activeId === id && this.view) {
-        this.view.dispatch({ effects });
-      } else {
-        current.state = current.state.update({ effects }).state;
-      }
+      const view = this.viewOf(id);
+      if (view) view.dispatch({ effects });
+      else current.state = current.state.update({ effects }).state;
     } catch (err) {
       console.warn("言語の読み込みに失敗しました", filename, err);
     }
@@ -140,38 +308,32 @@ class CodeMirrorHost implements EditorHost {
     if (!this.docs.has(id)) {
       const state = EditorState.create({ doc: text, extensions: this.extensions(filename) });
       this.docs.set(id, { state, filename, language: detect(filename)?.name ?? "Plain Text", scrollTop: 0 });
+      this.docPane.set(id, this.isSplit() ? this.cur : 0);
       void this.loadLanguage(id, filename);
     }
     this.activate(id);
   }
 
   activate(id: string) {
-    const view = this.view;
-    const entry = this.docs.get(id);
-    if (!view || !entry) return;
-    if (this.activeId && this.activeId !== id) {
-      const prev = this.docs.get(this.activeId);
-      if (prev) prev.scrollTop = view.scrollDOM.scrollTop;
-    }
-    this.activeId = id;
-    view.dom.style.display = "";
-    view.setState(entry.state);
-    // 開いていない間に変わった設定を反映
-    view.dispatch({ effects: configSlot.reconfigure(configExtensions()) });
-    requestAnimationFrame(() => {
-      view.scrollDOM.scrollTop = entry.scrollTop;
-      view.focus();
-    });
+    if (!this.docs.has(id) || !this.panes.length) return;
+    const idx = this.docPane.get(id) ?? 0;
+    this.show(idx, id);
+    this.cur = idx;
+    this.markFocus();
+    const view = this.panes[idx].view;
+    requestAnimationFrame(() => view.focus());
     const pos = this.cursor();
     this.cursorListeners.forEach((l) => l(pos));
   }
 
   close(id: string) {
+    const idx = this.docPane.get(id) ?? 0;
+    this.docPane.delete(id);
+    this.vacate(idx, id);
     this.docs.delete(id);
-    if (this.activeId === id) {
-      this.activeId = null;
-      if (this.view) this.view.dom.style.display = "none";
-    }
+    // 左が空になったら、右のファイルを左へ
+    if (idx === 0 && !this.idsIn(0).length && this.idsIn(1).length) this.unsplit();
+    this.layout();
   }
 
   async rename(oldId: string, newId: string, filename: string) {
@@ -180,26 +342,34 @@ class CodeMirrorHost implements EditorHost {
     this.docs.delete(oldId);
     entry.filename = filename;
     const effects = nameSlot.reconfigure(docFilename.of(filename));
-    if (this.activeId === oldId && this.view) {
-      this.view.dispatch({ effects });
-      entry.state = this.view.state;
+    const view = this.viewOf(oldId);
+    if (view) {
+      view.dispatch({ effects });
+      entry.state = view.state;
     } else {
       entry.state = entry.state.update({ effects }).state;
     }
     this.docs.set(newId, entry);
-    if (this.activeId === oldId) this.activeId = newId;
+    const idx = this.docPane.get(oldId) ?? 0;
+    this.docPane.delete(oldId);
+    this.docPane.set(newId, idx);
+    for (const p of this.panes) {
+      if (p.activeId === oldId) p.activeId = newId;
+      p.mru = p.mru.map((x) => (x === oldId ? newId : x));
+    }
     await this.loadLanguage(newId, filename);
   }
 
   peek(id: string, max: number) {
-    const state = id === this.activeId && this.view ? this.view.state : this.docs.get(id)?.state;
+    const state = this.viewOf(id)?.state ?? this.docs.get(id)?.state;
     return state ? state.doc.sliceString(0, Math.min(max, state.doc.length)) : "";
   }
 
   getText(id?: string) {
     const key = id ?? this.activeId;
     if (!key) return "";
-    if (key === this.activeId && this.view) return this.view.state.doc.toString();
+    const view = this.viewOf(key);
+    if (view) return view.state.doc.toString();
     return this.docs.get(key)?.state.doc.toString() ?? "";
   }
 
@@ -208,8 +378,9 @@ class CodeMirrorHost implements EditorHost {
       const head = Math.min(state.selection.main.head, text.length);
       return { changes: { from: 0, to: state.doc.length, insert: text }, selection: { anchor: head } };
     };
-    if (id === this.activeId && this.view) {
-      this.view.dispatch(apply(this.view.state));
+    const view = this.viewOf(id);
+    if (view) {
+      view.dispatch(apply(view.state));
     } else {
       const entry = this.docs.get(id);
       if (entry) entry.state = entry.state.update(apply(entry.state)).state;
@@ -249,12 +420,26 @@ class CodeMirrorHost implements EditorHost {
   }
 
   showValues(id: string, data: { values: Map<number, LineValue>; raw: TraceResult; time?: number | null } | null) {
-    if (id === this.activeId && this.view) {
-      this.view.dispatch({ effects: setValues.of(data) });
+    const view = this.viewOf(id);
+    if (view) {
+      view.dispatch({ effects: setValues.of(data) });
     } else {
       const entry = this.docs.get(id);
       if (entry) entry.state = entry.state.update({ effects: setValues.of(data) }).state;
     }
+  }
+
+  symbolAtCursor() {
+    const view = this.view;
+    if (!view || !this.activeId) return null;
+    const sym = symbolAt(view.state, view.state.selection.main.head);
+    return sym ? { name: sym.name, count: occurrences(view.state, sym.name).length } : null;
+  }
+
+  renameSymbol(name: string, next: string) {
+    const view = this.view;
+    if (!view || !this.activeId) return 0;
+    return renameAll(view, name, next);
   }
 
   insertSnippet(template: string) {
@@ -300,7 +485,7 @@ class CodeMirrorHost implements EditorHost {
   }
 
   applySettings() {
-    this.view?.dispatch({ effects: configSlot.reconfigure(configExtensions()) });
+    for (const p of this.panes) if (p.activeId) p.view.dispatch({ effects: configSlot.reconfigure(configExtensions()) });
   }
 
   async run(action: EditorAction): Promise<boolean> {

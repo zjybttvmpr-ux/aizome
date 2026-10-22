@@ -22,7 +22,7 @@ interface MenuItem {
   danger?: boolean;
 }
 
-function contextMenu(x: number, y: number, items: MenuItem[]) {
+export function contextMenu(x: number, y: number, items: MenuItem[]) {
   document.querySelector(".context-menu")?.remove();
   const menu = h(
     "div",

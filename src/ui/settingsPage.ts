@@ -6,6 +6,7 @@ import { bus } from "../core/events";
 import { commands, formatKey } from "../core/commands";
 import { ai, dialog, osIntegration, runtimes, sys } from "../core/platform";
 import { quickPick } from "./palette";
+import { exportSettings, importSettings } from "./settingsTransfer";
 import { toast } from "./toast";
 import { basename } from "../core/paths";
 import { completer } from "../ai/completer";
@@ -260,6 +261,11 @@ function sections(): Section[] {
         row(t("settings.language"), select("ui.language", [{ value: "ja", label: "日本語" }, { value: "en", label: "English" }])),
         row(t("settings.theme"), select("ui.theme", listThemes().map((th) => ({ value: th.id, label: th.label })))),
         row(t("settings.zoom"), range("look.zoom", 0.6, 1.8, 0.1, (v) => `${Math.round(v * 100)}%`), t("set.zoomHelp", { key: formatKey("Mod-;") })),
+        row(
+          t("transfer.row"),
+          h("div", { class: "path-row" }, button(t("transfer.export"), () => exportSettings()), button(t("transfer.import"), () => importSettings())),
+          t("transfer.rowHelp"),
+        ),
       ],
     },
     {
@@ -281,6 +287,9 @@ function sections(): Section[] {
         row(t("feat.run_findPython"), toggle("run.findPython"), t("feat.run_findPython.help"), true),
         row(t("feat.pythonPath"), pythonPathControl(), t("feat.pythonPath.help")),
         row(t("feat.run_showFinished"), toggle("run.showFinished"), undefined, true),
+        row(t("feat.showTime"), toggle("run.showTime"), undefined, true),
+        row(t("feat.watch"), toggle("run.watch"), t("feat.watch.help"), true),
+        row(t("feat.watchSeconds"), range("run.watchSeconds", 5, 120, 5, (v) => t("feat.watchSeconds.value", { s: String(v) }))),
         h("h2", { class: "set-group-title", "data-label": t("feat.group.lang") }, t("feat.group.lang")),
         row(t("feat.files_langDirective"), toggle("files.langDirective"), t("feat.files_langDirective.help"), true),
         row(t("feat.files_stripDirective"), toggle("files.stripDirective"), undefined, true),
@@ -296,6 +305,8 @@ function sections(): Section[] {
         row(t("feat.editor_valueHover"), toggle("editor.valueHover"), undefined, true),
         row(t("feat.gotoDefinition"), toggle("editor.gotoDefinition"), t("feat.gotoDefinition.help"), true),
         row(t("feat.indentFollow"), toggle("editor.indentFollow"), t("feat.indentFollow.help"), true),
+        row(t("feat.liveCheck"), toggle("editor.liveCheck"), t("feat.liveCheck.help"), true),
+        row(t("feat.importHelp"), toggle("editor.importHelp"), t("feat.importHelp.help"), true),
         row(t("feat.hoverDelay"), range("editor.hoverDelay", 0, 1500, 50, (v) => t("feat.hoverDelay.value", { s: (v / 1000).toFixed(2) })), t("feat.hoverDelay.help")),
         row(t("feat.files_guessEncoding"), toggle("files.guessEncoding"), undefined, true),
         row(t("set.suggestList"), select("editor.suggestList", [{ value: "smart", label: t("set.suggestList.smart") }, { value: "off", label: t("set.suggestList.off") }])),
