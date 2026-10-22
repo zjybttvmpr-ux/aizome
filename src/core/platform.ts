@@ -1,4 +1,5 @@
 // ネイティブ側（Rust）との窓口。Tauri への依存はこのファイルだけに閉じ込める。
+import { settings } from "./settings";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { open, save } from "@tauri-apps/plugin-dialog";
@@ -135,6 +136,10 @@ export const dialog = {
     });
     return typeof r === "string" ? r : null;
   },
+  async pickExe(): Promise<string | null> {
+    const r = await open({ multiple: false, filters: [{ name: "python.exe", extensions: ["exe"] }, { name: "*", extensions: ["*"] }] });
+    return typeof r === "string" ? r : null;
+  },
   async pickModelFile(): Promise<string | null> {
     const r = await open({ multiple: false, filters: [{ name: "GGUF", extensions: ["gguf"] }] });
     return typeof r === "string" ? r : null;
@@ -225,7 +230,8 @@ export const osIntegration = {
 
 export const runtimes = {
   /** 本物の Python を探す（Windows の Store 案内用の見せかけは除く） */
-  findPython: () => invoke<{ command: string | null; storeStub: boolean }>("find_python"),
+  findPython: () =>
+    invoke<{ command: string | null; storeStub: boolean; source: string }>("find_python", { preferred: settings.get("run.pythonPath") || null }),
 };
 
 export const sys = {

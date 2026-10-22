@@ -52,6 +52,8 @@ export interface Settings {
   "run.cwd": "file" | "workspace" | "terminal";
   /** Python を実行するとき、本物の Python を探して使う（Store 案内用の仮の python を避ける） */
   "run.findPython": boolean;
+  /** 使う python.exe の場所（空なら自動で探す） */
+  "run.pythonPath": string;
   /** 実行の最後に「終了しました（終了コード）」を出す */
   "run.showFinished": boolean;
   /** 1 行目の ## py ## で言語を指定できる */
@@ -146,6 +148,7 @@ export const defaults: Settings = {
   "editor.sideView": "explain",
   "run.cwd": "file",
   "run.findPython": true,
+  "run.pythonPath": "",
   "run.showFinished": true,
   "files.langDirective": true,
   "files.stripDirective": true,

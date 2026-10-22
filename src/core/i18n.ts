@@ -432,7 +432,7 @@ const ja: Dict = {
   "run.finished": "終了しました（終了コード {code}）",
   "run.noPythonTitle": "Python が見つかりません",
   "run.noPythonStub": "このパソコンの「python」は、Python が入っていないときに Microsoft Store へ案内するための仮のもので、実行しても「Python」と出るだけになります。\n\nPython を入れると、そのまま実行できるようになります。",
-  "run.noPython": "Python が入っていないようです。Python を入れてから、もう一度実行してください。",
+  "run.noPython": "Python が見つかりませんでした。入っているのに見つからないときは「python.exe の場所を指定」で選んでください。",
   "run.installPython": "Python を入れる（winget）",
   "run.openStore": "Microsoft Store で入れる",
   "run.pythonInstalledHint": "入れ終わったら、もう一度「実行」を押してください",
@@ -565,6 +565,13 @@ const ja: Dict = {
   "feat.hoverDelay": "変数の小窓が出るまでの時間",
   "feat.hoverDelay.value": "{s} 秒",
   "feat.hoverDelay.help": "変数やリストにマウスを乗せてから、中身の小窓が出るまでの時間です。短いほどすぐ出ます。",
+  "run.pickPython": "python.exe の場所を指定",
+  "run.pythonPicked": "これからは {path} で実行します（設定 → 機能のオン・オフ で変更できます）",
+  "feat.pythonPath": "使う Python（python.exe の場所）",
+  "feat.pythonPath.help": "空なら自動で探します（PATH・レジストリ・py ランチャー・よくある場所）。入っているのに見つからないときは「選ぶ」で python.exe を指定してください。",
+  "feat.pythonPath.auto": "自動で探す",
+  "feat.pythonPath.pick": "選ぶ",
+  "feat.pythonPath.clear": "自動に戻す",
 };
 
 const en: Dict = {
@@ -1111,6 +1118,13 @@ const en: Dict = {
   "feat.hoverDelay": "Delay before the variable popup",
   "feat.hoverDelay.value": "{s} s",
   "feat.hoverDelay.help": "How long to hover over a variable before its value popup appears.",
+  "run.pickPython": "Choose python.exe",
+  "run.pythonPicked": "Will run with {path} from now on (change in Settings → Features)",
+  "feat.pythonPath": "Python to use (python.exe)",
+  "feat.pythonPath.help": "Leave empty to find it automatically (PATH, registry, py launcher, common folders). If it isn't found, choose python.exe here.",
+  "feat.pythonPath.auto": "Find automatically",
+  "feat.pythonPath.pick": "Choose",
+  "feat.pythonPath.clear": "Automatic",
 };
 
 const dicts: Record<string, Dict> = { ja, en };

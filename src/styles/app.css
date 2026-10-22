@@ -3126,3 +3126,13 @@ html.hide-err-btn .err-btn,
 html.hide-side-switch .side-switch {
   display: none !important;
 }
+
+.path-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.path-row .text-input {
+  flex: 1;
+  min-width: 0;
+}

@@ -1185,7 +1185,7 @@ export class App {
    * Windows では Python が入っていないと、Store へ案内するだけの python が動いて「Python」と出るだけになるため
    */
   private async resolvePython(cmd: string): Promise<string | null> {
-    let info: { command: string | null; storeStub: boolean };
+    let info: { command: string | null; storeStub: boolean; source: string };
     try {
       info = await runtimes.findPython();
     } catch {
@@ -1203,12 +1203,21 @@ export class App {
       isWin
         ? [
             { label: t("common.cancel"), value: "cancel", kind: "plain" },
+            { label: t("run.pickPython"), value: "pick", kind: "plain" },
             { label: t("run.openStore"), value: "store", kind: "plain" },
             { label: t("run.installPython"), value: "winget", kind: "primary" },
           ]
         : [{ label: t("common.ok"), value: "cancel", kind: "primary" }],
       "cancel",
     );
+    if (choice === "pick") {
+      // 入っているのに見つからないとき：python.exe を自分で選ぶ（次からはこれを使う）
+      const path = await dialog.pickExe();
+      if (!path) return null;
+      settings.set("run.pythonPath", path);
+      toast(t("run.pythonPicked", { path }), "success", 6000);
+      return this.resolvePython(cmd);
+    }
     if (choice === "winget") {
       await this.terminal.run(
         `winget install -e --id Python.Python.3.12 --scope user --accept-source-agreements --accept-package-agreements; Write-Host ""; Write-Host "${t("run.pythonInstalledHint")}" -ForegroundColor Green`,

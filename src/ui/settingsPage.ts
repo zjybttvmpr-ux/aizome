@@ -215,6 +215,22 @@ function osRow(): HTMLElement {
   return r;
 }
 
+/** 使う python.exe の場所：入力欄 ＋「選ぶ」「自動」 */
+function pythonPathControl(): HTMLElement {
+  const input = text("run.pythonPath", t("feat.pythonPath.auto"));
+  const pick = button(t("feat.pythonPath.pick"), async () => {
+    const p = await dialog.pickExe();
+    if (!p) return;
+    settings.set("run.pythonPath", p);
+    (input as HTMLInputElement).value = p;
+  });
+  const clearBtn = button(t("feat.pythonPath.clear"), () => {
+    settings.set("run.pythonPath", "");
+    (input as HTMLInputElement).value = "";
+  });
+  return h("div", { class: "path-row" }, input, pick, clearBtn);
+}
+
 function sections(): Section[] {
   const isOpenAI = settings.get("ai.provider") === "openai";
   const bgImage = settings.get("look.bgImage");
@@ -246,6 +262,7 @@ function sections(): Section[] {
           t("feat.runCwd.help"),
         ),
         row(t("feat.run_findPython"), toggle("run.findPython"), t("feat.run_findPython.help"), true),
+        row(t("feat.pythonPath"), pythonPathControl(), t("feat.pythonPath.help")),
         row(t("feat.run_showFinished"), toggle("run.showFinished"), undefined, true),
         h("h2", { class: "set-group-title", "data-label": t("feat.group.lang") }, t("feat.group.lang")),
         row(t("feat.files_langDirective"), toggle("files.langDirective"), t("feat.files_langDirective.help"), true),

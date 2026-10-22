@@ -222,9 +222,9 @@ export function registerBuiltinSlash(d: SlashDeps) {
       icon: "play",
       title: () => "Python が使えるか確かめる",
       run: async () => {
-        const info = await runtimes.findPython().catch(() => ({ command: null, storeStub: false }));
+        const info = await runtimes.findPython().catch(() => ({ command: null, storeStub: false, source: "" }));
         if (info.command) {
-          toast(`Python が使えます：${info.command}`, "success", 6000);
+          toast(`Python が使えます：${info.command}（${info.source}で見つけました）`, "success", 7000);
           d.runInTerminal(`${d.os() === "windows" ? "& " : ""}${info.command} --version`);
         } else {
           toast(info.storeStub ? "Python が入っていません（Store 案内用の仮の python だけがあります）。実行すると入れ方を案内します" : "Python が見つかりません", "warn", 8000);
@@ -240,7 +240,7 @@ export function registerBuiltinSlash(d: SlashDeps) {
       argHint: () => "名前（例：numpy）",
       preview: (arg) => (arg ? `→ ${arg} を入れる` : null),
       run: async (arg) => {
-        const info = await runtimes.findPython().catch(() => ({ command: null, storeStub: false }));
+        const info = await runtimes.findPython().catch(() => ({ command: null, storeStub: false, source: "" }));
         const py = info.command ?? (d.os() === "windows" ? "py" : "python3");
         d.runInTerminal(`${d.os() === "windows" && py.startsWith('"') ? "& " : ""}${py} -m pip install ${arg}`);
       },
