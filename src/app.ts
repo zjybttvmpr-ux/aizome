@@ -961,15 +961,21 @@ export class App {
   // ───────────── 実行
 
   /**
-   * 実行するファイルを用意する。
-   * 保存してあって言語の指定もなければそのファイル、そうでなければ（## C# ## の指定・保存前）その言語の拡張子のコピーを作る
+   * 実行するファイルを用意する。実行はいつも「そのファイルがある場所」で行う。
+   * - 保存してあって、言語の指定がない（または ## py ## のように、その言語でそのままコメントになる指定で拡張子も合っている）
+   *   → ファイルそのものを実行
+   * - それ以外（## C++ ## の指定・拡張子が違う）→ 同じフォルダに一時的なコピーを作って実行し、終わったら消す
+   * - 保存前のファイル → 開いているフォルダ（なければ ~/.aizome/run）で実行
    */
-  private async prepareRunTarget(doc: Doc): Promise<{ path: string; cwd: string; overrides?: Record<string, string> } | null> {
+  private async prepareRunTarget(doc: Doc): Promise<{ path: string; cwd: string; overrides?: Record<string, string>; cleanup?: string } | null> {
     const first = this.editor.getText(doc.id).split("\n", 1)[0] ?? "";
     const directive = parseDirective(first);
     // 保存してあるファイルは、変更を保存してから
     if (doc.path && doc.dirty && !(await this.save(doc.id, false, { keepDirective: true }))) return null;
-    if (!directive && doc.path) return { path: doc.path, cwd: dirname(doc.path) };
+    const hashComment = [".py", ".pyw", ".rb", ".sh", ".bash", ".ps1"];
+    if (doc.path && (!directive || (directive.ext === extname(doc.path).toLowerCase() && hashComment.includes(directive.ext)))) {
+      return { path: doc.path, cwd: dirname(doc.path) };
+    }
     const ext = directive?.ext ?? extname(this.effectiveName(doc));
     if (!ext || ext === ".txt" || ext === ".md") {
       toast(t("run.pickLanguage"), "info", 7000);
@@ -979,19 +985,45 @@ export class App {
     const latest = this.editor.getText(doc.id);
     const latestFirst = latest.split("\n", 1)[0] ?? "";
     const body = directive ? directiveAsComment(latestFirst, ext) + latest.slice(latestFirst.length) : latest;
-    const runDir = join(join(this.sys.home, ".aizome"), "run");
-    await fs.createDir(runDir).catch(() => {});
     const stem = stripExt(doc.name).replace(/[\\/:*?"<>|\s]+/g, "_") || "untitled";
-    const copy = join(runDir, stem + ext);
+    // コピーを置く場所＝実行する場所：ファイルと同じフォルダ → 開いているフォルダ → ~/.aizome/run
+    let dir = doc.path ? dirname(doc.path) : this.root;
+    let temporary = !!dir;
+    if (!dir) {
+      dir = join(join(this.sys.home, ".aizome"), "run");
+      await fs.createDir(dir).catch(() => {});
+    }
+    let copy = join(dir, temporary ? `${stem}.aizome-run${ext}` : stem + ext);
     try {
-      await fs.writeFile(copy, body);
-    } catch (err) {
-      toast(t("file.saveFailed", { name: basename(copy), err: String(err) }), "error");
-      return null;
+      await fs.writeFileEnc(copy, body, doc.encoding, doc.bom, doc.eol);
+    } catch {
+      // その場所に書けない（読み取り専用など）ときは ~/.aizome/run に置く
+      const fallback = join(join(this.sys.home, ".aizome"), "run");
+      await fs.createDir(fallback).catch(() => {});
+      copy = join(fallback, stem + ext);
+      temporary = false;
+      try {
+        await fs.writeFile(copy, body);
+      } catch (err) {
+        toast(t("file.saveFailed", { name: basename(copy), err: String(err) }), "error");
+        return null;
+      }
     }
     this.runCopies.set(copy, doc.id);
-    const cwd = doc.path ? dirname(doc.path) : runDir;
-    return { path: copy, cwd, overrides: { fileDir: cwd, fileBase: copy, file: copy, fileNoExt: join(cwd, stem), fileBaseNoExt: stem } };
+    const cwd = doc.path ? dirname(doc.path) : (this.root ?? dir);
+    return {
+      path: copy,
+      cwd,
+      overrides: { fileDir: cwd, fileBase: copy, file: copy, fileNoExt: join(cwd, stem), fileBaseNoExt: stem },
+      cleanup: temporary ? copy : undefined,
+    };
+  }
+
+  /** 実行が終わったあとに一時的なコピーを消すコマンド */
+  private cleanupCommand(path?: string): string {
+    if (!path) return "";
+    if (this.sys.os === "windows") return `; Remove-Item -LiteralPath "${path.replace(/[`$"]/g, (ch) => "`" + ch)}" -ErrorAction SilentlyContinue`;
+    return `; rm -f '${path.replace(/'/g, "'\\''")}'`;
   }
 
   async runActive() {
@@ -1001,7 +1033,7 @@ export class App {
       return;
     }
     const target = await this.prepareRunTarget(doc);
-    if (target) await this.runPath(target.path, target.overrides);
+    if (target) await this.runPath(target.path, target.overrides, target.cleanup);
   }
 
   /** 値を見る：行ごとの変数の値を記録しながら実行して、行の右に表示する（Python） */
@@ -1036,7 +1068,8 @@ export class App {
     const resolved = await this.resolvePython(cmd);
     if (resolved === null) return;
     cmd = resolved;
-    if (win) cmd += `; Write-Host ""; Write-Host "--- ${t("trace.finished", { code: "$LASTEXITCODE" })} ---" -ForegroundColor DarkGray`;
+    if (win) cmd += `; $aizomeCode = $LASTEXITCODE${this.cleanupCommand(target.cleanup)}; Write-Host ""; Write-Host "--- ${t("trace.finished", { code: "$aizomeCode" })} ---" -ForegroundColor DarkGray`;
+    else cmd += this.cleanupCommand(target.cleanup);
     this.lastRunDir = target.cwd;
     this.editor.showValues(doc.id, null);
     const startText = this.editor.getText(doc.id);
@@ -1067,7 +1100,7 @@ export class App {
     }, 500);
   }
 
-  private async runPath(path: string, overrides?: Record<string, string>) {
+  private async runPath(path: string, overrides?: Record<string, string>, cleanup?: string) {
     const config = findRunConfig(path);
     if (!config) {
       toast(t("run.noConfig", { name: basename(path) }), "warn", 6000);
@@ -1081,7 +1114,9 @@ export class App {
     }
     if (this.sys.os === "windows") {
       // 終わったことと終了コードがわかるように（何も出力しないプログラムでも安心できる）
-      cmd += `; Write-Host ""; Write-Host "--- ${t("run.finished", { code: "$LASTEXITCODE" })} ---" -ForegroundColor DarkGray`;
+      cmd += `; $aizomeCode = $LASTEXITCODE${this.cleanupCommand(cleanup)}; Write-Host ""; Write-Host "--- ${t("run.finished", { code: "$aizomeCode" })} ---" -ForegroundColor DarkGray`;
+    } else {
+      cmd += this.cleanupCommand(cleanup);
     }
     const cwd = overrides?.fileDir ?? dirname(path);
     this.lastRunDir = cwd;

@@ -1,6 +1,6 @@
 [package]
 name = "aizome"
-version = "0.13.1"
+version = "0.13.2"
 description = "ローカルAIで補完する、拡張しやすい多言語コードエディタ"
 edition = "2021"
 
