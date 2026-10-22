@@ -42,6 +42,7 @@ export interface Settings {
   "update.autoCheck": boolean;
   "editor.suggestFont": "kyokasho" | "code" | "bizud";
   "editor.explain": "off" | "rules" | "ai";
+  "editor.suggestList": "smart" | "off";
   "update.skipVersion": string;
 }
 
@@ -87,6 +88,7 @@ export const defaults: Settings = {
   "update.autoCheck": true,
   "editor.suggestFont": "kyokasho",
   "editor.explain": "ai",
+  "editor.suggestList": "smart",
   "update.skipVersion": "",
 };
 

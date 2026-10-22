@@ -429,6 +429,17 @@ const ja: Dict = {
   "cmd.toggleExplain": "行ごとの説明を表示／非表示",
   "explain.onToast": "行ごとの説明を表示します",
   "explain.offToast": "行ごとの説明を隠しました",
+  "run.finished": "終了しました・コード",
+  "run.noPythonTitle": "Python が見つかりません",
+  "run.noPythonStub": "このパソコンの「python」は、Python が入っていないときに Microsoft Store へ案内するための仮のもので、実行しても「Python」と出るだけになります。\n\nPython を入れると、そのまま実行できるようになります。",
+  "run.noPython": "Python が入っていないようです。Python を入れてから、もう一度実行してください。",
+  "run.installPython": "Python を入れる（winget）",
+  "run.openStore": "Microsoft Store で入れる",
+  "run.pythonInstalledHint": "入れ終わったら、もう一度「実行」を押してください",
+  "set.suggestList": "入力中の候補一覧",
+  "set.suggestList.smart": "自動で出す",
+  "set.suggestList.off": "Ctrl+Space を押したときだけ",
+  "set.suggestListHelp": "打った文字で始まる名前だけを、文脈に合わせた順で出します（AI の薄い候補とは別のものです）。",
 };
 
 const en: Dict = {
@@ -839,6 +850,17 @@ const en: Dict = {
   "cmd.toggleExplain": "Toggle line explanations",
   "explain.onToast": "Line explanations on",
   "explain.offToast": "Line explanations hidden",
+  "run.finished": "Finished, exit code",
+  "run.noPythonTitle": "Python not found",
+  "run.noPythonStub": "The \"python\" on this PC is only the Microsoft Store placeholder used when Python is not installed, so running prints just \"Python\".\n\nInstall Python and it will run normally.",
+  "run.noPython": "Python does not seem to be installed. Install it and run again.",
+  "run.installPython": "Install Python (winget)",
+  "run.openStore": "Install from Microsoft Store",
+  "run.pythonInstalledHint": "When the install finishes, press Run again",
+  "set.suggestList": "Suggestion list while typing",
+  "set.suggestList.smart": "Show automatically",
+  "set.suggestList.off": "Only with Ctrl+Space",
+  "set.suggestListHelp": "Shows names that start with what you typed, ordered by context (separate from the faint AI suggestion).",
 };
 
 const dicts: Record<string, Dict> = { ja, en };

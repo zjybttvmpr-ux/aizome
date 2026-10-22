@@ -4,7 +4,7 @@ import { t } from "./core/i18n";
 import { bus } from "./core/events";
 import { settings } from "./core/settings";
 import { commands, formatKey, installKeybindings } from "./core/commands";
-import { fs, dialog, sys, git, appWindow, osIntegration, type SysInfo } from "./core/platform";
+import { fs, dialog, sys, git, appWindow, osIntegration, runtimes, type SysInfo } from "./core/platform";
 import { basename, dirname, extname, isInside, relative, resolveIn } from "./core/paths";
 import { createEditorHost } from "./editor/editor";
 import type { EditorHost } from "./editor/types";
@@ -784,9 +784,57 @@ export class App {
       toast(t("run.noConfig", { name: basename(path) }), "warn", 6000);
       return;
     }
-    const cmd = expandCommand(config, path, this.root ?? "", this.sys.os);
+    let cmd = expandCommand(config, path, this.root ?? "", this.sys.os);
+    if (config.id === "python") {
+      const resolved = await this.resolvePython(cmd);
+      if (resolved === null) return;
+      cmd = resolved;
+    }
+    if (this.sys.os === "windows") {
+      // 終わったことと終了コードがわかるように（何も出力しないプログラムでも安心できる）
+      cmd += `; Write-Host ""; Write-Host "--- ${t("run.finished")} ($LASTEXITCODE) ---" -ForegroundColor DarkGray`;
+    }
     this.lastRunDir = dirname(path);
     await this.terminal.run(cmd, dirname(path));
+  }
+
+  /**
+   * 「python」を本物の Python に置き換える。
+   * Windows では Python が入っていないと、Store へ案内するだけの python が動いて「Python」と出るだけになるため
+   */
+  private async resolvePython(cmd: string): Promise<string | null> {
+    let info: { command: string | null; storeStub: boolean };
+    try {
+      info = await runtimes.findPython();
+    } catch {
+      return cmd;
+    }
+    if (info.command) {
+      if (info.command === "python" || info.command === "python3") return cmd;
+      const call = this.sys.os === "windows" ? `& ${info.command}` : info.command;
+      return cmd.replace(/(^|;\s*|&&\s*)python3?(?=\s)/, (_m, pre: string) => pre + call);
+    }
+    const isWin = this.sys.os === "windows";
+    const choice = await choose(
+      t("run.noPythonTitle"),
+      t(info.storeStub ? "run.noPythonStub" : "run.noPython"),
+      isWin
+        ? [
+            { label: t("common.cancel"), value: "cancel", kind: "plain" },
+            { label: t("run.openStore"), value: "store", kind: "plain" },
+            { label: t("run.installPython"), value: "winget", kind: "primary" },
+          ]
+        : [{ label: t("common.ok"), value: "cancel", kind: "primary" }],
+      "cancel",
+    );
+    if (choice === "winget") {
+      await this.terminal.run(
+        `winget install -e --id Python.Python.3.12 --scope user --accept-source-agreements --accept-package-agreements; Write-Host ""; Write-Host "${t("run.pythonInstalledHint")}" -ForegroundColor Green`,
+      );
+    } else if (choice === "store") {
+      await this.terminal.run(`Start-Process "ms-windows-store://pdp/?productid=9NCVDN91XZQP"`);
+    }
+    return null;
   }
 
   /** 新しいファイルとして書き込んで開く（同じ名前があれば確認） */

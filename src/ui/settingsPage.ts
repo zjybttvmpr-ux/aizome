@@ -282,6 +282,14 @@ function sections(): Section[] {
           t("set.suggestFontHelp"),
         ),
         row(
+          t("set.suggestList"),
+          select("editor.suggestList", [
+            { value: "smart", label: t("set.suggestList.smart") },
+            { value: "off", label: t("set.suggestList.off") },
+          ]),
+          t("set.suggestListHelp"),
+        ),
+        row(
           t("set.explain"),
           select("editor.explain", [
             { value: "ai", label: t("set.explain.ai") },

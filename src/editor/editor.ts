@@ -23,6 +23,7 @@ import { editorTheme, syntaxColors } from "./theme";
 import { docFilename, ghostText, triggerCompletion } from "./ghost";
 import { buildLens } from "./buildLens";
 import { lineExplanations } from "./explain";
+import { smartCompletion } from "./smartComplete";
 import { settings } from "../core/settings";
 import { filenameForLanguage } from "../core/languages";
 import type { EditorAction, EditorHost } from "./types";
@@ -90,6 +91,7 @@ class CodeMirrorHost implements EditorHost {
       ghostText(),
       buildLens(),
       lineExplanations(),
+      smartCompletion(),
       languageSlot.of([]),
       configSlot.of(configExtensions()),
     ];
