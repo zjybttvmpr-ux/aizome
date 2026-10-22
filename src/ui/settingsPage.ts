@@ -294,6 +294,8 @@ function sections(): Section[] {
         h("h2", { class: "set-group-title", "data-label": t("feat.group.editor") }, t("feat.group.editor")),
         row(t("feat.editor_zenkaku"), toggle("editor.zenkaku"), undefined, true),
         row(t("feat.editor_valueHover"), toggle("editor.valueHover"), undefined, true),
+        row(t("feat.gotoDefinition"), toggle("editor.gotoDefinition"), t("feat.gotoDefinition.help"), true),
+        row(t("feat.indentFollow"), toggle("editor.indentFollow"), t("feat.indentFollow.help"), true),
         row(t("feat.hoverDelay"), range("editor.hoverDelay", 0, 1500, 50, (v) => t("feat.hoverDelay.value", { s: (v / 1000).toFixed(2) })), t("feat.hoverDelay.help")),
         row(t("feat.files_guessEncoding"), toggle("files.guessEncoding"), undefined, true),
         row(t("set.suggestList"), select("editor.suggestList", [{ value: "smart", label: t("set.suggestList.smart") }, { value: "off", label: t("set.suggestList.off") }])),

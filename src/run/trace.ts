@@ -294,3 +294,66 @@ export function busiestLine(result: TraceResult, skip: (line: number) => boolean
   }
   return best;
 }
+
+// ───────── 何重にもなったループ
+
+function indentOf(s: string): number {
+  return /^[ \t]*/.exec(s)![0].replace(/\t/g, "    ").length;
+}
+
+/** その行を囲んでいる for / while の行（外側から順に）。関数やクラスの外までは見ない */
+export function enclosingLoops(lines: string[], line: number): number[] {
+  const out: number[] = [];
+  let cur = indentOf(lines[line - 1] ?? "");
+  for (let i = line - 1; i >= 1 && cur > 0; i--) {
+    const text = lines[i - 1];
+    if (!text.trim() || /^\s*(#|\/\/)/.test(text)) continue;
+    const ind = indentOf(text);
+    if (ind >= cur) continue;
+    cur = ind;
+    if (/^\s*(for|while)\b/.test(text)) out.unshift(i);
+    else if (/^\s*(def|class|async\s+def|function|func)\b/.test(text)) break;
+  }
+  return out;
+}
+
+export interface LoopPos {
+  header: number;
+  /** そのループの何回目か（外側のループの今の回の中で数える） */
+  iteration: number;
+  /** その回のループ変数（例：i = 2） */
+  vars: string;
+}
+
+/** time の瞬間に、それぞれのループが何回目か */
+export function loopPositions(result: TraceResult, headers: number[], time: number): LoopPos[] {
+  const out: LoopPos[] = [];
+  let start = 0;
+  for (const h of headers) {
+    const times = stepTimes(result, h).filter((s) => s <= time);
+    const inRun = times.filter((s) => s > start);
+    const lastRec = (result.lines[String(h)]?.recs ?? []).filter((r) => (r.s ?? 0) <= time).pop();
+    const vars = lastRec ? Object.entries(Object.keys(lastRec.c).length ? lastRec.c : lastRec.r).map(([k, v]) => `${k} = ${v}`).join(", ") : "";
+    out.push({ header: h, iteration: inRun.length, vars });
+    start = times.length ? times[times.length - 1] : start;
+  }
+  return out;
+}
+
+/**
+ * ループ 1 段ぶん進める・戻す。進めた先で anchor の行が最初に動いた瞬間を返す（なければ null）
+ */
+export function stepLoop(result: TraceResult, header: number, anchor: number, time: number, dir: 1 | -1): number | null {
+  const ht = stepTimes(result, header);
+  const at = stepTimes(result, anchor);
+  if (dir === 1) {
+    const next = ht.find((s) => s > time);
+    if (next === undefined) return null;
+    return at.find((s) => s > next) ?? null;
+  }
+  const cur = [...ht].reverse().find((s) => s <= time);
+  if (cur === undefined) return null;
+  const prev = [...ht].reverse().find((s) => s < cur);
+  if (prev === undefined) return null;
+  return at.find((s) => s > prev && s < cur) ?? at.find((s) => s > prev) ?? null;
+}

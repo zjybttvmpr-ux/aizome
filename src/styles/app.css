@@ -3197,3 +3197,38 @@ html.hide-side-switch .side-switch {
 .breadcrumbs .crumb-spacer {
   flex: 1;
 }
+
+/* 定義元へ飛んだ行を少し光らせる */
+.cm-def-flash {
+  background: color-mix(in srgb, var(--accent) 22%, transparent) !important;
+  transition: background 0.6s;
+}
+/* インデントを動かしたあとの「Tab で下の行も」 */
+.cm-indent-hint {
+  margin-left: 1.5em;
+  padding: 0 8px;
+  border-radius: 999px;
+  font-family: var(--font-ui);
+  font-size: 11px;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  pointer-events: none;
+  user-select: none;
+}
+
+/* 自動判定では、行の説明は ⚠ より控えめに */
+.cm-explain + .cm-risk,
+.cm-risk {
+  font-weight: 500;
+}
+
+.trace-stepper .step-loop {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  padding-right: 4px;
+  border-right: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+}
+.trace-stepper .step-loop.anchor {
+  border-right: none;
+}

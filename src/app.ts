@@ -39,8 +39,9 @@ import { listSlash, openSlashPalette } from "./ui/slash";
 import { registerBuiltinSlash, showErrorExplanation } from "./ui/slashCommands";
 import { countChars } from "./core/jpText";
 import { ENCODINGS, encodingById, encodingLabel } from "./core/encodings";
-import { TRACER_PY, busiestLine, formatTrace, stepTimes, type TraceResult } from "./run/trace";
+import { TRACER_PY, busiestLine, enclosingLoops, formatTrace, loopPositions, stepLoop, stepTimes, type TraceResult } from "./run/trace";
 import { inferBusy, onInferBusy } from "./editor/inferState";
+import { definitionSearchRegex, setDefinitionFallback } from "./editor/definition";
 
 interface Doc {
   id: string;
@@ -160,6 +161,7 @@ export class App {
     this.registerCommands();
     this.registerSlashCommands();
     this.watchSideMode();
+    this.setupDefinitionSearch();
     installKeybindings();
     this.bindEvents();
 
@@ -839,22 +841,65 @@ export class App {
     this.refreshTrace(doc.id);
   }
 
+  /** ループを 1 段ぶん進める・戻す（外側のループの「次の回」など） */
+  private stepTraceLoop(header: number, dir: 1 | -1) {
+    const doc = this.activeDoc();
+    const raw = doc ? this.traceRaw.get(doc.id) : undefined;
+    const step = this.traceStep;
+    if (!doc || !raw || !step || step.docId !== doc.id) return;
+    const times = stepTimes(raw, step.line);
+    const now = times[step.index];
+    const next = stepLoop(raw, header, step.line, now, dir);
+    if (next === null) {
+      toast(t(dir === 1 ? "step.loopEnd" : "step.loopStart"), "info", 2500);
+      return;
+    }
+    step.index = times.indexOf(next);
+    this.refreshTrace(doc.id);
+  }
+
   private traceStepper(): HTMLElement | null {
     const doc = this.activeDoc();
     const raw = doc ? this.traceRaw.get(doc.id) : undefined;
     const mode = settings.get("editor.sideView");
     if (!doc || !raw || (mode !== "values" && mode !== "output")) return null;
     const step = this.traceStep && this.traceStep.docId === doc.id ? this.traceStep : null;
-    const total = step ? stepTimes(raw, step.line).length : 0;
-    const label = step ? t("step.label", { line: String(step.line), n: String(step.index + 1), total: String(total) }) : t("step.all");
-    return h(
-      "div",
-      { class: "trace-stepper", title: t("step.title") },
-      h("button", { type: "button", title: `${t("step.prev")} (Shift+F7)`, onclick: () => this.stepTrace(-1) }, "◀"),
-      h("span", { class: "step-label" }, label),
-      h("button", { type: "button", title: `${t("step.next")} (F7)`, onclick: () => this.stepTrace(1) }, "▶"),
-      step ? h("button", { type: "button", title: t("step.exit"), onclick: () => this.stepTrace(0) }, t("step.exitShort")) : null,
+    const box = h("div", { class: "trace-stepper", title: t("step.title") });
+    if (!step) {
+      box.append(
+        h("button", { type: "button", title: `${t("step.prev")} (Shift+F7)`, onclick: () => this.stepTrace(-1) }, "◀"),
+        h("span", { class: "step-label" }, t("step.all")),
+        h("button", { type: "button", title: `${t("step.next")} (F7)`, onclick: () => this.stepTrace(1) }, "▶"),
+      );
+      return box;
+    }
+    const times = stepTimes(raw, step.line);
+    // 何重にもなったループ：外側から順に「i：2 回目」のように出し、それぞれ ◀ ▶ で 1 回ずつ動かせる
+    const lines = this.editor.getText(doc.id).split("\n");
+    const loops = loopPositions(raw, enclosingLoops(lines, step.line), times[step.index]);
+    for (const lp of loops) {
+      const name = lp.vars || t("step.loopLine", { line: String(lp.header) });
+      box.append(
+        h(
+          "span",
+          { class: "step-loop", title: t("step.loopTitle", { line: String(lp.header) }) },
+          h("button", { type: "button", onclick: () => this.stepTraceLoop(lp.header, -1) }, "◀"),
+          h("span", { class: "step-label" }, t("step.loopLabel", { name, n: String(lp.iteration) })),
+          h("button", { type: "button", onclick: () => this.stepTraceLoop(lp.header, 1) }, "▶"),
+        ),
+      );
+    }
+    box.append(
+      h(
+        "span",
+        { class: "step-loop anchor" },
+        h("button", { type: "button", title: `${t("step.prev")} (Shift+F7)`, onclick: () => this.stepTrace(-1) }, "◀"),
+        h("span", { class: "step-label" }, t("step.label", { line: String(step.line), n: String(step.index + 1), total: String(times.length) })),
+        h("button", { type: "button", title: `${t("step.next")} (F7)`, onclick: () => this.stepTrace(1) }, "▶"),
+      ),
+      h("button", { type: "button", title: t("step.exit"), onclick: () => this.stepTrace(0) }, t("step.exitShort")),
     );
+    return box;
   }
 
   /** 行の右に出すものの切り替え（説明／値／自動判定／なし） */
@@ -1692,6 +1737,24 @@ export class App {
     root.toggle("hide-dict-btn", !settings.get("ui.dictButton"));
     root.toggle("hide-err-btn", !settings.get("ui.errorButton"));
     root.toggle("hide-side-switch", !settings.get("ui.sideSwitch"));
+  }
+
+  /** 定義元がこのファイルにないとき：開いているフォルダのほかのファイルから探す */
+  private setupDefinitionSearch() {
+    setDefinitionFallback(async (name) => {
+      if (!this.root) return false;
+      try {
+        const res = await fs.search({ root: this.root, query: definitionSearchRegex(name), regex: true, caseSensitive: true, wholeWord: false, limit: 20 });
+        const current = this.activeDoc()?.path;
+        const hit = res.hits.find((h) => h.path !== current) ?? res.hits[0];
+        if (!hit) return false;
+        await this.openFile(hit.path, hit.line, hit.col);
+        toast(t("def.otherFile", { name, file: basename(hit.path), line: String(hit.line) }), "info", 3500);
+        return true;
+      } catch {
+        return false;
+      }
+    });
   }
 
   private watchSideMode() {

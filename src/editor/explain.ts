@@ -10,6 +10,8 @@ import { languageOf } from "../ai/plan";
 import { docFilename, ghostPos } from "./ghost";
 import { hasValueAt, setValues } from "./valueLens";
 import { sideMode, sideModeChanged } from "./sideMode";
+import { inferUpdated, riskLines } from "./autoInfer";
+import { inferBusy } from "./inferState";
 
 const refresh = StateEffect.define<null>();
 
@@ -59,7 +61,10 @@ function explainFor(filename: string, text: string): { text: string; ai: boolean
 
 function build(view: EditorView): DecorationSet {
   const mode = settings.get("editor.explain");
-  if (mode === "off" || sideMode() !== "explain") return Decoration.none;
+  const side = sideMode();
+  if (mode === "off" || (side !== "explain" && side !== "auto")) return Decoration.none;
+  // 自動判定ではエラーの可能性（⚠）を優先し、その行には説明を出さない
+  const risky = side === "auto" ? riskLines(view.state) : new Set<number>();
   const filename = view.state.facet(docFilename);
   const ghost = ghostPos(view.state);
   const ghostLine = ghost !== null ? view.state.doc.lineAt(ghost).number : -1;
@@ -73,7 +78,7 @@ function build(view: EditorView): DecorationSet {
       if (line.number <= last) continue;
       last = line.number;
       // AI の候補を出している行には重ねない
-      if (line.number !== ghostLine && !hasValueAt(view.state, line.number)) {
+      if (line.number !== ghostLine && !hasValueAt(view.state, line.number) && !risky.has(line.number)) {
         const e = explainFor(filename, line.text);
         if (e && (mode === "ai" || !e.ai)) b.add(line.to, line.to, Decoration.widget({ widget: new ExplainWidget(e.text, e.ai), side: 2 }));
       }
@@ -100,14 +105,16 @@ function stopAi() {
 
 function scheduleAi(view: EditorView, delay = 1800) {
   window.clearTimeout(timer);
-  if (settings.get("editor.explain") !== "ai" || !settings.get("ai.enabled") || sideMode() !== "explain") return;
+  const side = sideMode();
+  if (settings.get("editor.explain") !== "ai" || !settings.get("ai.enabled") || (side !== "explain" && side !== "auto")) return;
   if (Date.now() < pauseUntil) delay = Math.max(delay, pauseUntil - Date.now());
   timer = window.setTimeout(() => void askAi(view), delay);
 }
 
 async function askAi(view: EditorView) {
   // 補完を考えている最中は待つ（PC の負担を重ねない）
-  if (completer.status === "thinking" || cancelRunning) return scheduleAi(view, 1500);
+  // 自動判定の予想を先に（そのあとで説明）
+  if (completer.status === "thinking" || cancelRunning || inferBusy) return scheduleAi(view, 1500);
   const filename = view.state.facet(docFilename);
   const ext = filename.split(".").pop() ?? "";
   const lang = langFromFilename(filename);
@@ -188,7 +195,7 @@ export function lineExplanations(): Extension {
         scheduleAi(view, 2500);
       }
       update(u: ViewUpdate) {
-        const refreshed = u.transactions.some((tr) => tr.effects.some((e) => e.is(refresh) || e.is(setValues) || e.is(sideModeChanged)));
+        const refreshed = u.transactions.some((tr) => tr.effects.some((e) => e.is(refresh) || e.is(setValues) || e.is(sideModeChanged) || e.is(inferUpdated)));
         if (u.docChanged || u.viewportChanged || refreshed || u.selectionSet) this.decorations = build(u.view);
         if (u.docChanged) stopAi();
         if (u.docChanged || u.viewportChanged) scheduleAi(u.view);

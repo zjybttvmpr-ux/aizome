@@ -25,6 +25,8 @@ import { docFilename, ghostText, triggerCompletion } from "./ghost";
 import { buildLens } from "./buildLens";
 import { lineExplanations } from "./explain";
 import { smartCompletion } from "./smartComplete";
+import { indentFollow } from "./indentFollow";
+import { gotoDefinition } from "./gotoDef";
 import { zenkakuMarks } from "./zenkaku";
 import { langTag } from "./langTag";
 import { setValues, valueLens } from "./valueLens";
@@ -94,6 +96,8 @@ class CodeMirrorHost implements EditorHost {
       keymap.of([indentWithTab]),
       editorTheme,
       syntaxColors,
+      indentFollow(),
+      gotoDefinition(),
       ghostText(),
       buildLens(),
       lineExplanations(),

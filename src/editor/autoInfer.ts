@@ -12,7 +12,14 @@ import { bus } from "../core/events";
 import { traceAt, traceTimeAt } from "./valueLens";
 import { inferBusy, setInferBusy } from "./inferState";
 
-const inferUpdated = StateEffect.define<null>();
+/** AI の予想が新しくなった合図（行の説明もこれで描き直す） */
+export const inferUpdated = StateEffect.define<null>();
+
+/** 自動判定でエラーの可能性を出している行（行の説明より優先するため） */
+export function riskLines(state: EditorState): Set<number> {
+  if (sideMode() !== "auto") return new Set();
+  return new Set(resultFor(state)?.risks.map((r) => r.line) ?? []);
+}
 
 // ───────── AI の予想（コードごとに覚えておく）
 const cache = new Map<string, InferResult>();
