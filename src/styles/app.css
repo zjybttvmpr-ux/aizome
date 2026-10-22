@@ -53,7 +53,7 @@
 
   --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI Variable Text", "Segoe UI", "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans JP", "Yu Gothic UI", "Meiryo", sans-serif;
   /* AI の候補と補完の一覧に使う字（UD デジタル教科書体。Mac は Klee、なければコードと同じ字） */
-  --font-suggest: "UD Digi Kyokasho N-R", "UD デジタル 教科書体 N-R", "UD Digi Kyokasho NK-R", "UD デジタル 教科書体 NK-R", "Klee", "Klee One", var(--font-code);
+  --font-suggest: "UD Digi Kyokasho N-R", "UD デジタル 教科書体 N-R", "UDDigiKyokashoN-R", "UD Digi Kyokasho NK-R", "UD デジタル 教科書体 NK-R", "UDDigiKyokashoNK-R", "UD Digi Kyokasho NP-R", "UD デジタル 教科書体 NP-R", "Klee", "Klee One", var(--font-code);
   --font-code: "JetBrains Mono", "Cascadia Code", "SF Mono", "Source Han Code JP", "Noto Sans Mono CJK JP", Menlo, Consolas, "MS Gothic", monospace;
 
   --side-w: 260px;
@@ -2748,4 +2748,22 @@ html.has-bg .settings-page {
 .icon-btn.narrow {
   width: 18px;
   margin-left: -4px;
+}
+
+/* 候補の一覧・AI の候補・行の説明は「候補の文字」（既定は UD デジタル教科書体）で。
+   エディタ標準の等幅指定より強くするため、ここで上書きする */
+.cm-editor .cm-tooltip.cm-tooltip-autocomplete > ul,
+.cm-editor .cm-tooltip.cm-tooltip-autocomplete > ul > li,
+.cm-editor .cm-completionLabel,
+.cm-editor .cm-completionDetail,
+.cm-editor .cm-completionInfo,
+.cm-tooltip.cm-tooltip-autocomplete > ul,
+.cm-tooltip.cm-tooltip-autocomplete > ul > li,
+.cm-completionInfo,
+.cm-editor .cm-ghost,
+.cm-editor .cm-explain {
+  font-family: var(--font-suggest) !important;
+}
+.cm-tooltip.cm-tooltip-autocomplete > ul > li {
+  line-height: 1.5;
 }
