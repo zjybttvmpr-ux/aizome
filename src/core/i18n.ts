@@ -507,6 +507,7 @@ const ja: Dict = {
   "set.guessEncodingHelp": "UTF-8 で読めないファイルを、Shift_JIS や EUC-JP として開きます。",
   "set.eol": "改行コード（新しいファイル）",
   "set.eolHelp": "開いたファイルは、そのファイルの改行コードのまま保存します。",
+  "terminal.copied": "コピーしました",
 };
 
 const en: Dict = {
@@ -995,6 +996,7 @@ const en: Dict = {
   "set.guessEncodingHelp": "Open files that are not valid UTF-8 as Shift_JIS or EUC-JP.",
   "set.eol": "Line endings for new files",
   "set.eolHelp": "Opened files keep their own line endings.",
+  "terminal.copied": "Copied",
 };
 
 const dicts: Record<string, Dict> = { ja, en };

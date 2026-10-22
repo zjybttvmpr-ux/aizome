@@ -472,13 +472,26 @@ export async function showErrorExplanation(
     return;
   }
   const where = e.file && e.line ? `\n\n場所：${basename(e.file)} の ${e.line} 行目` : "";
-  type Act = "close" | "goto" | "run" | "ai";
-  const buttons: { label: string; value: Act; kind: "plain" | "primary" }[] = [{ label: "閉じる", value: "close", kind: "plain" }];
+  type Act = "close" | "goto" | "run" | "ai" | "copy";
+  const buttons: { label: string; value: Act; kind: "plain" | "primary" }[] = [
+    { label: "閉じる", value: "close", kind: "plain" },
+    { label: "エラー文をコピー", value: "copy", kind: "plain" },
+  ];
   buttons.push({ label: "AI にくわしく聞く", value: "ai", kind: "plain" });
   if (e.command) buttons.push({ label: e.command.label, value: "run", kind: "primary" });
   if (e.file && e.line) buttons.push({ label: "その行へ移動", value: "goto", kind: e.command ? "plain" : "primary" });
   const act = await choose<Act>(`${e.kind}：何が起きた？`, `${e.what}\n\n直し方：${e.fix}${where}\n\n（元のメッセージ：${e.raw}）`, buttons, "close");
-  if (act === "goto" && e.file && e.line) actions.goTo(e.file, e.line);
+  if (act === "copy") {
+    // Traceback から最後のエラーの行までをまとめてコピー
+    const lines = actions.recent.split("\n");
+    let end = lines.length - 1;
+    while (end > 0 && !lines[end].includes(e.raw)) end--;
+    let start = end;
+    while (start > 0 && end - start < 40 && !/^Traceback/.test(lines[start])) start--;
+    if (!/^Traceback/.test(lines[start] ?? "")) start = Math.max(0, end - 15);
+    const text = lines.slice(start, end + 1).join("\n").trim() || e.raw;
+    void navigator.clipboard?.writeText(text).then(() => toast("エラー文をコピーしました", "success"));
+  } else if (act === "goto" && e.file && e.line) actions.goTo(e.file, e.line);
   else if (act === "run" && e.command) actions.run(e.command.run);
   else if (act === "ai") actions.askAi(`次のエラーの原因と直し方を、日本語でわかりやすく教えてください。\n\n\`\`\`\n${actions.recent.slice(-3000)}\n\`\`\``);
 }

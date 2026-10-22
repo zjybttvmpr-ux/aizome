@@ -1,3 +1,5 @@
+import { toast } from "../ui/toast";
+import { t } from "../core/i18n";
 import { Terminal, type ILink } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebglAddon } from "@xterm/addon-webgl";
@@ -66,6 +68,54 @@ export function createTermView(opts: { fontSize: number }): TermView {
   } catch {
     /* WebGL が使えなければそのまま */
   }
+
+  // コピーと貼り付け：文字を選んでいるときの Ctrl+C はコピー（選んでいなければ、ふつうどおり実行を止める）
+  const copySelection = () => {
+    const text = term.getSelection();
+    if (!text) return false;
+    void navigator.clipboard?.writeText(text).then(() => toast(t("terminal.copied"), "success", 1500));
+    term.clearSelection();
+    return true;
+  };
+  const pasteClipboard = async () => {
+    try {
+      const text = await navigator.clipboard.readText();
+      if (text) term.paste(text);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  term.attachCustomKeyEventHandler((e) => {
+    if (e.type !== "keydown") return true;
+    const mod = e.ctrlKey || e.metaKey;
+    if (!mod || e.altKey) return true;
+    const k = e.key.toLowerCase();
+    if (k === "c" && (term.hasSelection() || e.shiftKey)) {
+      e.preventDefault();
+      copySelection();
+      return false;
+    }
+    if (k === "v") {
+      e.preventDefault();
+      void pasteClipboard().then((ok) => {
+        // 読めなかったときは、シェル側の貼り付けに任せる
+        if (!ok) term.input("\x16");
+      });
+      return false;
+    }
+    if (k === "a" && e.shiftKey) {
+      e.preventDefault();
+      term.selectAll();
+      return false;
+    }
+    return true;
+  });
+  // 右クリック：選んでいればコピー、なければ貼り付け（Windows Terminal と同じ）
+  el.addEventListener("contextmenu", (e) => {
+    e.preventDefault();
+    if (!copySelection()) void pasteClipboard();
+  });
 
   let linkCb: ((path: string, line: number, col: number) => void) | null = null;
   term.registerLinkProvider({

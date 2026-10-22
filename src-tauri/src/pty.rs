@@ -174,12 +174,13 @@ pub fn pty_spawn(
                 "-NoLogo",
                 "-NoExit",
                 "-Command",
-                "[Console]::InputEncoding=[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; $OutputEncoding=[System.Text.Encoding]::UTF8; $PSDefaultParameterValues['*:Encoding']='utf8'; chcp 65001 > $null",
+                "[Console]::InputEncoding=[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; $OutputEncoding=[System.Text.Encoding]::UTF8; $PSDefaultParameterValues['Out-File:Encoding']='utf8'; chcp 65001 > $null",
             ]);
         }
     }
     }
-    cmd.env("PYTHONUTF8", "1");
+    // 画面への入出力（print・input）だけを UTF-8 にする。
+    // open() でファイルを読み書きするときは、VS Code などと同じく OS の既定（日本語の Windows なら Shift_JIS）のまま
     cmd.env("PYTHONIOENCODING", "utf-8");
     match cwd.filter(|c| Path::new(c).is_dir()) {
         Some(c) => cmd.cwd(c),
