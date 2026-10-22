@@ -5,7 +5,7 @@ import { Decoration, EditorView, ViewPlugin, WidgetType, keymap, type ViewUpdate
 import { completer } from "../ai/completer";
 import { cleanCompletion, commentIntent, contextKey, isCommentLine, shouldComplete } from "../ai/clean";
 import { language } from "@codemirror/language";
-import { acceptCompletion, closeCompletion, completionStatus } from "@codemirror/autocomplete";
+import { acceptCompletion, closeCompletion, completionStatus, hasNextSnippetField, startCompletion } from "@codemirror/autocomplete";
 import { Facet } from "@codemirror/state";
 import { cutAtDedent, fileHeader, planCompletion } from "../ai/plan";
 
@@ -100,6 +100,51 @@ function accept(view: EditorView, part?: "word"): boolean {
   });
   return true;
 }
+
+/** 一覧の準備中に Tab が押されたら、出た時点で入力する（その Tab をインデントにしない） */
+let acceptWhenReady = 0;
+
+/**
+ * Tab キー。
+ * 1. 候補の一覧が出ていれば、選んでいる項目を入力
+ * 2. AI の候補があれば確定
+ * 3. 一覧を準備中なら、出たところで入力
+ * 4. 単語の途中や行の途中ではインデントを入れない（一覧を呼ぶだけ）
+ * 5. 行の頭（空白だけの前）や範囲を選んでいるときだけ、ふつうのインデント
+ */
+function onTab(view: EditorView): boolean {
+  const listKey = settings.get("editor.listKey") === "tab";
+  const status = completionStatus(view.state);
+  if (listKey && status === "active") return acceptCompletion(view);
+  if (accept(view)) return true;
+  // ひな形の入力欄を移動しているときは、そちらに任せる
+  if (hasNextSnippetField(view.state)) return false;
+  const sel = view.state.selection.main;
+  if (!sel.empty) return false;
+  const line = view.state.doc.lineAt(sel.head);
+  const before = line.text.slice(0, sel.head - line.from);
+  if (before.trim() === "") return false; // 行の頭：インデント
+  if (listKey) {
+    if (status !== "pending") startCompletion(view);
+    acceptWhenReady = Date.now();
+  }
+  return true; // 行の途中ではインデントを入れない
+}
+
+const acceptLater = EditorView.updateListener.of((u) => {
+  if (!acceptWhenReady) return;
+  if (Date.now() - acceptWhenReady > 1500 || u.docChanged) {
+    acceptWhenReady = 0;
+    return;
+  }
+  const status = completionStatus(u.state);
+  if (status === "active") {
+    acceptWhenReady = 0;
+    setTimeout(() => acceptCompletion(u.view), 0);
+  } else if (status === null && completionStatus(u.startState) === "pending") {
+    acceptWhenReady = 0; // 候補がなかった
+  }
+});
 
 function dismiss(view: EditorView): boolean {
   const g = view.state.field(ghostField, false);
@@ -209,16 +254,11 @@ export function ghostText(): Extension {
   return [
     ghostField,
     scheduler,
+    acceptLater,
     Prec.highest(
       keymap.of([
-        {
-          // 候補の一覧が開いていれば一覧で選んでいるものを入力、なければ AI の候補を確定
-          key: "Tab",
-          run: (v) => {
-            if (settings.get("editor.listKey") === "tab" && completionStatus(v.state) === "active") return acceptCompletion(v);
-            return accept(v);
-          },
-        },
+        // 候補の一覧 → AI の候補 → （行の頭だけ）インデント
+        { key: "Tab", run: onTab },
         // 一覧が開いていても、AI の候補をまとめて確定する
         { key: "Alt-Enter", run: (v) => (completionStatus(v.state) === "active" && closeCompletion(v), accept(v)) },
         { key: "Mod-ArrowRight", run: (v) => accept(v, "word") },

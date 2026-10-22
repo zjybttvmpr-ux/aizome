@@ -117,8 +117,10 @@ async function smartSource(ctx: CompletionContext): Promise<CompletionResult | n
       let boost = o.boost ?? 0;
       if (o.label.startsWith("_") && !typed.startsWith("_")) boost -= 40;
       if (EXCEPTION.test(o.label) && (o.type === "class" || o.type === "type")) boost += wantsException ? 15 : -30;
-      if (statementStart && o.type === "keyword") boost += 6;
-      if (!statementStart && o.type === "keyword" && /statement|block/.test(o.detail ?? "")) boost -= 10;
+      // 「for 〜 in 〜:」のようなひな形（改行や字下げまで入る）は、ただのキーワードより下に
+      const snippet = typeof o.apply === "function" || (typeof o.apply === "string" && /\n/.test(o.apply));
+      if (snippet) boost -= 15;
+      else if (statementStart && o.type === "keyword") boost += 6;
       const n = words.get(o.label);
       if (n) boost += Math.min(8, 2 + n);
       options.push(boost === (o.boost ?? 0) ? o : { ...o, boost });
