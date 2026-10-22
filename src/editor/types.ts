@@ -42,6 +42,8 @@ export interface EditorHost {
    * 複数行のひな形で、カーソルの行に文字があるときは、次の行に入れる
    */
   insertSnippet(template: string): void;
+  /** 「値を見る」の結果を行の右に出す（null で消す） */
+  showValues(id: string, values: Map<number, import("../run/trace").LineValue> | null): void;
   cursor(): { line: number; col: number };
   goTo(line: number, col?: number): void;
   languageName(id?: string): string;

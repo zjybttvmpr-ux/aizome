@@ -2984,3 +2984,42 @@ html.has-bg .settings-page {
   pointer-events: none;
   user-select: none;
 }
+
+/* 値を見る：行の右の変数の値 */
+.cm-value {
+  margin-left: 2.5em;
+  padding: 0 8px;
+  border-radius: 4px;
+  font-family: var(--font-code);
+  font-size: 0.86em;
+  white-space: pre;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  cursor: help;
+}
+.cm-value::before {
+  content: "▸ ";
+  opacity: 0.6;
+}
+.cm-value.ref {
+  color: color-mix(in srgb, var(--accent) 70%, var(--text-muted));
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
+}
+.cm-value.error {
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 14%, transparent);
+}
+.cm-value.error::before {
+  content: "";
+}
+
+/* 「値を見る」ボタン（実行の横） */
+.run-btn.secondary {
+  background: transparent;
+  color: var(--accent);
+  border: 1px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  margin-right: 6px;
+}
+.run-btn.secondary:hover {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}

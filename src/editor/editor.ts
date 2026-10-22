@@ -27,6 +27,8 @@ import { lineExplanations } from "./explain";
 import { smartCompletion } from "./smartComplete";
 import { zenkakuMarks } from "./zenkaku";
 import { langTag } from "./langTag";
+import { setValues, valueLens } from "./valueLens";
+import type { LineValue } from "../run/trace";
 import { settings } from "../core/settings";
 import { filenameForLanguage } from "../core/languages";
 import type { EditorAction, EditorHost } from "./types";
@@ -97,6 +99,7 @@ class CodeMirrorHost implements EditorHost {
       smartCompletion(),
       zenkakuMarks(),
       langTag(),
+      valueLens(),
       languageSlot.of([]),
       configSlot.of(configExtensions()),
     ];
@@ -237,6 +240,15 @@ class CodeMirrorHost implements EditorHost {
     if (!this.view || !this.activeId) return;
     const pos = this.view.state.selection.main.head;
     this.view.dispatch({ changes: { from: pos, insert: text }, selection: { anchor: pos + text.length } });
+  }
+
+  showValues(id: string, values: Map<number, LineValue> | null) {
+    if (id === this.activeId && this.view) {
+      this.view.dispatch({ effects: setValues.of(values) });
+    } else {
+      const entry = this.docs.get(id);
+      if (entry) entry.state = entry.state.update({ effects: setValues.of(values) }).state;
+    }
   }
 
   insertSnippet(template: string) {

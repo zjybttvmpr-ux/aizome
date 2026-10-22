@@ -469,6 +469,16 @@ const ja: Dict = {
   "set.newFileLanguage": "新しいファイルの言語",
   "set.newFileLanguageHelp": "保存する前の新しいファイルを、この言語として扱います（AI の候補・色分け・実行）。中身から言語がわかればそちらを優先し、1 行目に ## py ## ## C# ## ## C++ ## のように書けば、その言語になります。",
   "lang.tag": "← {name} として扱います（AI の候補・実行もこの言語）",
+  "cmd.trace": "値を見る（行ごとの変数の値を表示）",
+  "cmd.clearValues": "表示した値を消す",
+  "top.trace": "値を見る",
+  "trace.onlyPython": "「値を見る」は今のところ Python のファイルだけで使えます",
+  "trace.running": "記録しながら実行しています。終わると、各行の右に変数の値が出ます",
+  "trace.finished": "記録が終わりました（終了コード {code}）",
+  "trace.done": "{n} 行に値を表示しました。マウスを乗せると回ごとの値が見えます（書き換えると消えます）",
+  "trace.truncated": "{n} 行に値を表示しました（とても長く動いたので、途中までの記録です）",
+  "trace.changed": "実行中にファイルが書き換えられたので、値は表示しませんでした。もう一度「値を見る」を押してください",
+  "trace.failed": "記録を読めませんでした：{err}",
 };
 
 const en: Dict = {
@@ -919,6 +929,16 @@ const en: Dict = {
   "set.newFileLanguage": "Language for new files",
   "set.newFileLanguageHelp": "Unsaved new files are treated as this language (AI, highlighting, run). Content-based detection wins, and a first line like ## py ## / ## C# ## / ## C++ ## sets it explicitly.",
   "lang.tag": "← Treated as {name} (AI suggestions and Run use it)",
+  "cmd.trace": "Show values (variables per line)",
+  "cmd.clearValues": "Clear shown values",
+  "top.trace": "Values",
+  "trace.onlyPython": "\"Show values\" works with Python files for now",
+  "trace.running": "Running with recording. Variable values will appear next to each line when it finishes",
+  "trace.finished": "Recording finished (exit code {code})",
+  "trace.done": "Showing values on {n} lines. Hover to see each iteration (editing clears them)",
+  "trace.truncated": "Showing values on {n} lines (ran very long, so recording stopped partway)",
+  "trace.changed": "The file changed while running, so values were not shown. Run \"Show values\" again",
+  "trace.failed": "Could not read the recording: {err}",
 };
 
 const dicts: Record<string, Dict> = { ja, en };

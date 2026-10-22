@@ -8,6 +8,7 @@ import { completer } from "../ai/completer";
 import { explainLine, isTrivial, langFromFilename } from "../ai/explainRules";
 import { languageOf } from "../ai/plan";
 import { docFilename, ghostPos } from "./ghost";
+import { hasValueAt, setValues } from "./valueLens";
 
 const refresh = StateEffect.define<null>();
 
@@ -71,7 +72,7 @@ function build(view: EditorView): DecorationSet {
       if (line.number <= last) continue;
       last = line.number;
       // AI の候補を出している行には重ねない
-      if (line.number !== ghostLine) {
+      if (line.number !== ghostLine && !hasValueAt(view.state, line.number)) {
         const e = explainFor(filename, line.text);
         if (e && (mode === "ai" || !e.ai)) b.add(line.to, line.to, Decoration.widget({ widget: new ExplainWidget(e.text, e.ai), side: 2 }));
       }
@@ -186,7 +187,7 @@ export function lineExplanations(): Extension {
         scheduleAi(view, 2500);
       }
       update(u: ViewUpdate) {
-        const refreshed = u.transactions.some((tr) => tr.effects.some((e) => e.is(refresh)));
+        const refreshed = u.transactions.some((tr) => tr.effects.some((e) => e.is(refresh) || e.is(setValues)));
         if (u.docChanged || u.viewportChanged || refreshed || u.selectionSet) this.decorations = build(u.view);
         if (u.docChanged) stopAi();
         if (u.docChanged || u.viewportChanged) scheduleAi(u.view);

@@ -198,6 +198,7 @@ export function registerBuiltinSlash(d: SlashDeps) {
     },
 
     // ───── 実行
+    cmd("values", ["値", "あたい", "値を見る", "変数", "へんすう", "中身", "なかみ", "トレース", "trace", "デバッグ", "debug", "atai"], "run.trace", G.run, "eye", "行ごとに変数の値を記録しながら実行して、行の右に表示（Python）"),
     cmd("run", ["実行", "じっこう", "jikkou", "jikko", "うごかす", "動かす", "F5"], "run.file", G.run, "play"),
     cmd("terminal", ["ターミナル", "たーみなる", "cmd", "コマンドプロンプト", "端末", "ta-minaru"], "terminal.toggle", G.run, "terminal"),
     cmd("newterm", ["新しいターミナル", "あたらしいたーみなる"], "terminal.new", G.run, "terminal"),

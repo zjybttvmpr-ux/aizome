@@ -38,6 +38,7 @@ import { helpPage } from "./ui/helpPage";
 import { listSlash, openSlashPalette } from "./ui/slash";
 import { registerBuiltinSlash, showErrorExplanation } from "./ui/slashCommands";
 import { countChars } from "./core/jpText";
+import { TRACER_PY, formatTrace, type TraceResult } from "./run/trace";
 
 interface Doc {
   id: string;
@@ -60,6 +61,7 @@ export class App {
   private langTimer: number | undefined;
   /** 実行用のコピー → 元のファイル（エラーの場所をクリックしたとき元を開くため） */
   private runCopies = new Map<string, string>();
+  private tracePoll: number | undefined;
   private lastRunDir: string | null = null;
   private sys: SysInfo = { os: "unknown", home: "", defaultShell: "", pathSep: "/" };
   private statusItems = new Map<string, { text: string; tooltip?: string }>();
@@ -351,6 +353,12 @@ export class App {
         button("wand", t("cmd.slash"), () => void openSlashPalette("/", () => this.quickOpen()), "top-tool"),
         button("help", `${t("cmd.help")} (F1)`, () => helpPage.open(), "top-tool"),
         this.aiPill,
+        h(
+          "button",
+          { class: "run-btn secondary", title: `${t("cmd.trace")} (F6)`, onclick: () => this.traceActive() },
+          h("span", { html: icon("eye", 14) }),
+          h("span", {}, t("top.trace")),
+        ),
         h(
           "button",
           { class: "run-btn", title: `${t("cmd.run")} (F5)`, onclick: () => this.runActive() },
@@ -844,27 +852,21 @@ export class App {
 
   // ───────────── 実行
 
-  async runActive() {
-    const doc = this.activeDoc();
-    if (!doc) {
-      toast(t("run.noFile"), "info");
-      return;
-    }
-    const text = this.editor.getText(doc.id);
-    const first = text.split("\n", 1)[0] ?? "";
+  /**
+   * 実行するファイルを用意する。
+   * 保存してあって言語の指定もなければそのファイル、そうでなければ（## C# ## の指定・保存前）その言語の拡張子のコピーを作る
+   */
+  private async prepareRunTarget(doc: Doc): Promise<{ path: string; cwd: string; overrides?: Record<string, string> } | null> {
+    const first = this.editor.getText(doc.id).split("\n", 1)[0] ?? "";
     const directive = parseDirective(first);
     // 保存してあるファイルは、変更を保存してから
-    if (doc.path && doc.dirty && !(await this.save(doc.id))) return;
-    if (!directive && doc.path) {
-      await this.runPath(doc.path);
-      return;
-    }
-    // 「## C# ##」の指定がある・まだ保存していない：その言語の拡張子のコピーを作って実行する
+    if (doc.path && doc.dirty && !(await this.save(doc.id))) return null;
+    if (!directive && doc.path) return { path: doc.path, cwd: dirname(doc.path) };
     const ext = directive?.ext ?? extname(this.effectiveName(doc));
     if (!ext || ext === ".txt" || ext === ".md") {
       toast(t("run.pickLanguage"), "info", 7000);
       void this.pickLanguage();
-      return;
+      return null;
     }
     const latest = this.editor.getText(doc.id);
     const latestFirst = latest.split("\n", 1)[0] ?? "";
@@ -877,11 +879,84 @@ export class App {
       await fs.writeFile(copy, body);
     } catch (err) {
       toast(t("file.saveFailed", { name: basename(copy), err: String(err) }), "error");
-      return;
+      return null;
     }
     this.runCopies.set(copy, doc.id);
     const cwd = doc.path ? dirname(doc.path) : runDir;
-    await this.runPath(copy, { fileDir: cwd, fileBase: copy, file: copy, fileNoExt: join(cwd, stem), fileBaseNoExt: stem });
+    return { path: copy, cwd, overrides: { fileDir: cwd, fileBase: copy, file: copy, fileNoExt: join(cwd, stem), fileBaseNoExt: stem } };
+  }
+
+  async runActive() {
+    const doc = this.activeDoc();
+    if (!doc) {
+      toast(t("run.noFile"), "info");
+      return;
+    }
+    const target = await this.prepareRunTarget(doc);
+    if (target) await this.runPath(target.path, target.overrides);
+  }
+
+  /** 値を見る：行ごとの変数の値を記録しながら実行して、行の右に表示する（Python） */
+  async traceActive() {
+    const doc = this.activeDoc();
+    if (!doc) {
+      toast(t("run.noFile"), "info");
+      return;
+    }
+    const ext = extname(this.appliedName.get(doc.id) ?? this.effectiveName(doc));
+    if (ext !== ".py" && ext !== ".pyw") {
+      toast(t("trace.onlyPython"), "info", 6000);
+      return;
+    }
+    const target = await this.prepareRunTarget(doc);
+    if (!target) return;
+    const home = join(this.sys.home, ".aizome");
+    await fs.createDir(home).catch(() => {});
+    const tracer = join(home, "tracer.py");
+    const out = join(home, `trace-${Date.now()}.json`);
+    try {
+      await fs.writeFile(tracer, TRACER_PY);
+    } catch (err) {
+      toast(t("file.saveFailed", { name: "tracer.py", err: String(err) }), "error");
+      return;
+    }
+    const win = this.sys.os === "windows";
+    const q = (p: string) => (win ? `"${p.replace(/[`$"]/g, (ch) => "`" + ch)}"` : `"${p.replace(/(["$`\\])/g, "\\$1")}"`);
+    let cmd = win
+      ? `Set-Location ${q(target.cwd)}; python ${q(tracer)} ${q(target.path)} ${q(out)}`
+      : `cd ${q(target.cwd)} && python3 ${q(tracer)} ${q(target.path)} ${q(out)}`;
+    const resolved = await this.resolvePython(cmd);
+    if (resolved === null) return;
+    cmd = resolved;
+    if (win) cmd += `; Write-Host ""; Write-Host "--- ${t("trace.finished", { code: "$LASTEXITCODE" })} ---" -ForegroundColor DarkGray`;
+    this.lastRunDir = target.cwd;
+    this.editor.showValues(doc.id, null);
+    const startText = this.editor.getText(doc.id);
+    await this.terminal.run(cmd, target.cwd);
+    toast(t("trace.running"), "info", 4000);
+    // 終わると記録のファイルができるので、それを待って読む
+    window.clearInterval(this.tracePoll);
+    const started = Date.now();
+    this.tracePoll = window.setInterval(async () => {
+      if (Date.now() - started > 30 * 60 * 1000) return window.clearInterval(this.tracePoll);
+      if (!(await fs.exists(out).catch(() => false))) return;
+      window.clearInterval(this.tracePoll);
+      try {
+        const result = JSON.parse(await fs.readFile(out)) as TraceResult;
+        void fs.remove(out).catch(() => {});
+        if (!this.docs.some((d) => d.id === doc.id)) return;
+        if (this.editor.getText(doc.id) !== startText) {
+          toast(t("trace.changed"), "warn", 6000);
+          return;
+        }
+        const values = formatTrace(result);
+        if (this.activeId !== doc.id) this.activate(doc.id);
+        this.editor.showValues(doc.id, values);
+        toast(t(result.truncated ? "trace.truncated" : "trace.done", { n: String(values.size) }), result.error ? "warn" : "success", 7000);
+      } catch (err) {
+        toast(t("trace.failed", { err: String(err) }), "error");
+      }
+    }, 500);
   }
 
   private async runPath(path: string, overrides?: Record<string, string>) {
@@ -1215,7 +1290,7 @@ export class App {
       {
         type: "submenu",
         label: t("menu.run"),
-        items: () => [c("run.file"), sep, c("terminal.new"), c("terminal.toggle", () => this.terminal.isVisible), c("terminal.clear")],
+        items: () => [c("run.file"), c("run.trace"), c("run.clearValues"), sep, c("terminal.new"), c("terminal.toggle", () => this.terminal.isVisible), c("terminal.clear")],
       },
       {
         type: "submenu",
@@ -1485,6 +1560,11 @@ export class App {
     reg("help.open", "cmd.help", () => helpPage.open(), "F1", true);
     reg("help.slash", "cmd.slash", () => openSlashPalette("/"));
     reg("terminal.explainError", "cmd.explainError", () => this.explainLastError());
+    reg("run.trace", "cmd.trace", () => this.traceActive(), "F6", true);
+    reg("run.clearValues", "cmd.clearValues", () => {
+      const doc = this.activeDoc();
+      if (doc) this.editor.showValues(doc.id, null);
+    });
     reg("view.dict", "cmd.dict", () => {
       this.showView("dict");
       this.dictView.focus();
