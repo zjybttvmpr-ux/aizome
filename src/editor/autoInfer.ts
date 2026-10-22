@@ -1,13 +1,14 @@
 // 自動判定モード：実行せずに AI がコード全体を読んで、変数の中身とエラーになりそうな行を予想する。
 // - 変数の上にマウスを置いて少し待つと、その行の時点での値を小窓で見せる（値モードでは実行した結果を見せる）
 // - エラーになりそうな行には、右に薄く原因を書く
-import { RangeSetBuilder, StateEffect, type EditorState, type Extension } from "@codemirror/state";
+import { Compartment, RangeSetBuilder, StateEffect, type EditorState, type Extension } from "@codemirror/state";
 import { Decoration, EditorView, ViewPlugin, WidgetType, hoverTooltip, type DecorationSet, type ViewUpdate } from "@codemirror/view";
 import { settings } from "../core/settings";
 import { completer } from "../ai/completer";
 import { buildInferPrompt, hashText, lookupInferred, parseInfer, staticGuess, type InferResult } from "../ai/infer";
 import { docFilename } from "./ghost";
-import { sideMode, sideModeChanged, trackView } from "./sideMode";
+import { forEachView, sideMode, sideModeChanged, trackView } from "./sideMode";
+import { bus } from "../core/events";
 import { traceAt } from "./valueLens";
 import { inferBusy, setInferBusy } from "./inferState";
 
@@ -158,8 +159,7 @@ function tooltipBox(name: string, lineNo: number, body: string, source: string):
   return dom;
 }
 
-const varHover = hoverTooltip(
-  (view, pos) => {
+const hoverSource: Parameters<typeof hoverTooltip>[0] = (view, pos) => {
     const mode = sideMode();
     if ((mode !== "auto" && mode !== "values") || !settings.get("editor.valueHover")) return null;
     const word = wordAt(view.state, pos);
@@ -202,9 +202,15 @@ const varHover = hoverTooltip(
       above: true,
       create: () => ({ dom: tooltipBox(word.text, lineNo, body!, source) }),
     };
-  },
-  { hoverTime: 450 },
-);
+};
+
+/** マウスを乗せてから小窓が出るまでの時間は設定で変えられる（変えたらすぐ反映） */
+const hoverSlot = new Compartment();
+const makeHover = () => hoverTooltip(hoverSource, { hoverTime: Math.max(0, settings.get("editor.hoverDelay") ?? 250) });
+
+bus.on("settings:changed", ({ key }) => {
+  if (key === "editor.hoverDelay") forEachView((v) => v.dispatch({ effects: hoverSlot.reconfigure(makeHover()) }));
+});
 
 export function autoInfer(): Extension {
   return [
@@ -230,6 +236,6 @@ export function autoInfer(): Extension {
       },
       { decorations: (v) => v.decorations },
     ),
-    varHover,
+    hoverSlot.of(makeHover()),
   ];
 }

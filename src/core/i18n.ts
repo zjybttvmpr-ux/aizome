@@ -562,6 +562,9 @@ const ja: Dict = {
   "feat.runCwd.terminal": "移動しない（ターミナルの今の場所）",
   "feat.runCwd.help": "「ファイルがある場所」なら、同じフォルダのファイルを open() や import でそのまま使えます。「移動しない」は、ターミナルで cd した場所のまま実行します。",
   "feat.intro": "使わない機能はここでオフにできます。ほかのページにある設定も、ここにまとめています。",
+  "feat.hoverDelay": "変数の小窓が出るまでの時間",
+  "feat.hoverDelay.value": "{s} 秒",
+  "feat.hoverDelay.help": "変数やリストにマウスを乗せてから、中身の小窓が出るまでの時間です。短いほどすぐ出ます。",
 };
 
 const en: Dict = {
@@ -1105,6 +1108,9 @@ const en: Dict = {
   "feat.runCwd.terminal": "Don't move (terminal's current folder)",
   "feat.runCwd.help": "The file's folder lets open() and import find files next to it. \"Don't move\" runs in the folder you cd'd to.",
   "feat.intro": "Turn off features you don't use. Settings from other pages are gathered here too.",
+  "feat.hoverDelay": "Delay before the variable popup",
+  "feat.hoverDelay.value": "{s} s",
+  "feat.hoverDelay.help": "How long to hover over a variable before its value popup appears.",
 };
 
 const dicts: Record<string, Dict> = { ja, en };

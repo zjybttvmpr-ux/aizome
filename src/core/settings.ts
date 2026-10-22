@@ -68,6 +68,8 @@ export interface Settings {
   "editor.buildLens": boolean;
   /** 変数にマウスを乗せたときの小窓（値・自動判定） */
   "editor.valueHover": boolean;
+  /** 変数にマウスを乗せてから小窓が出るまで（ミリ秒） */
+  "editor.hoverDelay": number;
   /** 1 行目の ## py ## の横の「← Python として扱います」 */
   "editor.langTag": boolean;
   /** ターミナルで、選んで Ctrl+C でコピー・Ctrl+V で貼り付け・右クリック */
@@ -152,6 +154,7 @@ export const defaults: Settings = {
   "ai.syntaxTrim": true,
   "editor.buildLens": true,
   "editor.valueHover": true,
+  "editor.hoverDelay": 250,
   "editor.langTag": true,
   "terminal.smartCopy": true,
   "ui.traceButton": true,

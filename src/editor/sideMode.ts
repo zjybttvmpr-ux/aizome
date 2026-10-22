@@ -19,6 +19,10 @@ export function trackView(view: EditorView): () => void {
   return () => views.delete(view);
 }
 
+export function forEachView(cb: (view: EditorView) => void) {
+  views.forEach(cb);
+}
+
 /** 表示に関わるオン・オフを変えたら、エディタを描き直す */
 const REDRAW = new Set(["editor.sideView", "editor.buildLens", "editor.langTag", "files.langDirective", "editor.valueHover"]);
 
