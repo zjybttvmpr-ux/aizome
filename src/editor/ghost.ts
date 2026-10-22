@@ -5,6 +5,7 @@ import { Decoration, EditorView, ViewPlugin, WidgetType, keymap, type ViewUpdate
 import { completer } from "../ai/completer";
 import { cleanCompletion, commentIntent, contextKey, isCommentLine, shouldComplete } from "../ai/clean";
 import { language } from "@codemirror/language";
+import { acceptCompletion, closeCompletion, completionStatus } from "@codemirror/autocomplete";
 import { Facet } from "@codemirror/state";
 import { cutAtDedent, fileHeader, planCompletion } from "../ai/plan";
 
@@ -210,10 +211,26 @@ export function ghostText(): Extension {
     scheduler,
     Prec.highest(
       keymap.of([
-        { key: "Tab", run: (v) => accept(v) },
+        {
+          // 候補の一覧が開いていれば一覧で選んでいるものを入力、なければ AI の候補を確定
+          key: "Tab",
+          run: (v) => {
+            if (settings.get("editor.listKey") === "tab" && completionStatus(v.state) === "active") return acceptCompletion(v);
+            return accept(v);
+          },
+        },
+        // 一覧が開いていても、AI の候補をまとめて確定する
+        { key: "Alt-Enter", run: (v) => (completionStatus(v.state) === "active" && closeCompletion(v), accept(v)) },
         { key: "Mod-ArrowRight", run: (v) => accept(v, "word") },
         { key: "Alt-ArrowRight", run: (v) => accept(v, "word") },
-        { key: "Escape", run: dismiss },
+        {
+          // 一覧と AI の候補を両方とも閉じる
+          key: "Escape",
+          run: (v) => {
+            const list = completionStatus(v.state) !== null && closeCompletion(v);
+            return dismiss(v) || list;
+          },
+        },
         { key: "Alt-\\", run: (v) => (triggerCompletion(v), true) },
       ]),
     ),

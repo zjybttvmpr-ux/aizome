@@ -440,6 +440,12 @@ const ja: Dict = {
   "set.suggestList.smart": "自動で出す",
   "set.suggestList.off": "Ctrl+Space を押したときだけ",
   "set.suggestListHelp": "打った文字で始まる名前だけを、文脈に合わせた順で出します（AI の薄い候補とは別のものです）。",
+  "set.listKey": "候補の一覧を入力するキー",
+  "set.listKey.tab": "Tab（一覧が出ていないときは AI の候補を確定）",
+  "set.listKey.enter": "Enter（Tab は AI の候補だけ）",
+  "set.listKeyHelp": "一覧が出ているときに Tab を押すと、選んでいる項目をそのまま入力します。一覧が出ていても AI の候補を確定したいときは Alt+Enter。",
+  "complete.hintTab": "Tab で入力　↑↓ で選ぶ　Alt+Enter で AI の候補　Esc で閉じる",
+  "complete.hintEnter": "Enter で入力　↑↓ で選ぶ　Esc で閉じる",
 };
 
 const en: Dict = {
@@ -861,6 +867,12 @@ const en: Dict = {
   "set.suggestList.smart": "Show automatically",
   "set.suggestList.off": "Only with Ctrl+Space",
   "set.suggestListHelp": "Shows names that start with what you typed, ordered by context (separate from the faint AI suggestion).",
+  "set.listKey": "Key to insert from the suggestion list",
+  "set.listKey.tab": "Tab (accepts the AI suggestion when no list is open)",
+  "set.listKey.enter": "Enter (Tab is for the AI suggestion only)",
+  "set.listKeyHelp": "While the list is open, Tab inserts the selected item. Use Alt+Enter to accept the AI suggestion even when the list is open.",
+  "complete.hintTab": "Tab insert  ↑↓ select  Alt+Enter AI suggestion  Esc close",
+  "complete.hintEnter": "Enter insert  ↑↓ select  Esc close",
 };
 
 const dicts: Record<string, Dict> = { ja, en };

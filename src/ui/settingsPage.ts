@@ -290,6 +290,14 @@ function sections(): Section[] {
           t("set.suggestListHelp"),
         ),
         row(
+          t("set.listKey"),
+          select("editor.listKey", [
+            { value: "tab", label: t("set.listKey.tab") },
+            { value: "enter", label: t("set.listKey.enter") },
+          ]),
+          t("set.listKeyHelp"),
+        ),
+        row(
           t("set.explain"),
           select("editor.explain", [
             { value: "ai", label: t("set.explain.ai") },

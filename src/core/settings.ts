@@ -43,6 +43,7 @@ export interface Settings {
   "editor.suggestFont": "kyokasho" | "code" | "bizud";
   "editor.explain": "off" | "rules" | "ai";
   "editor.suggestList": "smart" | "off";
+  "editor.listKey": "tab" | "enter";
   "update.skipVersion": string;
 }
 
@@ -89,6 +90,7 @@ export const defaults: Settings = {
   "editor.suggestFont": "kyokasho",
   "editor.explain": "ai",
   "editor.suggestList": "smart",
+  "editor.listKey": "tab",
   "update.skipVersion": "",
 };
 

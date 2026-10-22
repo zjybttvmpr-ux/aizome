@@ -2767,3 +2767,15 @@ html.has-bg .settings-page {
 .cm-tooltip.cm-tooltip-autocomplete > ul > li {
   line-height: 1.5;
 }
+
+/* 一覧の下の、入力のしかたの案内 */
+.cm-tooltip.cm-tooltip-autocomplete::after {
+  content: var(--complete-hint, "");
+  display: block;
+  padding: 3px 10px 4px;
+  border-top: 1px solid var(--border);
+  font-family: var(--font-ui, inherit);
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}

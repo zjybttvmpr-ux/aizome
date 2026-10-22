@@ -13,6 +13,8 @@ import {
 } from "@codemirror/autocomplete";
 import type { Extension } from "@codemirror/state";
 import { settings } from "../core/settings";
+import { bus } from "../core/events";
+import { t } from "../core/i18n";
 import { docFilename } from "./ghost";
 
 const PY_MODULES = [
@@ -135,3 +137,13 @@ async function smartSource(ctx: CompletionContext): Promise<CompletionResult | n
 export function smartCompletion(): Extension {
   return autocompletion({ override: [smartSource], filterStrict: true, maxRenderedOptions: 40 });
 }
+
+/** 一覧の下に「どのキーで入力できるか」を出す */
+function updateHint() {
+  const text = t(settings.get("editor.listKey") === "tab" ? "complete.hintTab" : "complete.hintEnter");
+  document.documentElement.style.setProperty("--complete-hint", JSON.stringify(text));
+}
+updateHint();
+bus.on("settings:changed", ({ key }) => {
+  if (key === "editor.listKey" || key === "ui.language") updateHint();
+});
