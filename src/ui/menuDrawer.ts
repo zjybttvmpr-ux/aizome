@@ -19,6 +19,8 @@ class MenuDrawer {
   private rows: Row[] = [];
   private index = -1;
   private expanded = new Set<string>();
+  /** 検索していないときに出す分類の数（ほかは上のメニューバーにある） */
+  private groups = Infinity;
 
   get isOpen() {
     return !!this.root;
@@ -29,8 +31,9 @@ class MenuDrawer {
     else this.open(items, onClose);
   }
 
-  open(items: () => MenuItem[], onClose?: () => void) {
+  open(items: () => MenuItem[], onClose?: () => void, opts: { groups?: number } = {}) {
     this.close();
+    this.groups = opts.groups ?? Infinity;
     this.onClose = onClose ?? null;
     const search = h("input", { class: "drawer-search", type: "search", placeholder: t("drawer.search"), spellcheck: "false", "aria-label": t("drawer.search") });
     const list = h("div", { class: "drawer-list", role: "menu" });
@@ -153,8 +156,10 @@ class MenuDrawer {
     };
 
     // いちばん上の段の分類は、見出しにして中身を並べる
+    let shown = 0;
     for (const item of items) {
       if (item.type === "submenu") {
+        if (!q && ++shown > this.groups) continue;
         const section = h("section", { class: "drawer-section" });
         const body = h("div", { class: "drawer-section-body" });
         addItems(body, item.items(), item.label, 0);
@@ -165,6 +170,7 @@ class MenuDrawer {
         addItems(list, [item], "", 0);
       }
     }
+    if (!q && shown > this.groups) list.append(h("p", { class: "drawer-more" }, t("drawer.more")));
     if (!this.rows.length) list.append(h("p", { class: "drawer-empty" }, t("palette.empty")));
     if (this.index >= this.rows.length) this.index = this.rows.length - 1;
     this.highlight();

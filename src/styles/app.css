@@ -3869,3 +3869,52 @@ body.resizing-x * {
   color: var(--text-muted);
   margin-top: 10px;
 }
+
+/* 「藍 Aizome」の右に並ぶメニュー */
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+.menubar {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  min-width: 0;
+  overflow: hidden;
+}
+.menubar-item {
+  height: 28px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 13px;
+  white-space: nowrap;
+  cursor: default;
+}
+.menubar-item:hover,
+.menubar-item:focus-visible,
+.menubar-item.open {
+  background: color-mix(in srgb, var(--text) 9%, transparent);
+  color: var(--text);
+  outline: none;
+}
+.drawer-more {
+  margin: 10px 16px;
+  font-size: 12px;
+  color: var(--text-faint);
+  line-height: 1.6;
+}
+/* 狭い画面では、メニューバーをしまって左から出るメニューに全部入れる */
+@media (max-width: 1080px) {
+  .menubar {
+    display: none;
+  }
+}
+.app.zen .menubar {
+  display: none;
+}

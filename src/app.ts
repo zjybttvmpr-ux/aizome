@@ -30,7 +30,7 @@ import { createDictView, type DictView } from "./ui/dictView";
 import { aiRewrite } from "./ui/aiRewrite";
 import { renderMarkdown } from "./ui/markdown";
 import { initAppearance, zoomBy } from "./ui/appearance";
-import type { MenuItem } from "./ui/menu";
+import { menu, type MenuItem } from "./ui/menu";
 import { menuDrawer } from "./ui/menuDrawer";
 import { createSaveHistory } from "./ui/saveHistory";
 import { createFileGroups } from "./ui/fileGroups";
@@ -380,17 +380,77 @@ export class App {
       if (menuDrawer.isOpen) return menuDrawer.close();
       menuBtn.setAttribute("aria-expanded", "true");
       menuBtn.classList.add("open");
-      menuDrawer.open(() => this.menuItems(), () => {
-        menuBtn.setAttribute("aria-expanded", "false");
-        menuBtn.classList.remove("open");
-      });
+      // 上にメニューバー（編集・表示…）が出ているときは、ここには「ファイル」だけ（検索では全部探せる）
+      const barShown = !!menubar.offsetParent;
+      menuDrawer.open(
+        () => this.menuItems(),
+        () => {
+          menuBtn.setAttribute("aria-expanded", "false");
+          menuBtn.classList.remove("open");
+        },
+        { groups: barShown ? 1 : Infinity },
+      );
     });
     this.menuButton = menuBtn;
+
+    // 「藍 Aizome」の右に並ぶメニュー（編集・表示・実行…）。押すと下に項目が出る
+    const menubar = h("nav", { class: "menubar", role: "menubar" });
+    const barButtons: HTMLButtonElement[] = [];
+    let openIndex = -1;
+    let closed = { index: -1, at: 0 };
+    const openBar = (i: number) => {
+      const top = this.menuItems().filter((x): x is Extract<MenuItem, { type: "submenu" }> => x.type === "submenu").slice(1);
+      const item = top[i];
+      const btn = barButtons[i];
+      if (!item || !btn) return;
+      if (menuDrawer.isOpen) menuDrawer.close();
+      openIndex = i;
+      barButtons.forEach((b, j) => b.classList.toggle("open", j === i));
+      menu.open(btn, item.items(), () => {
+        if (openIndex === i) {
+          openIndex = -1;
+          closed = { index: i, at: performance.now() };
+          btn.classList.remove("open");
+        }
+      });
+    };
+    const renderBar = () => {
+      clear(menubar);
+      barButtons.length = 0;
+      const top = this.menuItems().filter((x): x is Extract<MenuItem, { type: "submenu" }> => x.type === "submenu").slice(1);
+      top.forEach((item, i) => {
+        const b = h("button", { class: "menubar-item", type: "button", role: "menuitem", "aria-haspopup": "menu" }, item.label) as HTMLButtonElement;
+        b.addEventListener("mousedown", (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          // 開いているメニューのボタンをもう一度押したら閉じるだけ（外側のクリックで先に閉じている）
+          if (closed.index === i && performance.now() - closed.at < 300) return;
+          if (openIndex === i && menu.isOpen) menu.close();
+          else openBar(i);
+        });
+        // ひとつ開いているときは、マウスを横に動かすだけで隣のメニューに切りかわる
+        b.addEventListener("mouseenter", () => {
+          if (menu.isOpen && openIndex >= 0 && openIndex !== i) openBar(i);
+        });
+        b.addEventListener("keydown", (e) => {
+          if (e.key === "Enter" || e.key === " " || e.key === "ArrowDown") {
+            e.preventDefault();
+            openBar(i);
+          }
+        });
+        barButtons.push(b);
+        menubar.append(b);
+      });
+    };
+    renderBar();
+    bus.on("settings:changed", ({ key }) => {
+      if (key === "ui.language") renderBar();
+    });
 
     const topbar = h(
       "header",
       { class: "topbar" },
-      h("div", { class: "brand" }, menuBtn),
+      h("div", { class: "brand" }, menuBtn, menubar),
       this.workspaceLabel,
       h(
         "button",
