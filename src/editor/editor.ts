@@ -244,7 +244,7 @@ class CodeMirrorHost implements EditorHost {
     this.view.dispatch({ changes: { from: pos, insert: text }, selection: { anchor: pos + text.length } });
   }
 
-  showValues(id: string, data: { values: Map<number, LineValue>; raw: TraceResult } | null) {
+  showValues(id: string, data: { values: Map<number, LineValue>; raw: TraceResult; time?: number | null } | null) {
     if (id === this.activeId && this.view) {
       this.view.dispatch({ effects: setValues.of(data) });
     } else {

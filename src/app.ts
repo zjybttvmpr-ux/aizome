@@ -39,7 +39,7 @@ import { listSlash, openSlashPalette } from "./ui/slash";
 import { registerBuiltinSlash, showErrorExplanation } from "./ui/slashCommands";
 import { countChars } from "./core/jpText";
 import { ENCODINGS, encodingById, encodingLabel } from "./core/encodings";
-import { TRACER_PY, formatTrace, type TraceResult } from "./run/trace";
+import { TRACER_PY, busiestLine, formatTrace, stepTimes, type TraceResult } from "./run/trace";
 import { inferBusy, onInferBusy } from "./editor/inferState";
 
 interface Doc {
@@ -76,6 +76,9 @@ export class App {
   private tracePoll: number | undefined;
   /** 「値を見る」の結果があるファイル */
   private valuesShown = new Set<string>();
+  /** 「値を見る」の記録（ファイルごと）と、ステップ表示の位置 */
+  private traceRaw = new Map<string, TraceResult>();
+  private traceStep: { docId: string; line: number; index: number } | null = null;
   private lastRunDir: string | null = null;
   private sys: SysInfo = { os: "unknown", home: "", defaultShell: "", pathSep: "/" };
   private statusItems = new Map<string, { text: string; tooltip?: string }>();
@@ -791,12 +794,76 @@ export class App {
     this.saveSession();
   }
 
+  /** 「値を見る」の結果を、今の表示（値／出力）とステップの位置に合わせて行の右に出す */
+  private refreshTrace(docId = this.activeId) {
+    if (!docId) return;
+    const raw = this.traceRaw.get(docId);
+    if (!raw) return;
+    const view = settings.get("editor.sideView") === "output" ? "output" : "values";
+    const step = this.traceStep && this.traceStep.docId === docId ? this.traceStep : null;
+    const time = step ? (stepTimes(raw, step.line)[step.index] ?? null) : null;
+    this.editor.showValues(docId, { values: formatTrace(raw, view, time), raw, time });
+    if (step && docId === this.activeId) this.editor.goTo(step.line, 1);
+    this.renderBreadcrumbs();
+  }
+
+  /** ステップ表示：その行が何回目に実行された瞬間かを 1 つずつ進める（dir: 1 次 / -1 前 / 0 やめる） */
+  private stepTrace(dir: 1 | -1 | 0) {
+    const doc = this.activeDoc();
+    const raw = doc ? this.traceRaw.get(doc.id) : undefined;
+    if (!doc || !raw) {
+      toast(t("step.noTrace"), "info", 5000);
+      return;
+    }
+    if (dir === 0) {
+      this.traceStep = null;
+      this.refreshTrace(doc.id);
+      return;
+    }
+    const mode = settings.get("editor.sideView");
+    if (mode !== "values" && mode !== "output") settings.set("editor.sideView", "values");
+    let step = this.traceStep && this.traceStep.docId === doc.id ? this.traceStep : null;
+    if (!step) {
+      // カーソルのある行を基準に。その行が実行されていなければ、いちばん多く動いた行
+      const cursorLine = this.editor.cursor().line;
+      // for / while の行そのものより、ループの中の行を基準にする
+      const text = this.editor.getText(doc.id).split("\n");
+      const isHeader = (l: number) => /^\s*(for|while)\b/.test(text[l - 1] ?? "");
+      const line = stepTimes(raw, cursorLine).length ? cursorLine : (busiestLine(raw, isHeader) ?? busiestLine(raw));
+      if (!line) return;
+      step = { docId: doc.id, line, index: dir === 1 ? -1 : stepTimes(raw, line).length };
+    }
+    const times = stepTimes(raw, step.line);
+    step.index = Math.max(0, Math.min(times.length - 1, step.index + dir));
+    this.traceStep = step;
+    this.refreshTrace(doc.id);
+  }
+
+  private traceStepper(): HTMLElement | null {
+    const doc = this.activeDoc();
+    const raw = doc ? this.traceRaw.get(doc.id) : undefined;
+    const mode = settings.get("editor.sideView");
+    if (!doc || !raw || (mode !== "values" && mode !== "output")) return null;
+    const step = this.traceStep && this.traceStep.docId === doc.id ? this.traceStep : null;
+    const total = step ? stepTimes(raw, step.line).length : 0;
+    const label = step ? t("step.label", { line: String(step.line), n: String(step.index + 1), total: String(total) }) : t("step.all");
+    return h(
+      "div",
+      { class: "trace-stepper", title: t("step.title") },
+      h("button", { type: "button", title: `${t("step.prev")} (Shift+F7)`, onclick: () => this.stepTrace(-1) }, "◀"),
+      h("span", { class: "step-label" }, label),
+      h("button", { type: "button", title: `${t("step.next")} (F7)`, onclick: () => this.stepTrace(1) }, "▶"),
+      step ? h("button", { type: "button", title: t("step.exit"), onclick: () => this.stepTrace(0) }, t("step.exitShort")) : null,
+    );
+  }
+
   /** 行の右に出すものの切り替え（説明／値／自動判定／なし） */
   private sideSwitch(): HTMLElement {
     const mode = settings.get("editor.sideView");
-    const opts: { id: "explain" | "values" | "auto" | "off"; label: string; title: string }[] = [
+    const opts: { id: "explain" | "values" | "output" | "auto" | "off"; label: string; title: string }[] = [
       { id: "explain", label: t("side.explain"), title: t("side.explainTitle") },
       { id: "values", label: t("side.values"), title: t("side.valuesTitle") },
+      { id: "output", label: t("side.output"), title: t("side.outputTitle") },
       { id: "auto", label: t("side.auto"), title: t("side.autoTitle") },
       { id: "off", label: t("side.off"), title: t("side.offTitle") },
     ];
@@ -831,6 +898,9 @@ export class App {
       if (i > 0) this.breadcrumbsEl.append(h("span", { class: "crumb-sep", "aria-hidden": "true", html: icon("chevron", 11) }));
       this.breadcrumbsEl.append(h("span", { class: i === parts.length - 1 ? "crumb current" : "crumb" }, p));
     });
+    this.breadcrumbsEl.append(h("span", { class: "crumb-spacer" }));
+    const stepper = this.traceStepper();
+    if (stepper) this.breadcrumbsEl.append(stepper);
     this.breadcrumbsEl.append(this.sideSwitch());
   }
 
@@ -1146,10 +1216,14 @@ export class App {
         }
         const values = formatTrace(result);
         if (this.activeId !== doc.id) this.activate(doc.id);
-        this.editor.showValues(doc.id, { values, raw: result });
+        void values;
+        this.traceRaw.set(doc.id, result);
+        this.traceStep = null;
         this.valuesShown.add(doc.id);
-        // 行の右の表示を「値」に切り替える
-        if (settings.get("editor.sideView") !== "values") settings.set("editor.sideView", "values");
+        // 行の右の表示を「値」に切り替える（「出力」を見ているときはそのまま）
+        const mode = settings.get("editor.sideView");
+        if (mode !== "values" && mode !== "output") settings.set("editor.sideView", "values");
+        else this.refreshTrace(doc.id);
         toast(t(result.truncated ? "trace.truncated" : "trace.done", { n: String(values.size) }), result.error ? "warn" : "success", 7000);
       } catch (err) {
         toast(t("trace.failed", { err: String(err) }), "error");
@@ -1504,7 +1578,7 @@ export class App {
       {
         type: "submenu",
         label: t("menu.run"),
-        items: () => [c("run.file"), c("run.trace"), c("run.clearValues"), sep, c("terminal.new"), c("terminal.toggle", () => this.terminal.isVisible), c("terminal.clear")],
+        items: () => [c("run.file"), c("run.trace"), c("run.stepNext"), c("run.stepPrev"), c("run.clearValues"), sep, c("terminal.new"), c("terminal.toggle", () => this.terminal.isVisible), c("terminal.clear")],
       },
       {
         type: "submenu",
@@ -1629,9 +1703,10 @@ export class App {
     bus.on("settings:changed", ({ key }) => {
       if (key !== "editor.sideView") return;
       this.renderBreadcrumbs();
+      if (["values", "output"].includes(settings.get("editor.sideView"))) this.refreshTrace();
       const mode = settings.get("editor.sideView");
       if (mode === "auto") toast(t("side.autoToast"), "info", 6000);
-      if (mode === "values" && !this.anyValues()) toast(t("side.valuesEmpty"), "info", 5000);
+      if ((mode === "values" || mode === "output") && !this.anyValues()) toast(t("side.valuesEmpty"), "info", 5000);
     });
     onInferBusy(() => this.renderBreadcrumbs());
   }
@@ -1811,14 +1886,21 @@ export class App {
       if (doc) {
         this.editor.showValues(doc.id, null);
         this.valuesShown.delete(doc.id);
+        this.traceRaw.delete(doc.id);
+        this.traceStep = null;
+        this.renderBreadcrumbs();
       }
     });
-    const sides = ["explain", "values", "auto", "off"] as const;
+    const sides = ["explain", "values", "output", "auto", "off"] as const;
     reg("view.sideNext", "cmd.sideNext", () => {
       const i = sides.indexOf(settings.get("editor.sideView"));
       settings.set("editor.sideView", sides[(i + 1) % sides.length]);
     }, "Mod-Alt-V", true);
     reg("view.sideAuto", "cmd.sideAuto", () => settings.set("editor.sideView", "auto"));
+    reg("view.sideOutput", "cmd.sideOutput", () => settings.set("editor.sideView", "output"));
+    reg("run.stepNext", "cmd.stepNext", () => this.stepTrace(1), "F7", true);
+    reg("run.stepPrev", "cmd.stepPrev", () => this.stepTrace(-1), "Shift-F7", true);
+    reg("run.stepAll", "cmd.stepAll", () => this.stepTrace(0));
     reg("view.sideExplain", "cmd.sideExplain", () => settings.set("editor.sideView", "explain"));
     reg("view.sideValues", "cmd.sideValues", () => settings.set("editor.sideView", "values"));
     reg("view.dict", "cmd.dict", () => {
@@ -1841,6 +1923,13 @@ export class App {
   private bindEvents() {
     this.editor.onChange((id) => {
       const doc = this.docs.find((d) => d.id === id);
+      if (doc && this.traceRaw.has(doc.id)) {
+        // 書き換えたら記録は古くなる
+        this.traceRaw.delete(doc.id);
+        this.valuesShown.delete(doc.id);
+        if (this.traceStep?.docId === doc.id) this.traceStep = null;
+        this.renderBreadcrumbs();
+      }
       if (doc) {
         window.clearTimeout(this.langTimer);
         this.langTimer = window.setTimeout(() => this.refreshLanguage(doc), 350);

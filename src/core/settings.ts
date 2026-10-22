@@ -46,7 +46,7 @@ export interface Settings {
   "editor.listKey": "tab" | "enter";
   "editor.zenkaku": boolean;
   /** 行の右に出すもの：説明／値（値を見るの結果）／自動判定（AI の予想）／なし */
-  "editor.sideView": "explain" | "values" | "auto" | "off";
+  "editor.sideView": "explain" | "values" | "output" | "auto" | "off";
   // ───── 機能のオン・オフ
   /** 実行する場所：ファイルの場所／開いているフォルダ／移動しない（ターミナルの今の場所） */
   "run.cwd": "file" | "workspace" | "terminal";

@@ -3136,3 +3136,64 @@ html.hide-side-switch .side-switch {
   flex: 1;
   min-width: 0;
 }
+
+/* ステップ表示：今の行を目立たせ、ほかは薄く */
+.cm-value.current {
+  color: var(--bg, #111);
+  background: var(--accent);
+  font-weight: 600;
+}
+.cm-value.current::before {
+  content: "▶ ";
+  opacity: 0.8;
+}
+.cm-value.past {
+  opacity: 0.5;
+}
+.cm-value.output {
+  color: var(--text);
+  background: color-mix(in srgb, var(--text) 8%, transparent);
+}
+.cm-value.output::before {
+  content: "› ";
+}
+
+/* ステップ表示の操作（パンくずの右） */
+.trace-stepper {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 12px;
+  padding: 1px 4px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  flex: none;
+}
+.trace-stepper button {
+  font: inherit;
+  font-size: 11px;
+  border: none;
+  background: transparent;
+  color: var(--accent);
+  cursor: pointer;
+  padding: 0 6px;
+  border-radius: 999px;
+}
+.trace-stepper button:hover {
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
+}
+.trace-stepper .step-label {
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+.breadcrumbs .side-switch {
+  margin-left: 12px;
+}
+.breadcrumbs .trace-stepper + .side-switch,
+.breadcrumbs > .side-switch:first-of-type {
+  margin-left: 12px;
+}
+.breadcrumbs .crumb-spacer {
+  flex: 1;
+}

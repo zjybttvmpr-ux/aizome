@@ -4,7 +4,7 @@ import type { EditorView } from "@codemirror/view";
 import { settings } from "../core/settings";
 import { bus } from "../core/events";
 
-export type SideMode = "explain" | "values" | "auto" | "off";
+export type SideMode = "explain" | "values" | "output" | "auto" | "off";
 
 export function sideMode(): SideMode {
   return settings.get("editor.sideView");

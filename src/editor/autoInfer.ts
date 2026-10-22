@@ -9,7 +9,7 @@ import { buildInferPrompt, hashText, lookupInferred, parseInfer, staticGuess, ty
 import { docFilename } from "./ghost";
 import { forEachView, sideMode, sideModeChanged, trackView } from "./sideMode";
 import { bus } from "../core/events";
-import { traceAt } from "./valueLens";
+import { traceAt, traceTimeAt } from "./valueLens";
 import { inferBusy, setInferBusy } from "./inferState";
 
 const inferUpdated = StateEffect.define<null>();
@@ -132,6 +132,19 @@ function wordAt(state: EditorState, pos: number): { from: number; to: number; te
 function tracedValue(state: EditorState, name: string, lineNo: number): { value: string; from: number } | null {
   const trace = traceAt(state);
   if (!trace) return null;
+  const time = traceTimeAt(state);
+  // ステップ表示中は、その瞬間までで最後にわかっている値
+  if (time !== null) {
+    let best: { value: string; from: number; s: number } | null = null;
+    for (const [l, e] of Object.entries(trace.lines)) {
+      for (const r of e.recs) {
+        const s = r.s ?? 0;
+        const v = r.c[name] ?? r.r[name];
+        if (v !== undefined && s <= time && (!best || s > best.s)) best = { value: v, from: Number(l), s };
+      }
+    }
+    return best;
+  }
   for (let l = lineNo; l >= 1; l--) {
     const e = trace.lines[String(l)];
     if (!e) continue;
@@ -161,13 +174,13 @@ function tooltipBox(name: string, lineNo: number, body: string, source: string):
 
 const hoverSource: Parameters<typeof hoverTooltip>[0] = (view, pos) => {
     const mode = sideMode();
-    if ((mode !== "auto" && mode !== "values") || !settings.get("editor.valueHover")) return null;
+    if ((mode !== "auto" && mode !== "values" && mode !== "output") || !settings.get("editor.valueHover")) return null;
     const word = wordAt(view.state, pos);
     if (!word) return null;
     const lineNo = view.state.doc.lineAt(pos).number;
     let body: string | null = null;
     let source = "";
-    if (mode === "values") {
+    if (mode === "values" || mode === "output") {
       const v = tracedValue(view.state, word.text, lineNo);
       if (v) {
         body = v.value;

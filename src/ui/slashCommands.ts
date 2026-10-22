@@ -201,6 +201,8 @@ export function registerBuiltinSlash(d: SlashDeps) {
     // ───── 実行
     cmd("auto", ["自動判定", "じどうはんてい", "予想", "よそう", "自動", "jidou", "推測"], "view.sideAuto", G.ai, "spark", "実行せずに AI が変数の中身とエラーの可能性を予想（変数にマウスを乗せると表示）"),
     cmd("side", ["表示切替", "表示切り替え", "ひょうじきりかえ", "切り替え", "横の表示"], "view.sideNext", G.view, "sidebar", "行の右の表示：説明 → 値 → 自動判定 → なし"),
+    cmd("output", ["出力", "しゅつりょく", "行ごとの出力", "print", "syutsuryoku"], "view.sideOutput", G.run, "terminal", "「値を見る」で記録した、行ごとの出力（print の結果）を行の右に表示"),
+    cmd("step", ["ステップ", "すてっぷ", "1回ずつ", "次の回", "その時点", "step"], "run.stepNext", G.run, "chevron", "その行が何回目に動いた瞬間の値・出力を 1 回ずつ見る（F7 / Shift+F7）"),
     cmd("values", ["値", "あたい", "値を見る", "変数", "へんすう", "中身", "なかみ", "トレース", "trace", "デバッグ", "debug", "atai"], "run.trace", G.run, "eye", "行ごとに変数の値を記録しながら実行して、行の右に表示（Python）"),
     cmd("run", ["実行", "じっこう", "jikkou", "jikko", "うごかす", "動かす", "F5"], "run.file", G.run, "play"),
     cmd("terminal", ["ターミナル", "たーみなる", "cmd", "コマンドプロンプト", "端末", "ta-minaru"], "terminal.toggle", G.run, "terminal"),

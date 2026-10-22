@@ -384,6 +384,7 @@ function sections(): Section[] {
           select("editor.sideView", [
             { value: "explain", label: t("side.explain") + " — " + t("side.explainTitle") },
             { value: "values", label: t("side.values") + " — " + t("side.valuesTitle") },
+            { value: "output", label: t("side.output") + " — " + t("side.outputTitle") },
             { value: "auto", label: t("side.auto") + " — " + t("side.autoTitle") },
             { value: "off", label: t("side.off") },
           ]),
