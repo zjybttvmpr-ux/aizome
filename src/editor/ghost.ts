@@ -5,6 +5,11 @@ import { Decoration, EditorView, ViewPlugin, WidgetType, keymap, type ViewUpdate
 import { completer } from "../ai/completer";
 import { cleanCompletion, commentIntent, contextKey, isCommentLine, shouldComplete } from "../ai/clean";
 import { language } from "@codemirror/language";
+import { Facet } from "@codemirror/state";
+import { cutAtDedent, fileHeader, planCompletion } from "../ai/plan";
+
+/** 開いているファイルの名前（補完で「何語のファイルか」を AI に伝えるため） */
+export const docFilename = Facet.define<string, string>({ combine: (v) => v[0] ?? "" });
 
 /** 言語の付いていない文書（テキスト）や Markdown か */
 function isProseFile(view: EditorView): boolean {
@@ -114,22 +119,34 @@ async function requestCompletion(view: EditorView) {
   const doc = state.doc;
   const line = doc.lineAt(pos);
   const lineSuffix = doc.sliceString(pos, line.to);
+  const linePrefix = doc.sliceString(line.from, pos);
   const intent = commentIntent(doc.sliceString(Math.max(0, pos - 2000), pos));
   // コメントで指示が書かれているときは、前後をより広く見せて長めに書かせる
-  const prefix = doc.sliceString(Math.max(0, pos - (intent ? 6000 : 4000)), pos);
+  const from = Math.max(0, pos - (intent ? 6000 : 4000));
+  let prefix = doc.sliceString(from, pos);
   const suffix = doc.sliceString(pos, Math.min(doc.length, pos + 1500));
   if (!shouldComplete(prefix, lineSuffix)) return;
 
-  const multiline = lineSuffix.trim() === "";
+  const plan = planCompletion({
+    linePrefix,
+    lineSuffix,
+    contentBefore: prefix.replace(/\s+/g, "").length,
+    intent: !!intent,
+    maxTokensSetting: settings.get("ai.maxTokens"),
+  });
+  // ファイルの先頭から見せているときは「# main.py」のような見出しを付けて、何語のファイルかを伝える
+  const header = from === 0 ? fileHeader(view.state.facet(docFilename)) : "";
+  if (header && !prefix.startsWith(header.trim())) prefix = header + prefix;
+
   // Markdown やテキスト、コメントの中では文章の候補も出してよい
-  const linePrefix = doc.sliceString(line.from, pos);
   const proseOk = isProseFile(view) || isCommentLine(linePrefix + "xx") || /["'`]/.test(linePrefix) && (linePrefix.split(/["'`]/).length - 1) % 2 === 1;
-  const maxTokens = intent ? Math.max(settings.get("ai.maxTokens"), 320) : settings.get("ai.maxTokens");
-  const maxLines = intent ? 40 : 12;
   const startDoc = doc;
   const show = (raw: string) => {
     if (view.state.doc !== startDoc || view.state.selection.main.head !== pos) return;
-    const text = cleanCompletion(raw, { lineSuffix, suffix, prefix, multiline, maxLines, proseOk });
+    let text = cleanCompletion(raw, { lineSuffix, suffix, prefix, multiline: plan.multiline, maxLines: plan.maxLines, proseOk });
+    text = cutAtDedent(text, plan.stopIndent, plan.allowClosing);
+    // 1文字だけ、空白だけの候補は出さない
+    if (text.trim().length < 2) text = "";
     const key = contextKey(prefix, text);
     const current = view.state.field(ghostField, false);
     if (!text || rejected.has(key)) {
@@ -139,7 +156,7 @@ async function requestCompletion(view: EditorView) {
     if (current?.text === text) return;
     view.dispatch({ effects: setGhost.of({ pos, text, key }) });
   };
-  const final = await completer.inline({ prefix, suffix, maxTokens }, show);
+  const final = await completer.inline({ prefix, suffix, maxTokens: plan.maxTokens }, show);
   if (final !== null) show(final);
 }
 

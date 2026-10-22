@@ -20,7 +20,7 @@ import { openSearchPanel } from "@codemirror/search";
 import { foldAll, unfoldAll } from "@codemirror/language";
 import { languages } from "@codemirror/language-data";
 import { editorTheme, syntaxColors } from "./theme";
-import { ghostText, triggerCompletion } from "./ghost";
+import { docFilename, ghostText, triggerCompletion } from "./ghost";
 import { buildLens } from "./buildLens";
 import { settings } from "../core/settings";
 import { filenameForLanguage } from "../core/languages";
@@ -35,6 +35,7 @@ interface DocEntry {
 
 const languageSlot = new Compartment();
 const configSlot = new Compartment();
+const nameSlot = new Compartment();
 
 function configExtensions(): Extension {
   const size = settings.get("editor.fontSize");
@@ -78,8 +79,9 @@ class CodeMirrorHost implements EditorHost {
     this.view.dom.style.display = "none";
   }
 
-  private extensions(): Extension[] {
+  private extensions(filename = ""): Extension[] {
     return [
+      nameSlot.of(docFilename.of(filename)),
       basicSetup,
       keymap.of([indentWithTab]),
       editorTheme,
@@ -118,7 +120,7 @@ class CodeMirrorHost implements EditorHost {
 
   async open(id: string, text: string, filename: string) {
     if (!this.docs.has(id)) {
-      const state = EditorState.create({ doc: text, extensions: this.extensions() });
+      const state = EditorState.create({ doc: text, extensions: this.extensions(filename) });
       this.docs.set(id, { state, filename, language: detect(filename)?.name ?? "Plain Text", scrollTop: 0 });
       void this.loadLanguage(id, filename);
     }
@@ -159,6 +161,13 @@ class CodeMirrorHost implements EditorHost {
     if (!entry) return;
     this.docs.delete(oldId);
     entry.filename = filename;
+    const effects = nameSlot.reconfigure(docFilename.of(filename));
+    if (this.activeId === oldId && this.view) {
+      this.view.dispatch({ effects });
+      entry.state = this.view.state;
+    } else {
+      entry.state = entry.state.update({ effects }).state;
+    }
     this.docs.set(newId, entry);
     if (this.activeId === oldId) this.activeId = newId;
     await this.loadLanguage(newId, filename);

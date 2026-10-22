@@ -40,6 +40,7 @@ export interface Settings {
   "editor.lineNumbers": boolean;
   "build.keepComments": boolean;
   "update.autoCheck": boolean;
+  "editor.suggestFont": "kyokasho" | "code" | "bizud";
   "update.skipVersion": string;
 }
 
@@ -83,6 +84,7 @@ export const defaults: Settings = {
   "editor.lineNumbers": true,
   "build.keepComments": true,
   "update.autoCheck": true,
+  "editor.suggestFont": "kyokasho",
   "update.skipVersion": "",
 };
 

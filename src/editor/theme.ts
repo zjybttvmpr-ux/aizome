@@ -49,7 +49,11 @@ export const editorTheme = EditorView.theme({
   },
   ".cm-panels": { backgroundColor: "var(--panel)", color: "var(--text)", borderColor: "var(--border)" },
   ".cm-panel input, .cm-panel button": { fontFamily: "inherit" },
+  ".cm-tooltip-autocomplete > ul": {
+    fontFamily: "var(--font-suggest)",
+  },
   ".cm-ghost": {
+    fontFamily: "var(--font-suggest)",
     color: "var(--ghost)",
     whiteSpace: "pre",
     textDecoration: "underline dotted var(--ghost-line)",

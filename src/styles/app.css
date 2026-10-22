@@ -52,6 +52,8 @@
   --ansi-bright-white: #ffffff;
 
   --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI Variable Text", "Segoe UI", "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans JP", "Yu Gothic UI", "Meiryo", sans-serif;
+  /* AI の候補と補完の一覧に使う字（UD デジタル教科書体。Mac は Klee、なければコードと同じ字） */
+  --font-suggest: "UD Digi Kyokasho N-R", "UD デジタル 教科書体 N-R", "UD Digi Kyokasho NK-R", "UD デジタル 教科書体 NK-R", "Klee", "Klee One", var(--font-code);
   --font-code: "JetBrains Mono", "Cascadia Code", "SF Mono", "Source Han Code JP", "Noto Sans Mono CJK JP", Menlo, Consolas, "MS Gothic", monospace;
 
   --side-w: 260px;

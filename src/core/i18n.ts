@@ -416,6 +416,11 @@ const ja: Dict = {
   "terminal.default": "既定",
   "terminal.setDefault": "いつも使うシェル",
   "terminal.noShells": "シェルが見つかりません",
+  "set.suggestFont": "候補の文字",
+  "set.suggestFont.kyokasho": "UD デジタル教科書体",
+  "set.suggestFont.bizud": "BIZ UD ゴシック",
+  "set.suggestFont.code": "コードと同じ字",
+  "set.suggestFontHelp": "AI の薄い候補と、補完の一覧に使う字です。PC に入っていない字は、コードと同じ字で表示します。",
 };
 
 const en: Dict = {
@@ -813,6 +818,11 @@ const en: Dict = {
   "terminal.default": "Default",
   "terminal.setDefault": "Default shell",
   "terminal.noShells": "No shells found",
+  "set.suggestFont": "Suggestion font",
+  "set.suggestFont.kyokasho": "UD Digi Kyokasho",
+  "set.suggestFont.bizud": "BIZ UDGothic",
+  "set.suggestFont.code": "Same as code",
+  "set.suggestFontHelp": "Font for faint AI suggestions and the completion list. Falls back to the code font if it isn't installed.",
 };
 
 const dicts: Record<string, Dict> = { ja, en };

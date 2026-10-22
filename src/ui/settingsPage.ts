@@ -272,6 +272,15 @@ function sections(): Section[] {
       build: () => [
         row(t("settings.fontSize"), number("editor.fontSize", 10, 28)),
         row(t("settings.fontFamily"), text("editor.fontFamily", "JetBrains Mono"), t("settings.fontFamilyHelp")),
+        row(
+          t("set.suggestFont"),
+          select("editor.suggestFont", [
+            { value: "kyokasho", label: t("set.suggestFont.kyokasho") },
+            { value: "bizud", label: t("set.suggestFont.bizud") },
+            { value: "code", label: t("set.suggestFont.code") },
+          ]),
+          t("set.suggestFontHelp"),
+        ),
         row(t("settings.tabSize"), number("editor.tabSize", 1, 8)),
         row(t("settings.wordWrap"), toggle("editor.wordWrap"), undefined, true),
         row(t("settings.lineNumbers"), toggle("editor.lineNumbers"), undefined, true),

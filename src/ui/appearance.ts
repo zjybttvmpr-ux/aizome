@@ -100,6 +100,9 @@ function applyColorOverrides() {
     root.style.colorScheme = scheme;
   }
   if (accent) for (const [k, v] of Object.entries(paletteFromAccent(accent))) set(k, v);
+  const suggest = settings.get("editor.suggestFont");
+  if (suggest === "code") set("--font-suggest", "var(--font-code)");
+  else if (suggest === "bizud") set("--font-suggest", '"BIZ UDGothic", "BIZ UDゴシック", "BIZ UDPGothic", var(--font-code)');
   const font = settings.get("editor.fontFamily").trim();
   if (font) set("--font-code", `${font.includes(",") || font.includes('"') ? font : `"${font}"`}, ${DEFAULT_CODE_FONT}`);
 }
@@ -148,7 +151,7 @@ export function initAppearance() {
   void applyBackgroundImage().then(() => bus.emit("theme:changed", { id: settings.get("ui.theme") }));
   applyZoom();
   bus.on("settings:changed", ({ key }) => {
-    if (key === "look.bgColor" || key === "look.accentColor" || key === "editor.fontFamily") {
+    if (key === "look.bgColor" || key === "look.accentColor" || key === "editor.fontFamily" || key === "editor.suggestFont") {
       // テーマを当て直してから上書きし直す（色を空に戻したときのため）
       applyTheme(settings.get("ui.theme"));
     }
