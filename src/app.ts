@@ -40,6 +40,7 @@ import { registerBuiltinSlash, showErrorExplanation } from "./ui/slashCommands";
 import { countChars } from "./core/jpText";
 import { ENCODINGS, encodingById, encodingLabel } from "./core/encodings";
 import { TRACER_PY, formatTrace, type TraceResult } from "./run/trace";
+import { inferBusy, onInferBusy } from "./editor/inferState";
 
 interface Doc {
   id: string;
@@ -73,6 +74,8 @@ export class App {
   /** 実行用のコピー → 元のファイル（エラーの場所をクリックしたとき元を開くため） */
   private runCopies = new Map<string, string>();
   private tracePoll: number | undefined;
+  /** 「値を見る」の結果があるファイル */
+  private valuesShown = new Set<string>();
   private lastRunDir: string | null = null;
   private sys: SysInfo = { os: "unknown", home: "", defaultShell: "", pathSep: "/" };
   private statusItems = new Map<string, { text: string; tooltip?: string }>();
@@ -153,6 +156,7 @@ export class App {
     this.build();
     this.registerCommands();
     this.registerSlashCommands();
+    this.watchSideMode();
     installKeybindings();
     this.bindEvents();
 
@@ -786,6 +790,36 @@ export class App {
     this.saveSession();
   }
 
+  /** 行の右に出すものの切り替え（説明／値／自動判定／なし） */
+  private sideSwitch(): HTMLElement {
+    const mode = settings.get("editor.sideView");
+    const opts: { id: "explain" | "values" | "auto" | "off"; label: string; title: string }[] = [
+      { id: "explain", label: t("side.explain"), title: t("side.explainTitle") },
+      { id: "values", label: t("side.values"), title: t("side.valuesTitle") },
+      { id: "auto", label: t("side.auto"), title: t("side.autoTitle") },
+      { id: "off", label: t("side.off"), title: t("side.offTitle") },
+    ];
+    return h(
+      "div",
+      { class: "side-switch", role: "radiogroup", "aria-label": t("side.label") },
+      h("span", { class: "side-switch-label" }, t("side.label")),
+      ...opts.map((o) =>
+        h(
+          "button",
+          {
+            type: "button",
+            role: "radio",
+            "aria-checked": String(mode === o.id),
+            class: "side-opt" + (mode === o.id ? " active" : "") + (o.id === "auto" && inferBusy ? " busy" : ""),
+            title: o.title,
+            onclick: () => settings.set("editor.sideView", o.id),
+          },
+          o.label,
+        ),
+      ),
+    );
+  }
+
   private renderBreadcrumbs() {
     clear(this.breadcrumbsEl);
     const doc = this.activeDoc();
@@ -796,6 +830,7 @@ export class App {
       if (i > 0) this.breadcrumbsEl.append(h("span", { class: "crumb-sep", "aria-hidden": "true", html: icon("chevron", 11) }));
       this.breadcrumbsEl.append(h("span", { class: i === parts.length - 1 ? "crumb current" : "crumb" }, p));
     });
+    this.breadcrumbsEl.append(this.sideSwitch());
   }
 
   private isMarkdown(doc?: Doc) {
@@ -1092,7 +1127,10 @@ export class App {
         }
         const values = formatTrace(result);
         if (this.activeId !== doc.id) this.activate(doc.id);
-        this.editor.showValues(doc.id, values);
+        this.editor.showValues(doc.id, { values, raw: result });
+        this.valuesShown.add(doc.id);
+        // 行の右の表示を「値」に切り替える
+        if (settings.get("editor.sideView") !== "values") settings.set("editor.sideView", "values");
         toast(t(result.truncated ? "trace.truncated" : "trace.done", { n: String(values.size) }), result.error ? "warn" : "success", 7000);
       } catch (err) {
         toast(t("trace.failed", { err: String(err) }), "error");
@@ -1421,6 +1459,7 @@ export class App {
           c("terminal.toggle", () => this.terminal.isVisible),
           c("view.markdownPreview", () => this.previewOn),
           c("view.dict"),
+          c("view.sideNext"),
           c("view.zen", () => this.el.classList.contains("zen")),
           c("editor.toggleExplain", () => settings.get("editor.explain") !== "off"),
           c("view.fullscreen"),
@@ -1541,6 +1580,21 @@ export class App {
         this.chatView.ask(q);
       },
     });
+  }
+
+  private watchSideMode() {
+    bus.on("settings:changed", ({ key }) => {
+      if (key !== "editor.sideView") return;
+      this.renderBreadcrumbs();
+      const mode = settings.get("editor.sideView");
+      if (mode === "auto") toast(t("side.autoToast"), "info", 6000);
+      if (mode === "values" && !this.anyValues()) toast(t("side.valuesEmpty"), "info", 5000);
+    });
+    onInferBusy(() => this.renderBreadcrumbs());
+  }
+
+  private anyValues(): boolean {
+    return this.valuesShown.has(this.activeId ?? "");
   }
 
   private registerSlashCommands() {
@@ -1711,8 +1765,19 @@ export class App {
     reg("run.trace", "cmd.trace", () => this.traceActive(), "F6", true);
     reg("run.clearValues", "cmd.clearValues", () => {
       const doc = this.activeDoc();
-      if (doc) this.editor.showValues(doc.id, null);
+      if (doc) {
+        this.editor.showValues(doc.id, null);
+        this.valuesShown.delete(doc.id);
+      }
     });
+    const sides = ["explain", "values", "auto", "off"] as const;
+    reg("view.sideNext", "cmd.sideNext", () => {
+      const i = sides.indexOf(settings.get("editor.sideView"));
+      settings.set("editor.sideView", sides[(i + 1) % sides.length]);
+    }, "Mod-Alt-V", true);
+    reg("view.sideAuto", "cmd.sideAuto", () => settings.set("editor.sideView", "auto"));
+    reg("view.sideExplain", "cmd.sideExplain", () => settings.set("editor.sideView", "explain"));
+    reg("view.sideValues", "cmd.sideValues", () => settings.set("editor.sideView", "values"));
     reg("view.dict", "cmd.dict", () => {
       this.showView("dict");
       this.dictView.focus();

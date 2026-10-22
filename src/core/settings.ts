@@ -45,6 +45,8 @@ export interface Settings {
   "editor.suggestList": "smart" | "off";
   "editor.listKey": "tab" | "enter";
   "editor.zenkaku": boolean;
+  /** 行の右に出すもの：説明／値（値を見るの結果）／自動判定（AI の予想）／なし */
+  "editor.sideView": "explain" | "values" | "auto" | "off";
   /** 新しいファイル（保存前）を何語として扱うか（拡張子） */
   "files.newFileLanguage": string;
   /** 新しく保存するファイルの文字コード */
@@ -102,6 +104,7 @@ export const defaults: Settings = {
   "editor.suggestList": "smart",
   "editor.listKey": "tab",
   "editor.zenkaku": true,
+  "editor.sideView": "explain",
   "files.newFileLanguage": ".py",
   "files.encoding": "utf-8",
   "files.guessEncoding": true,

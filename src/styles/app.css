@@ -3023,3 +3023,97 @@ html.has-bg .settings-page {
 .run-btn.secondary:hover {
   background: color-mix(in srgb, var(--accent) 12%, transparent);
 }
+
+/* 行の右の表示の切り替え（パンくずの右端） */
+.side-switch {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding-left: 12px;
+  flex: none;
+}
+.side-switch-label {
+  font-size: 11px;
+  color: var(--text-faint);
+  margin-right: 4px;
+}
+.side-opt {
+  font: inherit;
+  font-size: 11px;
+  padding: 1px 9px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.side-opt:hover {
+  color: var(--text);
+  background: color-mix(in srgb, var(--text) 6%, transparent);
+}
+.side-opt.active {
+  color: var(--text);
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+}
+.side-opt.busy::after {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-left: 5px;
+  border-radius: 50%;
+  background: var(--accent);
+  vertical-align: 1px;
+  animation: side-busy 1s ease-in-out infinite;
+}
+@keyframes side-busy {
+  50% { opacity: 0.25; }
+}
+.breadcrumbs:has(.side-switch) {
+  display: flex;
+}
+
+/* 自動判定：エラーになりそうな行 */
+.cm-risk {
+  margin-left: 2.5em;
+  font-family: var(--font-suggest);
+  font-size: 0.86em;
+  color: color-mix(in srgb, var(--danger) 75%, var(--text-muted));
+  opacity: 0.85;
+  white-space: pre;
+  pointer-events: none;
+}
+
+/* 変数にマウスを乗せたときの小窓 */
+.cm-tooltip.cm-tooltip-hover:has(.cm-var-tip) {
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--border));
+  border-radius: 8px;
+  background: var(--panel);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.25);
+}
+.cm-var-tip {
+  padding: 6px 10px 7px;
+  max-width: 460px;
+}
+.cm-var-tip-head {
+  font-family: var(--font-ui);
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.cm-var-tip-value {
+  margin: 3px 0;
+  font-family: var(--font-code);
+  font-size: 12.5px;
+  color: var(--accent);
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 180px;
+  overflow: auto;
+}
+.cm-var-tip-src {
+  font-family: var(--font-ui);
+  font-size: 10.5px;
+  color: var(--text-faint);
+}

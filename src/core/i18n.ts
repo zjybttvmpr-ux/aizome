@@ -508,6 +508,21 @@ const ja: Dict = {
   "set.eol": "改行コード（新しいファイル）",
   "set.eolHelp": "開いたファイルは、そのファイルの改行コードのまま保存します。",
   "terminal.copied": "コピーしました",
+  "side.label": "行の右",
+  "side.explain": "説明",
+  "side.values": "値",
+  "side.auto": "自動判定",
+  "side.off": "なし",
+  "side.explainTitle": "何をする行かの説明",
+  "side.valuesTitle": "「値を見る（F6）」で実行した結果の値。変数にマウスを乗せるとその時点の値",
+  "side.autoTitle": "実行せずに AI が予想：変数にマウスを乗せるとその時点の値、エラーになりそうな行に ⚠",
+  "side.offTitle": "何も出さない",
+  "side.autoToast": "自動判定モード：実行はせず、AI がコードを読んで予想します。変数にマウスを乗せて少し待つと、その行の時点の値が出ます（エラーになりそうな行には ⚠）",
+  "side.valuesEmpty": "まだ値がありません。「値を見る（F6）」で実行すると、各行の右に値が出ます",
+  "cmd.sideNext": "行の右の表示を切り替える（説明／値／自動判定／なし）",
+  "cmd.sideAuto": "自動判定モード（AI が変数の中身とエラーを予想）",
+  "cmd.sideExplain": "行の右に説明を表示",
+  "cmd.sideValues": "行の右に値を表示",
 };
 
 const en: Dict = {
@@ -997,6 +1012,21 @@ const en: Dict = {
   "set.eol": "Line endings for new files",
   "set.eolHelp": "Opened files keep their own line endings.",
   "terminal.copied": "Copied",
+  "side.label": "Beside lines",
+  "side.explain": "Explain",
+  "side.values": "Values",
+  "side.auto": "Auto",
+  "side.off": "Off",
+  "side.explainTitle": "What each line does",
+  "side.valuesTitle": "Values recorded by Show values (F6). Hover a variable for its value at that point",
+  "side.autoTitle": "AI predicts without running: hover a variable for its value; ⚠ on lines likely to fail",
+  "side.offTitle": "Show nothing",
+  "side.autoToast": "Auto mode: the AI reads your code without running it. Hover a variable to see its predicted value at that line (⚠ marks lines likely to fail)",
+  "side.valuesEmpty": "No values yet. Run Show values (F6) to see values beside each line",
+  "cmd.sideNext": "Cycle what is shown beside lines",
+  "cmd.sideAuto": "Auto mode (AI predicts variables and errors)",
+  "cmd.sideExplain": "Show explanations beside lines",
+  "cmd.sideValues": "Show values beside lines",
 };
 
 const dicts: Record<string, Dict> = { ja, en };

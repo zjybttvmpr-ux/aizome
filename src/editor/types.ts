@@ -43,7 +43,7 @@ export interface EditorHost {
    */
   insertSnippet(template: string): void;
   /** 「値を見る」の結果を行の右に出す（null で消す） */
-  showValues(id: string, values: Map<number, import("../run/trace").LineValue> | null): void;
+  showValues(id: string, data: { values: Map<number, import("../run/trace").LineValue>; raw: import("../run/trace").TraceResult } | null): void;
   cursor(): { line: number; col: number };
   goTo(line: number, col?: number): void;
   languageName(id?: string): string;

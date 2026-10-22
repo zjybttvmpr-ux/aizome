@@ -9,6 +9,7 @@ import { explainLine, isTrivial, langFromFilename } from "../ai/explainRules";
 import { languageOf } from "../ai/plan";
 import { docFilename, ghostPos } from "./ghost";
 import { hasValueAt, setValues } from "./valueLens";
+import { sideMode, sideModeChanged } from "./sideMode";
 
 const refresh = StateEffect.define<null>();
 
@@ -58,7 +59,7 @@ function explainFor(filename: string, text: string): { text: string; ai: boolean
 
 function build(view: EditorView): DecorationSet {
   const mode = settings.get("editor.explain");
-  if (mode === "off") return Decoration.none;
+  if (mode === "off" || sideMode() !== "explain") return Decoration.none;
   const filename = view.state.facet(docFilename);
   const ghost = ghostPos(view.state);
   const ghostLine = ghost !== null ? view.state.doc.lineAt(ghost).number : -1;
@@ -99,7 +100,7 @@ function stopAi() {
 
 function scheduleAi(view: EditorView, delay = 1800) {
   window.clearTimeout(timer);
-  if (settings.get("editor.explain") !== "ai" || !settings.get("ai.enabled")) return;
+  if (settings.get("editor.explain") !== "ai" || !settings.get("ai.enabled") || sideMode() !== "explain") return;
   if (Date.now() < pauseUntil) delay = Math.max(delay, pauseUntil - Date.now());
   timer = window.setTimeout(() => void askAi(view), delay);
 }
@@ -187,10 +188,11 @@ export function lineExplanations(): Extension {
         scheduleAi(view, 2500);
       }
       update(u: ViewUpdate) {
-        const refreshed = u.transactions.some((tr) => tr.effects.some((e) => e.is(refresh) || e.is(setValues)));
+        const refreshed = u.transactions.some((tr) => tr.effects.some((e) => e.is(refresh) || e.is(setValues) || e.is(sideModeChanged)));
         if (u.docChanged || u.viewportChanged || refreshed || u.selectionSet) this.decorations = build(u.view);
         if (u.docChanged) stopAi();
         if (u.docChanged || u.viewportChanged) scheduleAi(u.view);
+        else if (u.transactions.some((tr) => tr.effects.some((e) => e.is(sideModeChanged)))) scheduleAi(u.view, 300);
       }
       destroy() {
         views.delete(this.view);

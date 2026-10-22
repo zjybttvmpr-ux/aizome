@@ -301,6 +301,15 @@ function sections(): Section[] {
         ),
         row(t("set.zenkaku"), toggle("editor.zenkaku"), t("set.zenkakuHelp"), true),
         row(
+          t("side.label"),
+          select("editor.sideView", [
+            { value: "explain", label: t("side.explain") + " — " + t("side.explainTitle") },
+            { value: "values", label: t("side.values") + " — " + t("side.valuesTitle") },
+            { value: "auto", label: t("side.auto") + " — " + t("side.autoTitle") },
+            { value: "off", label: t("side.off") },
+          ]),
+        ),
+        row(
           t("set.explain"),
           select("editor.explain", [
             { value: "ai", label: t("set.explain.ai") },
