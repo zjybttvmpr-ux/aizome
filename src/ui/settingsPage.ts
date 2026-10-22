@@ -307,6 +307,7 @@ function sections(): Section[] {
         row(t("feat.indentFollow"), toggle("editor.indentFollow"), t("feat.indentFollow.help"), true),
         row(t("feat.clipHistory"), toggle("clip.history"), t("feat.clipHistory.help"), true),
         row(t("feat.checkTools"), toggle("run.checkTools"), t("feat.checkTools.help"), true),
+        row(t("feat.formatter"), toggle("editor.externalFormatter"), t("feat.formatter.help"), true),
         row(t("feat.sideAuto"), toggle("ui.sidebarAutoCollapse"), t("feat.sideAuto.help"), true),
         row(t("feat.liveCheck"), toggle("editor.liveCheck"), t("feat.liveCheck.help"), true),
         row(t("feat.importHelp"), toggle("editor.importHelp"), t("feat.importHelp.help"), true),

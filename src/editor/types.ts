@@ -69,6 +69,8 @@ export interface EditorHost {
   isSplit(): boolean;
   /** 0 = 左、1 = 右 */
   paneOf(id: string): number;
+  /** 見えているがわごとの見出しの場所と、そこに出ているファイル */
+  paneBars(): { id: string | null; el: HTMLElement }[];
   /** 今見えているファイル（左右） */
   visibleIds(): string[];
   /** もう一方のがわをクリックしたときなど */

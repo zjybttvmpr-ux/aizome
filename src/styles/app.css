@@ -3879,10 +3879,9 @@ body.resizing-x * {
 }
 .menubar {
   display: flex;
+  flex: none;
   align-items: center;
   gap: 1px;
-  min-width: 0;
-  overflow: hidden;
 }
 .menubar-item {
   height: 28px;
@@ -3929,4 +3928,192 @@ body.resizing-x * {
   height: 18px;
   margin: 0 4px;
   background: var(--border);
+}
+
+/* 関数の一覧（アウトライン） */
+.outline-view {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+}
+.outline-top {
+  padding: 4px 10px 8px;
+}
+.outline-filter {
+  width: 100%;
+}
+.outline-list {
+  flex: 1;
+  overflow: auto;
+  padding: 0 4px 12px;
+}
+.outline-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px 2px calc(6px + var(--level, 0) * 14px);
+  border-radius: 6px;
+  font-size: 13px;
+  line-height: 1.7;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.outline-row:hover,
+.outline-row:focus-visible {
+  background: color-mix(in srgb, var(--text) 7%, transparent);
+  outline: none;
+}
+.outline-row.current {
+  background: var(--accent-soft);
+}
+.outline-twisty {
+  width: 10px;
+  flex: none;
+  font-size: 10px;
+  color: var(--text-faint);
+  transition: transform 0.12s;
+}
+.outline-twisty.open {
+  transform: rotate(90deg);
+}
+.outline-badge {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  font: 600 10px/1 var(--font-code);
+}
+.outline-badge.k-class { color: #e5a84b; background: color-mix(in srgb, #e5a84b 16%, transparent); }
+.outline-badge.k-iface { color: #4fb8c9; background: color-mix(in srgb, #4fb8c9 16%, transparent); }
+.outline-badge.k-ns { color: var(--text-muted); background: color-mix(in srgb, var(--text) 10%, transparent); }
+.outline-badge.k-func { color: #b48ade; background: color-mix(in srgb, #b48ade 16%, transparent); }
+.outline-badge.k-prop { color: #5fb878; background: color-mix(in srgb, #5fb878 16%, transparent); }
+.outline-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.outline-detail {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: var(--font-code);
+  font-size: 11px;
+  color: var(--text-faint);
+}
+.outline-line {
+  margin-left: auto;
+  padding-left: 8px;
+  font-size: 10.5px;
+  color: var(--text-faint);
+}
+.outline-empty {
+  margin: 12px;
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--text-faint);
+}
+
+/* ターミナルを左右に並べて比べる */
+.panel-body.pair .term-view.pair-left {
+  inset: 0 calc(50% + 6px) 4px 12px;
+}
+.panel-body.pair .term-view.pair-right {
+  inset: 0 0 4px calc(50% + 6px);
+  padding-left: 10px;
+  border-left: 1px solid var(--border);
+}
+.panel-tab.paired {
+  color: var(--text);
+  background: color-mix(in srgb, var(--text) 6%, transparent);
+}
+.panel-actions .icon-btn.on {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+/* 左右それぞれのファイルの上の見出し（ファイル名・行の右の表示・値を見る・実行） */
+.editor-pane {
+  display: flex;
+  flex-direction: column;
+}
+.editor-mount .editor-pane .cm-editor {
+  flex: 1;
+  min-height: 0;
+  height: auto;
+}
+.pane-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+  height: 34px;
+  padding: 0 10px 0 14px;
+  background: var(--editor-bg);
+  color: var(--text-faint);
+  font-size: 12px;
+  white-space: nowrap;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+}
+.pane-bar[hidden] {
+  display: none;
+}
+.pane-crumbs {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+}
+.pane-tools {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+}
+.pane-tools .side-switch,
+.pane-tools .trace-stepper {
+  margin: 0;
+}
+.run-btn.small {
+  height: 24px;
+  padding: 0 10px 0 8px;
+  font-size: 12px;
+  gap: 5px;
+}
+.pane-tools .run-btn.secondary {
+  margin-right: 0;
+}
+.editor-mount.split .pane-bar:not(.current) {
+  opacity: 0.75;
+}
+html.has-bg .pane-bar {
+  background: color-mix(in srgb, var(--editor-bg) var(--glass, 82%), transparent);
+}
+.app.zen .pane-bar {
+  display: none;
+}
+/* 狭いがわでは、行の右の表示の「行の右」の字を省く */
+@container pane (max-width: 760px) {
+  .pane-tools .side-switch-label {
+    display: none;
+  }
+}
+.editor-pane {
+  container: pane / inline-size;
+}
+
+/* メニューバーが途中で切れないように */
+.menubar {
+  overflow: visible;
+  flex: none;
+}
+.brand {
+  flex: none;
+}
+.topbar .brand {
+  min-width: max-content;
 }

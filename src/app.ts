@@ -36,6 +36,9 @@ import { createSaveHistory } from "./ui/saveHistory";
 import { createFileGroups } from "./ui/fileGroups";
 import { exportSettings, importSettings } from "./ui/settingsTransfer";
 import { contextMenu, type MenuItem as CtxItem } from "./ui/fileTree";
+import { OutlineView } from "./ui/outlineView";
+import { buildOutline, currentSymbol, outlineLangOf, type OutlineItem } from "./editor/outline";
+import { formatBraces, formatJson, formatPlain, formatPython } from "./editor/format";
 import { BUILD_TARGETS, RUN_TOOLS, fillBuild, isUnityScript, javaMainClass, type Toolchain } from "./run/build";
 import { askExportOptions, defaultExportOptions, exportBody, exportCss, exportDocx, exportHtmlDocument, exportText, toBase64, type ExportOptions } from "./ui/exportCode";
 import { clipHistory, clipLabel, startClipWatch } from "./core/clipHistory";
@@ -71,7 +74,7 @@ function defaultEncoding(): { encoding: string; bom: boolean; eol: "crlf" | "lf"
   return { encoding: e.encoding, bom: e.bom, eol: settings.get("files.eol") === "crlf" ? "crlf" : "lf" };
 }
 
-type ViewName = "explorer" | "search" | "dict" | "ai" | "extensions" | "settings";
+type ViewName = "explorer" | "outline" | "search" | "dict" | "ai" | "extensions" | "settings";
 
 export class App {
   private editor: EditorHost = createEditorHost();
@@ -102,6 +105,13 @@ export class App {
   private tabsEl!: HTMLElement;
   private editorMount!: HTMLElement;
   private undoBtn!: HTMLButtonElement;
+  private outlineView = new OutlineView((it) => {
+    this.editor.goTo(it.line, 1);
+    this.editor.focus();
+  });
+  private outlineItems: OutlineItem[] = [];
+  private outlineTimer = 0;
+  private askedBlack = false;
   private redoBtn!: HTMLButtonElement;
   private welcomeEl!: HTMLElement;
   private sidebarEl!: HTMLElement;
@@ -117,6 +127,7 @@ export class App {
   private explorerEmpty!: HTMLElement;
   private menuButton!: HTMLElement;
   private breadcrumbsEl!: HTMLElement;
+  private barsReady = new WeakSet<HTMLElement>();
   private previewEl!: HTMLElement;
   private editorArea!: HTMLElement;
   private previewOn = false;
@@ -474,18 +485,6 @@ export class App {
         button("wand", t("cmd.slash"), () => void openSlashPalette("/", () => this.quickOpen()), "top-tool"),
         button("help", `${t("cmd.help")} (F1)`, () => helpPage.open(), "top-tool"),
         this.aiPill,
-        h(
-          "button",
-          { class: "run-btn secondary", title: `${t("cmd.trace")} (F6)`, onclick: () => this.traceActive() },
-          h("span", { html: icon("eye", 14) }),
-          h("span", {}, t("top.trace")),
-        ),
-        h(
-          "button",
-          { class: "run-btn", title: `${t("cmd.run")} (F5)`, onclick: () => this.runActive() },
-          h("span", { html: icon("play", 13) }),
-          h("span", {}, t("top.run")),
-        ),
       ),
     );
 
@@ -496,6 +495,7 @@ export class App {
       activity.append(b);
     };
     addActivity("explorer", "files", t("view.explorer"));
+    addActivity("outline", "outline", t("view.outline"));
     addActivity("search", "search", t("view.search"));
     addActivity("dict", "book", t("view.dict"));
     this.activityButtons.get("dict")?.classList.add("activity-dict");
@@ -523,6 +523,8 @@ export class App {
     this.groups.render();
     void this.history.refresh();
     this.views.set("explorer", explorer);
+    this.views.set("outline", this.outlineView.el);
+    this.outlineView.el.addEventListener("view:show", () => this.refreshOutline(true));
     this.views.set("search", this.searchView.el);
     this.views.set("dict", this.dictView.el);
     this.views.set("ai", this.chatView.el);
@@ -540,7 +542,7 @@ export class App {
     this.previewEl = h("article", { class: "md-preview", hidden: true, "aria-label": t("preview.label") });
     this.editorArea = h("div", { class: "editor-area" }, this.editorMount, this.previewEl, this.welcomeEl);
     const editorArea = this.editorArea;
-    const main = h("main", { class: "main" }, this.tabsEl, this.breadcrumbsEl, editorArea, panelResizer, this.terminal.el);
+    const main = h("main", { class: "main" }, this.tabsEl, editorArea, panelResizer, this.terminal.el);
 
     this.statusLeft = h("div", { class: "status-left" });
     this.statusRight = h("div", { class: "status-right" });
@@ -932,6 +934,7 @@ export class App {
     this.activeId = id;
     this.editor.activate(id);
     this.renderHistoryButtons();
+    this.refreshOutline(true);
     this.groups?.render();
     void this.history?.refresh();
     const doc = this.activeDoc();
@@ -1033,8 +1036,7 @@ export class App {
     this.refreshTrace(doc.id);
   }
 
-  private traceStepper(): HTMLElement | null {
-    const doc = this.activeDoc();
+  private traceStepper(doc = this.activeDoc()): HTMLElement | null {
     const raw = doc ? this.traceRaw.get(doc.id) : undefined;
     const mode = settings.get("editor.sideView");
     if (!doc || !raw || (mode !== "values" && mode !== "output")) return null;
@@ -1108,20 +1110,62 @@ export class App {
     );
   }
 
+  /** 左右それぞれのファイルの上に、ファイル名・ステップ表示・行の右の表示・値を見る・実行を出す */
   private renderBreadcrumbs() {
     clear(this.breadcrumbsEl);
-    const doc = this.activeDoc();
-    if (!doc) return;
-    const rel = doc.path ? (this.root && isInside(this.root, doc.path) ? relative(this.root, doc.path) : doc.path) : doc.name;
-    const parts = rel.split(/[\\/]/).filter(Boolean);
-    parts.forEach((p, i) => {
-      if (i > 0) this.breadcrumbsEl.append(h("span", { class: "crumb-sep", "aria-hidden": "true", html: icon("chevron", 11) }));
-      this.breadcrumbsEl.append(h("span", { class: i === parts.length - 1 ? "crumb current" : "crumb" }, p));
-    });
-    this.breadcrumbsEl.append(h("span", { class: "crumb-spacer" }));
-    const stepper = this.traceStepper();
-    if (stepper) this.breadcrumbsEl.append(stepper);
-    this.breadcrumbsEl.append(this.sideSwitch());
+    for (const { id, el } of this.editor.paneBars()) {
+      clear(el);
+      const doc = id ? this.docs.find((d) => d.id === id) : undefined;
+      el.hidden = !doc;
+      if (!doc) continue;
+      el.classList.toggle("current", doc.id === this.activeId);
+      el.dataset.doc = doc.id;
+      if (!this.barsReady.has(el)) {
+        this.barsReady.add(el);
+        // 押したときに作り直されてボタンが消えないように、フォーカスは動かさない
+        el.addEventListener("mousedown", (e) => {
+          if ((e.target as HTMLElement).closest("button")) e.preventDefault();
+          e.stopPropagation();
+        });
+        // 押したボタンの処理より先に、このがわのファイルを「今のファイル」にする
+        el.addEventListener(
+          "click",
+          () => {
+            const id = el.dataset.doc;
+            if (id && id !== this.activeId) this.activate(id);
+          },
+          true,
+        );
+      }
+      const crumbs = h("div", { class: "pane-crumbs" });
+      const rel = doc.path ? (this.root && isInside(this.root, doc.path) ? relative(this.root, doc.path) : doc.path) : doc.name;
+      const parts = rel.split(/[\\/]/).filter(Boolean);
+      parts.forEach((p, i) => {
+        if (i > 0) crumbs.append(h("span", { class: "crumb-sep", "aria-hidden": "true", html: icon("chevron", 11) }));
+        crumbs.append(h("span", { class: i === parts.length - 1 ? "crumb current" : "crumb" }, p));
+      });
+      const tools = h("div", { class: "pane-tools" });
+      const stepper = this.traceStepper(doc);
+      if (stepper) tools.append(stepper);
+      tools.append(this.sideSwitch());
+      // このファイルを実行する（押すと、先にこのがわが「今のファイル」になる）
+      const act = (fn: () => unknown) => () => void fn();
+      tools.append(
+        h(
+          "button",
+          { class: "run-btn secondary small", type: "button", title: `${t("pane.trace")} (F6)`, onclick: act(() => this.traceActive()) },
+          h("span", { html: icon("eye", 13) }),
+          h("span", {}, t("top.trace")),
+        ),
+        h(
+          "button",
+          { class: "run-btn small", type: "button", title: `${t("pane.run")} (F5)`, onclick: act(() => this.runActive()) },
+          h("span", { html: icon("play", 12) }),
+          h("span", {}, t("top.run")),
+        ),
+      );
+      el.append(crumbs, tools);
+    }
   }
 
   private isMarkdown(doc?: Doc) {
@@ -1383,7 +1427,10 @@ export class App {
       return;
     }
     const target = await this.prepareRunTarget(doc);
-    if (target) await this.runPath(target.path, target.overrides, target.cleanup, await this.inputsFileFor(doc));
+    if (target) {
+      await this.runPath(target.path, target.overrides, target.cleanup, await this.inputsFileFor(doc), { key: doc.id, name: doc.name });
+      this.pairRunsIfSplit();
+    }
   }
 
   /** 入力の登録（ファイルごと）。キーは保存してあればパス、なければタブの ID */
@@ -1478,7 +1525,8 @@ export class App {
     this.lastRunDir = target.cwd ?? target.overrides.file.replace(/[\\/][^\\/]*$/, "");
     this.editor.showValues(doc.id, null);
     const startText = this.editor.getText(doc.id);
-    await this.terminal.run(cmd, target.cwd ?? undefined);
+    await this.terminal.run(cmd, target.cwd ?? undefined, { key: doc.id, name: doc.name });
+    this.pairRunsIfSplit();
     toast(t("trace.running"), "info", 4000);
     // 終わると記録のファイルができるので、それを待って読む
     window.clearInterval(this.tracePoll);
@@ -1512,7 +1560,14 @@ export class App {
     }, 500);
   }
 
-  private async runPath(path: string, overrides?: Record<string, string>, cleanup?: string, inputsFile?: string) {
+  /** 左右に並べたファイルを両方実行したら、ターミナルも左右に並べて比べられるようにする */
+  private pairRunsIfSplit() {
+    if (!this.editor.isSplit()) return;
+    const ids = this.editor.visibleIds();
+    if (ids.length === 2) this.terminal.pairKeys(ids[0], ids[1]);
+  }
+
+  private async runPath(path: string, overrides?: Record<string, string>, cleanup?: string, inputsFile?: string, who?: { key: string; name: string }) {
     const config = findRunConfig(path);
     if (!config) {
       toast(t("run.noConfig", { name: basename(path) }), "warn", 6000);
@@ -1552,7 +1607,7 @@ export class App {
     }
     const cwd = overrides?.fileDir && overrides.fileDir !== "." ? overrides.fileDir : overrides ? undefined : dirname(path);
     this.lastRunDir = cwd ?? dirname(path);
-    await this.terminal.run(cmd, cwd);
+    await this.terminal.run(cmd, cwd, who);
   }
 
   /**
@@ -1799,6 +1854,143 @@ export class App {
   }
 
   // ───────────── タブ
+
+  /** 関数の一覧を作り直す（見えているときだけ。now = すぐに） */
+  private refreshOutline(now = false) {
+    window.clearTimeout(this.outlineTimer);
+    const run = () => {
+      const visible = this.currentView === "outline" && !this.el.classList.contains("sidebar-hidden");
+      if (!visible) return;
+      const doc = this.activeDoc();
+      if (!doc) {
+        this.outlineItems = [];
+        this.outlineView.set([], t("outline.noFile"));
+        return;
+      }
+      const lang = outlineLangOf(extname(this.effectiveName(doc)));
+      if (!lang) {
+        this.outlineItems = [];
+        this.outlineView.set(null, t("outline.unsupported"));
+        return;
+      }
+      this.outlineItems = buildOutline(this.editor.getText(doc.id), lang);
+      this.outlineView.set(this.outlineItems, t("outline.none"));
+      this.outlineView.setCurrent(currentSymbol(this.outlineItems, this.editor.cursor().line));
+    };
+    if (now) run();
+    else this.outlineTimer = window.setTimeout(run, 350);
+  }
+
+  /** Ctrl+Shift+O：関数・クラスを選んで飛ぶ */
+  private async gotoSymbol() {
+    const doc = this.activeDoc();
+    if (!doc) return;
+    const lang = outlineLangOf(extname(this.effectiveName(doc)));
+    const items = lang ? buildOutline(this.editor.getText(doc.id), lang) : [];
+    if (!items.length) {
+      toast(t(lang ? "outline.none" : "outline.unsupported"), "info");
+      return;
+    }
+    const pick = await quickPick(
+      items.map((it) => ({ label: `${"　".repeat(it.level)}${it.name}`, detail: `${t(`outline.kind.${it.kind}`)}${it.detail ? "  " + it.detail : ""}`, hint: String(it.line), value: it })),
+      t("outline.pick"),
+    );
+    if (pick) this.editor.goTo(pick.line, 1);
+  }
+
+  /** 自動整形：black・gofmt・rustfmt・clang-format があれば使い、なければあいぞめの中の簡単な整形 */
+  private async formatActive() {
+    const doc = this.activeDoc();
+    if (!doc) return;
+    const text = this.editor.getText(doc.id);
+    const ext = extname(this.effectiveName(doc)).toLowerCase();
+    const tab = settings.get("editor.tabSize");
+    const useExternal = settings.get("editor.externalFormatter");
+    let result: string | null = null;
+    let used = t("format.builtin");
+    const external = async (program: string, args: string[], label: string): Promise<boolean> => {
+      try {
+        const r = await tools.capture(program, args, text, doc.path ? dirname(doc.path) : undefined);
+        if (r.code === 0 && r.stdout.trim()) {
+          result = r.stdout.replace(/\r\n/g, "\n");
+          used = label;
+          return true;
+        }
+        if (r.code !== 0 && !/No module named|not recognized|not found/i.test(r.stderr)) {
+          // 文法のまちがいなどで整えられなかった
+          const first = r.stderr.split("\n").find((l) => l.trim()) ?? "";
+          toast(t("format.failed", { tool: label, err: first.slice(0, 200) }), "warn", 8000);
+          result = text;
+          return true;
+        }
+      } catch {
+        /* 見つからない・動かない：次の方法へ */
+      }
+      return false;
+    };
+    const lang = outlineLangOf(ext);
+    if (useExternal) {
+      if (lang === "python") {
+        const py = await this.pythonProgram();
+        if (py && !(await external(py.program, [...py.args, "-m", "black", "-q", "-"], "black"))) {
+          if (!this.askedBlack) {
+            this.askedBlack = true;
+            const answer = await choose(t("format.blackTitle"), t("format.blackMessage"), [
+              { label: t("format.builtinOnce"), value: "builtin", kind: "plain" },
+              { label: t("format.installBlack"), value: "install", kind: "primary" },
+            ], "builtin");
+            if (answer === "install") {
+              const win = this.sys.os === "windows";
+              const call = (/[\s\\/]/.test(py.program) ? (win ? `& "${py.program}"` : `"${py.program}"`) : py.program) + (py.args.length ? " " + py.args.join(" ") : "");
+              const done = t("format.blackInstalled");
+              await this.terminal.run(win ? `${call} -m pip install --user black; Write-Host ""; Write-Host "${done}" -ForegroundColor Green` : `${call} -m pip install --user black && echo "${done}"`);
+              return;
+            }
+          }
+        }
+      } else if (lang === "go" || lang === "rust" || ext === ".c" || ext === ".h" || lang === "cpp" || ext === ".java" || ext === ".cs" || [".js", ".ts", ".jsx", ".tsx", ".mjs"].includes(ext)) {
+        const names = lang === "go" ? ["gofmt"] : lang === "rust" ? ["rustfmt"] : ["clang-format"];
+        try {
+          const found = await tools.find(names);
+          if (found) {
+            const args = lang === "go" ? [] : lang === "rust" ? ["--edition", "2021", "--emit", "stdout"] : [`--assume-filename=file${ext}`, `--style={BasedOnStyle: Microsoft, IndentWidth: ${tab}, ColumnLimit: 0}`];
+            await external(found.path, args, names[0]);
+          }
+        } catch {
+          /* なければ中の整形 */
+        }
+      }
+    }
+    if (result === null) {
+      if (lang === "python") result = formatPython(text, tab);
+      else if (lang) result = formatBraces(text, lang, tab);
+      else if (ext === ".json") result = formatJson(text, tab) ?? text;
+      else result = formatPlain(text);
+    }
+    const finalText = result as string;
+    if (finalText === text) {
+      toast(t("format.same"), "info", 3000);
+      return;
+    }
+    this.editor.activate(doc.id);
+    this.editor.applyText(finalText);
+    toast(t("format.done", { tool: used }), "success", 3500);
+  }
+
+  /** python の呼び方（プログラムと引数に分ける） */
+  private async pythonProgram(): Promise<{ program: string; args: string[] } | null> {
+    try {
+      const info = await runtimes.findPython();
+      const cmd = info.command;
+      if (!cmd) return null;
+      const quoted = /^"([^"]+)"\s*(.*)$/.exec(cmd);
+      if (quoted) return { program: quoted[1], args: quoted[2] ? quoted[2].split(/\s+/) : [] };
+      const [program, ...args] = cmd.split(/\s+/);
+      return { program, args };
+    } catch {
+      return { program: this.sys.os === "windows" ? "python" : "python3", args: [] };
+    }
+  }
 
   /** 上の ↺ ↻：今のファイルを元に戻す／やり直す（Ctrl+Z・Ctrl+Y と同じ記録を使う） */
   private async historyStep(kind: "undo" | "redo") {
@@ -2099,6 +2291,7 @@ export class App {
           c("edit.copy"),
           c("edit.paste"),
           c("edit.pasteHistory"),
+          c("edit.format"),
           c("edit.selectAll"),
           sep,
           c("edit.find"),
@@ -2133,6 +2326,8 @@ export class App {
           c("view.markdownPreview", () => this.previewOn),
           c("view.dict"),
           c("view.sideNext"),
+          c("view.outline"),
+          c("go.symbol"),
           c("view.splitRight"),
           c("view.unsplit"),
           c("view.zen", () => this.el.classList.contains("zen")),
@@ -2360,6 +2555,9 @@ export class App {
     reg("view.commandPalette", "cmd.commandPalette", () => openCommandPalette(), "Mod-Shift-P", true);
     reg("view.toggleSidebar", "cmd.toggleSidebar", () => this.collapseSidebar(!this.el.classList.contains("sidebar-hidden")), "Mod-B");
     reg("view.explorer", "cmd.showExplorer", () => this.showView("explorer"), "Mod-Shift-E");
+    reg("view.outline", "cmd.showOutline", () => this.toggleView("outline"));
+    reg("go.symbol", "cmd.gotoSymbol", () => this.gotoSymbol(), "Mod-Shift-O");
+    reg("edit.format", "cmd.format", () => this.formatActive(), "Shift-Alt-F");
     reg("view.extensions", "cmd.showExtensions", () => this.showView("extensions"), "Mod-Shift-X");
     reg("view.settings", "cmd.showSettings", () => settingsPage.toggle(), "Mod-,", true);
     reg("terminal.toggle", "cmd.toggleTerminal", () => this.terminal.toggle(), "Mod-`", true);
@@ -2557,6 +2755,7 @@ export class App {
   private bindEvents() {
     this.installEscape();
     this.editor.onChange((id) => {
+      if (id === this.activeId) this.refreshOutline();
       const doc = this.docs.find((d) => d.id === id);
       if (doc && this.traceRaw.has(doc.id)) {
         // 書き換えたら記録は古くなる
@@ -2595,6 +2794,7 @@ export class App {
         this.renderStatus();
         this.renderHistoryButtons();
         this.followStepCursor();
+        if (this.outlineItems.length) this.outlineView.setCurrent(currentSymbol(this.outlineItems, this.editor.cursor().line));
       });
     });
     completer.onStatus((s) => this.renderAi(s));

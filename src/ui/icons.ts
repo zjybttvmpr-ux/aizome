@@ -22,6 +22,7 @@ const paths: Record<string, string> = {
   folderOpen: '<path d="M3.5 17V7a2 2 0 0 1 2-2h3.6l2 2.2h6.4a2 2 0 0 1 2 2V11"/><path d="M3.5 17l2.4-5.2a1.5 1.5 0 0 1 1.4-.8H20a1 1 0 0 1 .9 1.4L18.7 18a1.5 1.5 0 0 1-1.4 1H5.5a2 2 0 0 1-2-2z"/>',
   file: '<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/>',
   chevron: '<path d="m9 6 6 6-6 6"/>',
+  outline: '<path d="M4 6h.1M4 12h.1M4 18h.1"/><path d="M8 6h12M11 12h9M11 18h9"/>',
   undo: '<path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/>',
   redo: '<path d="m15 14 5-5-5-5"/><path d="M20 9H9.5a5.5 5.5 0 0 0 0 11H13"/>',
   refresh: '<path d="M20 11a8 8 0 0 0-14.3-4.9L4 8"/><path d="M4 4v4h4"/><path d="M4 13a8 8 0 0 0 14.3 4.9L20 16"/><path d="M20 20v-4h-4"/>',

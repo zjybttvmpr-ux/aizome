@@ -162,3 +162,48 @@ pub fn find_tool(names: Vec<String>) -> Option<ToolInfo> {
     }
     None
 }
+
+#[derive(Serialize)]
+pub struct Captured {
+    pub code: Option<i32>,
+    pub stdout: String,
+    pub stderr: String,
+}
+
+/// 整形ツール（black・gofmt など）を、画面を出さずに動かして結果を受け取る。中身は標準入力で渡す
+#[tauri::command(async)]
+pub fn run_capture(program: String, args: Vec<String>, stdin: String, cwd: Option<String>) -> Result<Captured, String> {
+    use std::io::Write;
+    use std::process::{Command, Stdio};
+    let mut cmd = Command::new(&program);
+    cmd.args(&args).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    cmd.env("PYTHONIOENCODING", "utf-8");
+    if let Some(c) = cwd.filter(|c| !c.is_empty()) {
+        cmd.current_dir(c);
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x0800_0000); // 黒い画面を出さない
+    }
+    let mut child = cmd.spawn().map_err(|e| e.to_string())?;
+    if let Some(mut si) = child.stdin.take() {
+        let data = stdin.into_bytes();
+        std::thread::spawn(move || {
+            let _ = si.write_all(&data);
+        });
+    }
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = tx.send(child.wait_with_output());
+    });
+    match rx.recv_timeout(std::time::Duration::from_secs(40)) {
+        Ok(Ok(out)) => Ok(Captured {
+            code: out.status.code(),
+            stdout: String::from_utf8_lossy(&out.stdout).into_owned(),
+            stderr: String::from_utf8_lossy(&out.stderr).into_owned(),
+        }),
+        Ok(Err(e)) => Err(e.to_string()),
+        Err(_) => Err("timeout".into()),
+    }
+}

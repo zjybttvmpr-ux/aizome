@@ -83,6 +83,8 @@ const exportHighlighter = tagHighlighter([
 
 interface Pane {
   el: HTMLElement;
+  /** そのがわのファイルの見出し（ファイル名・行の右の表示・実行など） */
+  bar: HTMLElement;
   view: EditorView;
   activeId: string | null;
   /** 最近このがわで見たファイル（新しい順） */
@@ -167,7 +169,10 @@ class CodeMirrorHost implements EditorHost {
   private makePane(idx: number): Pane {
     const el = document.createElement("div");
     el.className = "editor-pane";
-    const pane = { el, activeId: null, mru: [] } as unknown as Pane;
+    const bar = document.createElement("div");
+    bar.className = "pane-bar";
+    el.append(bar);
+    const pane = { el, bar, activeId: null, mru: [] } as unknown as Pane;
     pane.view = new EditorView({
       parent: el,
       state: EditorState.create({ doc: "" }),
@@ -310,6 +315,10 @@ class CodeMirrorHost implements EditorHost {
 
   paneOf(id: string) {
     return this.docPane.get(id) ?? 0;
+  }
+
+  paneBars() {
+    return this.panes.filter((p) => !p.el.hidden).map((p) => ({ id: p.activeId, el: p.bar }));
   }
 
   visibleIds() {

@@ -109,6 +109,7 @@ pub fn run() {
             runtimes::find_python,
             runtimes::list_pythons,
             tools::find_tool,
+            tools::run_capture,
             fsops_extra_write_base64,
             sys_info,
             print_page,
