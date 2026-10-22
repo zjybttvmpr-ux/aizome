@@ -568,10 +568,13 @@ const ja: Dict = {
   "run.pickPython": "python.exe の場所を指定",
   "run.pythonPicked": "これからは {path} で実行します（設定 → 機能のオン・オフ で変更できます）",
   "feat.pythonPath": "使う Python（python.exe の場所）",
-  "feat.pythonPath.help": "空なら自動で探します（PATH・レジストリ・py ランチャー・よくある場所）。入っているのに見つからないときは「選ぶ」で python.exe を指定してください。",
+  "feat.pythonPath.help": "空なら自動で探します（PATH・py ランチャー・公式版・よくある場所。ほかのアプリに組み込まれた Python は使いません）。違う Python が使われるときは「見つかった Python から選ぶ」か「選ぶ」で指定してください。",
   "feat.pythonPath.auto": "自動で探す",
   "feat.pythonPath.pick": "選ぶ",
   "feat.pythonPath.clear": "自動に戻す",
+  "feat.pythonPath.list": "見つかった Python から選ぶ",
+  "feat.pythonPath.searching": "パソコンの中の Python を探して、動くか確かめています…",
+  "feat.pythonPath.none": "動く Python が見つかりませんでした。「選ぶ」で python.exe を指定してください",
 };
 
 const en: Dict = {
@@ -1125,6 +1128,9 @@ const en: Dict = {
   "feat.pythonPath.auto": "Find automatically",
   "feat.pythonPath.pick": "Choose",
   "feat.pythonPath.clear": "Automatic",
+  "feat.pythonPath.list": "Choose from found Pythons",
+  "feat.pythonPath.searching": "Looking for Pythons and checking that they work…",
+  "feat.pythonPath.none": "No working Python was found. Use Choose to pick python.exe",
 };
 
 const dicts: Record<string, Dict> = { ja, en };

@@ -4,7 +4,9 @@ import { t } from "../core/i18n";
 import { settings, type Settings } from "../core/settings";
 import { bus } from "../core/events";
 import { commands, formatKey } from "../core/commands";
-import { ai, dialog, osIntegration, sys } from "../core/platform";
+import { ai, dialog, osIntegration, runtimes, sys } from "../core/platform";
+import { quickPick } from "./palette";
+import { toast } from "./toast";
 import { basename } from "../core/paths";
 import { completer } from "../ai/completer";
 import { describeAiError, ensureLocalAi, useModelFile, useModelsDir } from "../ai/localAi";
@@ -224,11 +226,26 @@ function pythonPathControl(): HTMLElement {
     settings.set("run.pythonPath", p);
     (input as HTMLInputElement).value = p;
   });
+  const listBtn = button(t("feat.pythonPath.list"), async () => {
+    toast(t("feat.pythonPath.searching"), "info", 3000);
+    const found = await runtimes.listPythons().catch(() => [] as Awaited<ReturnType<typeof runtimes.listPythons>>);
+    if (!found.length) {
+      toast(t("feat.pythonPath.none"), "warn", 6000);
+      return;
+    }
+    const choice = await quickPick(
+      found.map((f) => ({ label: `Python ${f.version}`, detail: `${f.path}（${f.source}）`, value: f })),
+      t("feat.pythonPath.list"),
+    );
+    if (!choice) return;
+    settings.set("run.pythonPath", choice.path);
+    (input as HTMLInputElement).value = choice.path;
+  });
   const clearBtn = button(t("feat.pythonPath.clear"), () => {
     settings.set("run.pythonPath", "");
     (input as HTMLInputElement).value = "";
   });
-  return h("div", { class: "path-row" }, input, pick, clearBtn);
+  return h("div", { class: "path-row" }, input, listBtn, pick, clearBtn);
 }
 
 function sections(): Section[] {

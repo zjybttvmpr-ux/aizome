@@ -95,6 +95,7 @@ pub fn run() {
             encoding::fs_read_file_enc,
             encoding::fs_write_file_enc,
             runtimes::find_python,
+            runtimes::list_pythons,
             sys_info,
             print_page,
             app_info,

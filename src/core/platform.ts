@@ -230,6 +230,8 @@ export const osIntegration = {
 
 export const runtimes = {
   /** 本物の Python を探す（Windows の Store 案内用の見せかけは除く） */
+  /** 見つかった Python の一覧（実際に動くものだけ） */
+  listPythons: () => invoke<{ command: string; path: string; source: string; version: string }[]>("list_pythons"),
   findPython: () =>
     invoke<{ command: string | null; storeStub: boolean; source: string }>("find_python", { preferred: settings.get("run.pythonPath") || null }),
 };
