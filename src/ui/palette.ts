@@ -151,7 +151,7 @@ export function openCommandPalette(initial = "") {
     const query = q.replace(/^>\s*/, "");
     const items: PickItem<string>[] = commands
       .list()
-      .map((c) => ({ label: commands.title(c), hint: c.key ? formatKey(c.key) : undefined, detail: c.source && c.source !== "core" ? c.source : undefined, value: c.id }));
+      .map((c) => ({ label: commands.title(c), hint: c.key ? formatKey(c.key) : c.display, detail: c.source && c.source !== "core" ? c.source : undefined, value: c.id }));
     items.sort((a, b) => a.label.localeCompare(b.label));
     // 表示名に加えて ID（英語）でも探せるようにする 例: "term" → ターミナル
     return rank(query, items, (i) => `${i.label} ${i.value.replace(/[._]/g, " ")}`);

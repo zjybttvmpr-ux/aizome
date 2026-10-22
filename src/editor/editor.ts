@@ -3,13 +3,27 @@ import { basicSetup } from "codemirror";
 import { Compartment, EditorState, type Extension } from "@codemirror/state";
 import { EditorView, keymap } from "@codemirror/view";
 import { indentUnit, LanguageDescription } from "@codemirror/language";
-import { indentWithTab } from "@codemirror/commands";
+import {
+  copyLineDown,
+  deleteLine,
+  indentLess,
+  indentMore,
+  indentWithTab,
+  moveLineDown,
+  moveLineUp,
+  redo,
+  selectAll,
+  toggleComment,
+  undo,
+} from "@codemirror/commands";
+import { openSearchPanel } from "@codemirror/search";
+import { foldAll, unfoldAll } from "@codemirror/language";
 import { languages } from "@codemirror/language-data";
 import { editorTheme, syntaxColors } from "./theme";
 import { ghostText, triggerCompletion } from "./ghost";
 import { settings } from "../core/settings";
 import { filenameForLanguage } from "../core/languages";
-import type { EditorHost } from "./types";
+import type { EditorAction, EditorHost } from "./types";
 
 interface DocEntry {
   state: EditorState;
@@ -212,6 +226,61 @@ class CodeMirrorHost implements EditorHost {
 
   applySettings() {
     this.view?.dispatch({ effects: configSlot.reconfigure(configExtensions()) });
+  }
+
+  async run(action: EditorAction): Promise<boolean> {
+    const view = this.view;
+    if (!view || !this.activeId) return false;
+    view.focus();
+    const simple: Partial<Record<EditorAction, (v: EditorView) => boolean>> = {
+      undo,
+      redo,
+      selectAll,
+      toggleComment,
+      duplicateLine: copyLineDown,
+      deleteLine,
+      moveLineUp,
+      moveLineDown,
+      indentMore,
+      indentLess,
+      foldAll,
+      unfoldAll,
+      find: openSearchPanel,
+      replace: (v) => {
+        openSearchPanel(v);
+        // 置換の入力欄にフォーカスを移す
+        requestAnimationFrame(() => v.dom.querySelector<HTMLInputElement>(".cm-search input[name=replace]")?.focus());
+        return true;
+      },
+    };
+    const fn = simple[action];
+    if (fn) return fn(view);
+    const sel = view.state.selection.main;
+    const text = view.state.sliceDoc(sel.from, sel.to);
+    if (action === "copy" || action === "cut") {
+      // 何も選んでいなければ、その行全体を対象にする
+      const line = view.state.doc.lineAt(sel.head);
+      const target = text || line.text + "\n";
+      await navigator.clipboard.writeText(target);
+      if (action === "cut") {
+        view.dispatch(
+          text
+            ? { changes: { from: sel.from, to: sel.to, insert: "" } }
+            : { changes: { from: line.from, to: Math.min(line.to + 1, view.state.doc.length), insert: "" } },
+        );
+      }
+      return true;
+    }
+    if (action === "paste") {
+      try {
+        const clip = await navigator.clipboard.readText();
+        view.dispatch(view.state.replaceSelection(clip));
+        return true;
+      } catch {
+        return false;
+      }
+    }
+    return false;
   }
 
   triggerCompletion() {

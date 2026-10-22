@@ -91,6 +91,10 @@ export const appWindow = {
   async isFullscreen() {
     return getCurrentWindow().isFullscreen();
   },
+  /** 閉じる（閉じる前の確認を通る） */
+  async close() {
+    await getCurrentWindow().close();
+  },
   /** 閉じる前に確認する。handler が false を返すと閉じない */
   onCloseRequested(handler: () => Promise<boolean>) {
     const w = getCurrentWindow();
@@ -148,4 +152,6 @@ export const ext = {
 
 export const sys = {
   info: () => invoke<SysInfo>("sys_info"),
+  print: () => invoke<void>("print_page"),
+  appInfo: () => invoke<{ version: string; tauri: string }>("app_info"),
 };

@@ -25,6 +25,7 @@ import { createAiChatView, type AiChatView } from "./ui/aiChatView";
 import { aiRewrite } from "./ui/aiRewrite";
 import { renderMarkdown } from "./ui/markdown";
 import { initAppearance, zoomBy } from "./ui/appearance";
+import { menu, type MenuItem } from "./ui/menu";
 
 interface Doc {
   id: string;
@@ -62,6 +63,7 @@ export class App {
   private statusLeft!: HTMLElement;
   private statusRight!: HTMLElement;
   private explorerEmpty!: HTMLElement;
+  private menuButton!: HTMLElement;
   private breadcrumbsEl!: HTMLElement;
   private previewEl!: HTMLElement;
   private editorArea!: HTMLElement;
@@ -217,10 +219,28 @@ export class App {
     this.aiPill = h("button", { class: "ai-pill", onclick: () => this.onAiPillClick() });
     const paletteKey = formatKey("Mod-P");
 
+    const menuBtn = h(
+      "button",
+      { class: "menu-btn", type: "button", title: t("menu.open"), "aria-label": t("menu.open"), "aria-haspopup": "menu", "aria-expanded": "false" },
+      h("span", { class: "brand-mark", "aria-hidden": "true" }, "藍"),
+      h("span", { class: "brand-name" }, "Aizome"),
+      h("span", { class: "menu-btn-caret", html: icon("chevronDown", 12) }),
+    );
+    menuBtn.addEventListener("click", () => {
+      if (menu.isOpen) return menu.close();
+      menuBtn.setAttribute("aria-expanded", "true");
+      menuBtn.classList.add("open");
+      menu.open(menuBtn, this.menuItems(), () => {
+        menuBtn.setAttribute("aria-expanded", "false");
+        menuBtn.classList.remove("open");
+      });
+    });
+    this.menuButton = menuBtn;
+
     const topbar = h(
       "header",
       { class: "topbar" },
-      h("div", { class: "brand" }, h("span", { class: "brand-mark", "aria-hidden": "true" }, "藍"), h("span", { class: "brand-name" }, "Aizome")),
+      h("div", { class: "brand" }, menuBtn),
       this.workspaceLabel,
       h(
         "button",
@@ -813,6 +833,186 @@ export class App {
     this.activate(next.id);
   }
 
+  // ───────────── メニュー
+
+  private menuItems(): MenuItem[] {
+    const c = (id: string, checked?: () => boolean): MenuItem => ({ type: "command", id, checked });
+    const sep: MenuItem = { type: "separator" };
+    const recent = (): MenuItem[] => {
+      const list = settings.get("workspace.recent");
+      if (!list.length) return [{ type: "note", label: t("recent.none") }];
+      return list.slice(0, 10).map((r) => ({ type: "action", label: basename(r), hint: r.length > 40 ? "…" + r.slice(-38) : r, run: () => this.openFolder(r) }));
+    };
+    const themes = (): MenuItem[] =>
+      listThemes().map((th) => ({ type: "action", label: th.label, checked: settings.get("ui.theme") === th.id, run: () => settings.set("ui.theme", th.id) }));
+    return [
+      {
+        type: "submenu",
+        label: t("menu.file"),
+        items: () => [
+          c("file.new"),
+          c("file.openFolder"),
+          { type: "submenu", label: t("cmd.openRecent"), items: recent },
+          sep,
+          c("file.save"),
+          c("file.saveAs"),
+          c("file.saveAll"),
+          c("file.revert"),
+          sep,
+          c("file.print"),
+          c("file.copyPath"),
+          sep,
+          c("file.close"),
+          c("file.closeAll"),
+          sep,
+          c("view.settings"),
+          c("app.quit"),
+        ],
+      },
+      {
+        type: "submenu",
+        label: t("menu.edit"),
+        items: () => [
+          c("edit.undo"),
+          c("edit.redo"),
+          sep,
+          c("edit.cut"),
+          c("edit.copy"),
+          c("edit.paste"),
+          c("edit.selectAll"),
+          sep,
+          c("edit.find"),
+          c("edit.replace"),
+          c("search.inFiles"),
+          c("editor.goToLine"),
+          sep,
+          c("edit.toggleComment"),
+          c("edit.duplicateLine"),
+          c("edit.deleteLine"),
+          c("edit.moveLineUp"),
+          c("edit.moveLineDown"),
+          sep,
+          c("edit.foldAll"),
+          c("edit.unfoldAll"),
+        ],
+      },
+      {
+        type: "submenu",
+        label: t("menu.view"),
+        items: () => [
+          c("view.commandPalette"),
+          c("file.quickOpen"),
+          sep,
+          c("view.explorer"),
+          c("search.inFiles"),
+          c("view.ai"),
+          c("view.extensions"),
+          sep,
+          c("view.toggleSidebar", () => !this.el.classList.contains("sidebar-hidden")),
+          c("terminal.toggle", () => this.terminal.isVisible),
+          c("view.markdownPreview", () => this.previewOn),
+          c("view.zen", () => this.el.classList.contains("zen")),
+          c("view.fullscreen"),
+          sep,
+          c("view.zoomIn"),
+          c("view.zoomOut"),
+          c("view.zoomReset"),
+          sep,
+          c("editor.toggleWrap", () => settings.get("editor.wordWrap")),
+          c("editor.toggleLineNumbers", () => settings.get("editor.lineNumbers")),
+          { type: "submenu", label: t("settings.theme"), items: themes },
+        ],
+      },
+      {
+        type: "submenu",
+        label: t("menu.run"),
+        items: () => [c("run.file"), sep, c("terminal.new"), c("terminal.toggle", () => this.terminal.isVisible), c("terminal.clear")],
+      },
+      {
+        type: "submenu",
+        label: t("menu.ai"),
+        items: () => [
+          c("view.ai"),
+          c("ai.rewrite"),
+          c("ai.explain"),
+          c("ai.comment"),
+          c("ai.fix"),
+          c("ai.trigger"),
+          sep,
+          c("ai.toggle", () => settings.get("ai.enabled")),
+          c("ai.settings"),
+        ],
+      },
+      {
+        type: "submenu",
+        label: t("menu.help"),
+        items: () => [c("help.shortcuts"), c("view.commandPalette"), sep, c("ext.reload"), c("git.refresh"), sep, c("help.about")],
+      },
+    ];
+  }
+
+  /** 開いているファイルを印刷する（画面ではなく、コードだけを行番号付きで） */
+  private async printActive() {
+    const doc = this.activeDoc();
+    if (!doc) {
+      toast(t("print.noFile"), "info");
+      return;
+    }
+    document.querySelector(".print-sheet")?.remove();
+    const lines = this.editor.getText(doc.id).split("\n");
+    const width = String(lines.length).length;
+    const sheet = h(
+      "div",
+      { class: "print-sheet" },
+      h("header", { class: "print-head" }, h("strong", {}, doc.name), h("span", {}, doc.path ?? ""), h("span", {}, new Date().toLocaleString())),
+      h("pre", { class: "print-code" }, lines.map((l, i) => `${String(i + 1).padStart(width, " ")}  ${l}`).join("\n")),
+    );
+    if (this.isMarkdown(doc) && this.previewOn) {
+      sheet.replaceChildren(h("div", { class: "print-md" }, renderMarkdown(this.editor.getText(doc.id))));
+    }
+    document.body.append(sheet);
+    try {
+      await sys.print();
+    } catch {
+      window.print();
+    }
+  }
+
+  private showShortcuts() {
+    const rows = commands
+      .list()
+      .filter((c) => c.key || c.display)
+      .map((c) => ({ title: commands.title(c), key: c.key ? formatKey(c.key) : c.display! }))
+      .sort((a, b) => a.title.localeCompare(b.title));
+    const box = h(
+      "div",
+      { class: "modal wide", role: "dialog", "aria-modal": "true" },
+      h("h2", { class: "modal-title" }, t("help.shortcuts")),
+      h("div", { class: "shortcut-list" }, ...rows.map((r) => h("div", { class: "shortcut-row" }, h("span", {}, r.title), h("kbd", {}, r.key)))),
+      h("div", { class: "modal-actions" }, h("button", { class: "btn primary", type: "button", onclick: () => backdrop.remove() }, t("common.ok"))),
+    );
+    const backdrop = h("div", { class: "modal-backdrop" }, box);
+    backdrop.addEventListener("mousedown", (e) => e.target === backdrop && backdrop.remove());
+    backdrop.addEventListener("keydown", (e) => e.key === "Escape" && backdrop.remove());
+    document.body.append(backdrop);
+    (box.querySelector("button") as HTMLElement).focus();
+  }
+
+  private async showAbout() {
+    let version = "";
+    try {
+      version = (await sys.appInfo()).version;
+    } catch {
+      version = "—";
+    }
+    await choose(
+      "Aizome",
+      t("help.aboutText", { version, os: this.sys.os, model: settings.get("ai.model") }),
+      [{ label: t("common.ok"), value: true, kind: "primary" }],
+      true,
+    );
+  }
+
   // ───────────── コマンド
 
   private registerCommands() {
@@ -888,6 +1088,39 @@ export class App {
     commands.register({ id: "tabs.prevMod", title: () => t("cmd.prevTab"), key: "Mod-Shift-Tab", inTerminal: true, hidden: true, run: () => this.cycleTab(-1) });
     reg("terminal.clear", "cmd.clearTerminal", () => this.terminal.clearActive());
     reg("git.refresh", "cmd.gitRefresh", () => this.refreshGit());
+    // 編集（キー操作はエディタ側が受け持つので、表示用のキーだけ載せる）
+    const edit = (id: string, title: string, action: Parameters<EditorHost["run"]>[0], display?: string) =>
+      commands.register({ id, title: () => t(title), display, source: "core", run: () => this.editor.run(action) });
+    const mod = (k: string) => formatKey(k);
+    edit("edit.undo", "cmd.undo", "undo", mod("Mod-Z"));
+    edit("edit.redo", "cmd.redo", "redo", mod("Mod-Shift-Z"));
+    edit("edit.cut", "cmd.cut", "cut", mod("Mod-X"));
+    edit("edit.copy", "cmd.copy", "copy", mod("Mod-C"));
+    commands.register({
+      id: "edit.paste",
+      title: () => t("cmd.paste"),
+      display: mod("Mod-V"),
+      source: "core",
+      run: async () => {
+        if (!(await this.editor.run("paste"))) toast(t("edit.pasteBlocked", { key: mod("Mod-V") }), "info");
+      },
+    });
+    edit("edit.selectAll", "cmd.selectAll", "selectAll", mod("Mod-A"));
+    edit("edit.find", "cmd.find", "find", mod("Mod-F"));
+    edit("edit.replace", "cmd.replace", "replace");
+    edit("edit.toggleComment", "cmd.toggleComment", "toggleComment", mod("Mod-/"));
+    edit("edit.duplicateLine", "cmd.duplicateLine", "duplicateLine", mod("Shift-Alt-ArrowDown"));
+    edit("edit.deleteLine", "cmd.deleteLine", "deleteLine", mod("Mod-Shift-K"));
+    edit("edit.moveLineUp", "cmd.moveLineUp", "moveLineUp", mod("Alt-ArrowUp"));
+    edit("edit.moveLineDown", "cmd.moveLineDown", "moveLineDown", mod("Alt-ArrowDown"));
+    edit("edit.foldAll", "cmd.foldAll", "foldAll");
+    edit("edit.unfoldAll", "cmd.unfoldAll", "unfoldAll");
+    reg("file.print", "cmd.print", () => this.printActive(), "Mod-Alt-P");
+    reg("app.quit", "cmd.quit", () => appWindow.close(), "Mod-Q", true);
+    reg("ai.settings", "cmd.aiSettings", () => this.showView("settings"));
+    reg("help.shortcuts", "help.shortcuts", () => this.showShortcuts(), "Mod-K");
+    reg("help.about", "help.about", () => this.showAbout());
+    reg("view.menu", "menu.open", () => this.menuButton.click(), "Alt-F", true);
     reg("theme.select", "cmd.selectTheme", async () => {
       const id = await quickPick(
         listThemes().map((th) => ({ label: th.label, detail: th.scheme === "dark" ? t("theme.dark") : t("theme.light"), value: th.id })),

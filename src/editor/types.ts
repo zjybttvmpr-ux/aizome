@@ -1,5 +1,24 @@
 // エディタ本体の公開インターフェース。UI や拡張機能はこの型だけに依存する。
 
+export type EditorAction =
+  | "undo"
+  | "redo"
+  | "cut"
+  | "copy"
+  | "paste"
+  | "selectAll"
+  | "find"
+  | "replace"
+  | "toggleComment"
+  | "duplicateLine"
+  | "deleteLine"
+  | "moveLineUp"
+  | "moveLineDown"
+  | "indentMore"
+  | "indentLess"
+  | "foldAll"
+  | "unfoldAll";
+
 export interface EditorHost {
   mount(parent: HTMLElement): void;
   /** 未作成ならドキュメントを作ってから表示する */
@@ -20,6 +39,8 @@ export interface EditorHost {
   focus(): void;
   /** フォントサイズなどの設定を反映する */
   applySettings(): void;
+  /** 編集メニューなどからの操作。できなかったら false */
+  run(action: EditorAction): Promise<boolean>;
   /** AI 補完をすぐに要求する */
   triggerCompletion(): void;
   onChange(cb: (id: string) => void): void;

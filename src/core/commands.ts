@@ -6,6 +6,8 @@ export interface Command {
   title: string | (() => string);
   /** 例: "Mod-Shift-P"。Mod は Windows/Linux で Ctrl、Mac で Cmd */
   key?: string;
+  /** 表示だけのショートカット（エディタ側が処理するキーの案内用） */
+  display?: string;
   /** ターミナルにフォーカスがあるときもショートカットを奪うか */
   inTerminal?: boolean;
   /** 提供元（"core" または拡張機能ID） */
@@ -49,10 +51,11 @@ function splitKey(key: string): string[] {
 
 /** "Mod-Shift-P" を画面表示用の "Ctrl+Shift+P" / "⌘⇧P" にする */
 export function formatKey(key: string): string {
-  const parts = splitKey(key);
+  const arrows: Record<string, string> = { ArrowUp: "↑", ArrowDown: "↓", ArrowLeft: "←", ArrowRight: "→" };
+  const parts = splitKey(key).map((p) => arrows[p] ?? p);
   if (isMac) {
     const map: Record<string, string> = { Mod: "⌘", Ctrl: "⌃", Shift: "⇧", Alt: "⌥" };
-    return parts.map((p) => map[p] ?? p.toUpperCase()).join("");
+    return parts.map((p) => map[p] ?? (p.length === 1 ? p.toUpperCase() : p)).join("");
   }
   return parts.map((p) => (p === "Mod" ? "Ctrl" : p.length === 1 ? p.toUpperCase() : p)).join("+");
 }

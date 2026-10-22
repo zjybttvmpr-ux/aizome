@@ -26,6 +26,27 @@ fn sys_info() -> SysInfo {
     }
 }
 
+/// 開いているページを印刷する（OS の印刷ダイアログを出す）
+#[tauri::command]
+fn print_page(window: tauri::WebviewWindow) -> Result<(), String> {
+    window.print().map_err(|e| e.to_string())
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AppInfo {
+    version: String,
+    tauri: String,
+}
+
+#[tauri::command]
+fn app_info(app: tauri::AppHandle) -> AppInfo {
+    AppInfo {
+        version: app.package_info().version.to_string(),
+        tauri: tauri::VERSION.to_string(),
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -34,6 +55,8 @@ pub fn run() {
         .manage(ai::AiState::new())
         .invoke_handler(tauri::generate_handler![
             sys_info,
+            print_page,
+            app_info,
             fsops::fs_list_dir,
             fsops::fs_walk,
             fsops::fs_read_file,
