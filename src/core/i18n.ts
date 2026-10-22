@@ -429,7 +429,7 @@ const ja: Dict = {
   "cmd.toggleExplain": "行ごとの説明を表示／非表示",
   "explain.onToast": "行ごとの説明を表示します",
   "explain.offToast": "行ごとの説明を隠しました",
-  "run.finished": "終了しました・コード",
+  "run.finished": "終了しました（終了コード {code}）",
   "run.noPythonTitle": "Python が見つかりません",
   "run.noPythonStub": "このパソコンの「python」は、Python が入っていないときに Microsoft Store へ案内するための仮のもので、実行しても「Python」と出るだけになります。\n\nPython を入れると、そのまま実行できるようになります。",
   "run.noPython": "Python が入っていないようです。Python を入れてから、もう一度実行してください。",
@@ -460,6 +460,8 @@ const ja: Dict = {
   "set.zenkakuHelp": "コードの中（文字列とコメント以外）の全角の（）：＝ や全角スペースに赤い印を付けます。文章のファイルでは全角スペースだけ薄く示します。",
   "status.selection": "{n} 文字選択（{lines} 行）",
   "status.selectionTitle": "クリックで詳しい文字数",
+  "view.dict": "コード辞書",
+  "cmd.dict": "コード辞書を開く",
 };
 
 const en: Dict = {
@@ -870,7 +872,7 @@ const en: Dict = {
   "cmd.toggleExplain": "Toggle line explanations",
   "explain.onToast": "Line explanations on",
   "explain.offToast": "Line explanations hidden",
-  "run.finished": "Finished, exit code",
+  "run.finished": "Finished (exit code {code})",
   "run.noPythonTitle": "Python not found",
   "run.noPythonStub": "The \"python\" on this PC is only the Microsoft Store placeholder used when Python is not installed, so running prints just \"Python\".\n\nInstall Python and it will run normally.",
   "run.noPython": "Python does not seem to be installed. Install it and run again.",
@@ -901,6 +903,8 @@ const en: Dict = {
   "set.zenkakuHelp": "Marks full-width （）：＝ and spaces in code (outside strings and comments). In prose files, only full-width spaces are shown faintly.",
   "status.selection": "{n} chars selected ({lines} lines)",
   "status.selectionTitle": "Click for details",
+  "view.dict": "Code dictionary",
+  "cmd.dict": "Open code dictionary",
 };
 
 const dicts: Record<string, Dict> = { ja, en };

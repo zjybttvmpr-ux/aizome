@@ -2,6 +2,12 @@
 import { ai, type AiChunk } from "../core/platform";
 import { settings } from "../core/settings";
 
+/**
+ * AI が一度に読める量（トークン数）。補完とチャットで同じ値にする
+ * （値が変わると Ollama がモデルを読み込み直して遅くなるため）
+ */
+const NUM_CTX = 8192;
+
 export type AiStatus = "off" | "idle" | "thinking" | "error";
 
 interface Pending {
@@ -87,7 +93,7 @@ class Completer {
   }
 
   private async request(
-    req: { prompt: string; suffix?: string; maxTokens: number; temperature: number; stop?: string[]; repeatPenalty?: number },
+    req: { prompt: string; suffix?: string; maxTokens: number; temperature: number; stop?: string[]; repeatPenalty?: number; numCtx?: number },
     onText: (full: string) => void,
   ): Promise<{ id: number; done: Promise<string> }> {
     await ensureListener();
@@ -114,8 +120,11 @@ class Completer {
           // 後ろが空だと Ollama がチャット用の書式に切り替えてしまうので、改行を1つ渡して途中埋めのままにする
           suffix: ctx.suffix || "\n",
           maxTokens: ctx.maxTokens ?? settings.get("ai.maxTokens"),
-          temperature: 0.15,
-          repeatPenalty: 1.12,
+          temperature: 0.1,
+          // コードは同じ記号や名前をくり返すのが普通なので、くり返しの抑制はごく弱く（強いと候補が崩れる）
+          repeatPenalty: 1.02,
+          // 前後のコードを切り捨てずに読ませる
+          numCtx: NUM_CTX,
           // チャット口調で話し始めたり、コードの囲み（```）を書き出したら止める
           stop: ["<|endoftext|>", "<|file_sep|>", "<|im_end|>", "<|fim_prefix|>", "```"],
         },
@@ -169,7 +178,7 @@ class Completer {
     opts: { maxTokens?: number; temperature?: number; onText?: (full: string) => void; onStart?: (cancel: () => void) => void } = {},
   ): Promise<string> {
     const { id, done } = await this.request(
-      { prompt, maxTokens: opts.maxTokens ?? 512, temperature: opts.temperature ?? 0.3, repeatPenalty: 1.1 },
+      { prompt, maxTokens: opts.maxTokens ?? 512, temperature: opts.temperature ?? 0.3, repeatPenalty: 1.05, numCtx: NUM_CTX },
       opts.onText ?? (() => {}),
     );
     opts.onStart?.(() => {

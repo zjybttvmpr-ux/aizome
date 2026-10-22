@@ -45,6 +45,7 @@ export interface Settings {
   "editor.suggestList": "smart" | "off";
   "editor.listKey": "tab" | "enter";
   "editor.zenkaku": boolean;
+  "dict.user": { lang: string; title: string; code: string; keys?: string }[];
   "update.skipVersion": string;
 }
 
@@ -93,6 +94,7 @@ export const defaults: Settings = {
   "editor.suggestList": "smart",
   "editor.listKey": "tab",
   "editor.zenkaku": true,
+  "dict.user": [],
   "update.skipVersion": "",
 };
 

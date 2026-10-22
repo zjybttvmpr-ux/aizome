@@ -80,6 +80,8 @@ pub struct AiRequest {
     repeat_penalty: Option<f32>,
     /// true ならチャット用の書式を付けずに、そのまま続きを書かせる（Ollama のみ）
     raw: Option<bool>,
+    /// AI が一度に読める量（トークン数）。指定しないと Ollama の既定（小さめ）になり、ファイルの前のほうが切り捨てられる
+    num_ctx: Option<u32>,
 }
 
 #[derive(Clone, Serialize)]
@@ -122,9 +124,13 @@ async fn run(app: &AppHandle, client: &reqwest::Client, id: u32, req: AiRequest)
                 "temperature": temperature,
                 "stop": stop,
                 "repeat_penalty": req.repeat_penalty.unwrap_or(1.1),
-                "repeat_last_n": 128
+                "repeat_last_n": 64,
+                "top_p": 0.9
             }
         });
+        if let Some(n) = req.num_ctx {
+            body["options"]["num_ctx"] = json!(n);
+        }
         if let Some(s) = &req.suffix {
             body["suffix"] = json!(s);
         }

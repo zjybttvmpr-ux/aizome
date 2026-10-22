@@ -30,6 +30,8 @@ export interface AiRequest {
   apiKey?: string;
   repeatPenalty?: number;
   raw?: boolean;
+  /** AI が一度に読める量（トークン数） */
+  numCtx?: number;
 }
 
 export interface AiChunk {

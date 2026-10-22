@@ -35,6 +35,11 @@ export interface EditorHost {
   getSelection(): string;
   replaceSelection(text: string): void;
   insertText(text: string): void;
+  /**
+   * ひな形を入れる（${名前} の場所を Tab で順に書き換えられる）。
+   * 複数行のひな形で、カーソルの行に文字があるときは、次の行に入れる
+   */
+  insertSnippet(template: string): void;
   cursor(): { line: number; col: number };
   goTo(line: number, col?: number): void;
   languageName(id?: string): string;

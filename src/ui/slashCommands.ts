@@ -7,6 +7,7 @@ import { calc, countChars, dateFormats, fixZenkakuInCode, hanKanaToZen, hanToZen
 import { commentSyntax, languageOf } from "../ai/plan";
 import type { EditorHost } from "../editor/types";
 import { registerSlash, type SlashCommand } from "./slash";
+import { DICT_LANGUAGES, dictLanguageFor, plainCode, searchDict, toSnippetTemplate } from "../dict";
 import { quickPick } from "./palette";
 import { toast } from "./toast";
 import { choose } from "./dialog";
@@ -23,6 +24,7 @@ export interface SlashDeps {
   explainError: () => void;
   openSettings: (section?: string) => void;
   openHelp: (section?: string) => void;
+  openDict: (query?: string) => void;
 }
 
 const G = {
@@ -105,6 +107,32 @@ export function registerBuiltinSlash(d: SlashDeps) {
     cmd("about", ["バージョン", "ばーじょん", "version", "情報", "じょうほう"], "help.about", G.help, "help"),
     cmd("update", ["更新", "こうしん", "アップデート", "koushin", "appudeto"], "app.checkUpdates", G.help, "refresh"),
     cmd("commands", ["コマンド", "こまんど", "すべてのコマンド", "palette"], "view.commandPalette", G.help, "search", "メニューにあるすべての操作"),
+
+    {
+      name: "dict",
+      aliases: ["辞書", "じしょ", "コード辞書", "jisho", "書き方", "かきかた", "使い方を調べる", "cheatsheet", "snippet"],
+      group: G.help,
+      icon: "book",
+      title: () => "コード辞書",
+      argHint: () => "やりたいこと（例：並べ替え）",
+      command: "view.dict",
+      desc: () => "やりたいことを日本語で探して、ボタン一つでコードを入れる",
+      expand: (arg) => {
+        if (!arg) return [];
+        const lang = dictLanguageFor(d.activeName() ?? "") ?? DICT_LANGUAGES[0];
+        return searchDict(lang.id, arg)
+          .slice(0, 8)
+          .map((hit) => ({
+            label: hit.title,
+            detail: `${lang.label}：${plainCode(hit.code).split("\n").find((l) => l.trim() && !/^(import|from|using|#include)\b/.test(l.trim()))?.trim() ?? ""}`,
+            run: () => {
+              if (!needDoc()) return;
+              d.editor.insertSnippet(toSnippetTemplate(hit.code));
+            },
+          }));
+      },
+      run: (arg) => d.openDict(arg),
+    },
 
     // ───── ファイル
     cmd("new", ["新規", "しんき", "新しいファイル", "shinki"], "file.new", G.file, "newFile"),

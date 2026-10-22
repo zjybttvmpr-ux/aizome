@@ -7,7 +7,7 @@ import { cleanCompletion, commentIntent, contextKey, isCommentLine, shouldComple
 import { language } from "@codemirror/language";
 import { acceptCompletion, closeCompletion, completionStatus, hasNextSnippetField, startCompletion } from "@codemirror/autocomplete";
 import { Facet } from "@codemirror/state";
-import { cutAtDedent, fileHeader, planCompletion } from "../ai/plan";
+import { cutAtDedent, fileHeader, languageOf, planCompletion } from "../ai/plan";
 
 /** 開いているファイルの名前（補完で「何語のファイルか」を AI に伝えるため） */
 export const docFilename = Facet.define<string, string>({ combine: (v) => v[0] ?? "" });
@@ -155,6 +155,55 @@ function dismiss(view: EditorView): boolean {
   return true;
 }
 
+/** 候補を入れたときに、その範囲で文法のまちがい（エラーの印）が出るか */
+function hasSyntaxError(state: import("@codemirror/state").EditorState, pos: number, text: string): boolean | null {
+  const lang = state.facet(language);
+  if (!lang) return null;
+  const doc = state.doc;
+  // 大きいファイルは前後だけで調べる（速さのため）
+  // 字下げのない行から始める（ブロックの途中から読むと、関係ないエラーが出るため）
+  let startLine = doc.lineAt(Math.max(0, pos - 4000)).number;
+  for (let i = 0; i < 300 && startLine > 1 && !/^\S/.test(doc.line(startLine).text); i++) startLine--;
+  const from = doc.line(startLine).from;
+  const to = Math.min(doc.length, pos + 2000);
+  const src = doc.sliceString(from, pos) + text + doc.sliceString(pos, to);
+  let tree;
+  try {
+    tree = lang.parser.parse(src);
+  } catch {
+    return null;
+  }
+  const start = pos - from;
+  const end = start + text.length;
+  let bad = false;
+  tree.iterate({
+    from: start,
+    to: end,
+    enter: (n) => {
+      if (bad) return false;
+      if (n.type.isError && n.from >= start && n.from < end) bad = true;
+      return undefined;
+    },
+  });
+  return bad;
+}
+
+/**
+ * 複数行の候補を、文法として崩れていない行までに切る。
+ * 小さいモデルは後半で崩れやすいので、正しい部分だけを見せる（1 行目は残す）
+ */
+function trimToValidSyntax(state: import("@codemirror/state").EditorState, pos: number, text: string): string {
+  const lines = text.split("\n");
+  if (lines.length < 2) return text;
+  const whole = hasSyntaxError(state, pos, text);
+  if (whole === null || !whole) return text;
+  for (let k = lines.length - 1; k >= 1; k--) {
+    const part = lines.slice(0, k).join("\n");
+    if (hasSyntaxError(state, pos, part) === false) return part;
+  }
+  return lines[0];
+}
+
 let timer: number | undefined;
 
 async function requestCompletion(view: EditorView) {
@@ -187,10 +236,12 @@ async function requestCompletion(view: EditorView) {
   // Markdown やテキスト、コメントの中では文章の候補も出してよい
   const proseOk = isProseFile(view) || isCommentLine(linePrefix + "xx") || /["'`]/.test(linePrefix) && (linePrefix.split(/["'`]/).length - 1) % 2 === 1;
   const startDoc = doc;
-  const show = (raw: string) => {
+  const show = (raw: string, finished = false) => {
     if (view.state.doc !== startDoc || view.state.selection.main.head !== pos) return;
-    let text = cleanCompletion(raw, { lineSuffix, suffix, prefix, multiline: plan.multiline, maxLines: plan.maxLines, proseOk });
+    let text = cleanCompletion(raw, { lineSuffix, suffix, prefix, multiline: plan.multiline, maxLines: plan.maxLines, proseOk, language: languageOf(view.state.facet(docFilename)) });
     text = cutAtDedent(text, plan.stopIndent, plan.allowClosing);
+    // 書き終わってから、文法が崩れている行より後ろは捨てる（流れてくる途中では調べない）
+    if (finished && text.includes("\n")) text = trimToValidSyntax(view.state, pos, text);
     // 1文字だけ、空白だけの候補は出さない
     if (text.trim().length < 2) text = "";
     const key = contextKey(prefix, text);
@@ -202,8 +253,8 @@ async function requestCompletion(view: EditorView) {
     if (current?.text === text) return;
     view.dispatch({ effects: setGhost.of({ pos, text, key }) });
   };
-  const final = await completer.inline({ prefix, suffix, maxTokens: plan.maxTokens }, show);
-  if (final !== null) show(final);
+  const final = await completer.inline({ prefix, suffix, maxTokens: plan.maxTokens }, (t) => show(t));
+  if (final !== null) show(final, true);
 }
 
 function schedule(view: EditorView, delay = completer.recommendedDelay()) {

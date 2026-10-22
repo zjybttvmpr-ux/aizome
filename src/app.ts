@@ -25,6 +25,7 @@ import { completer, type AiStatus } from "./ai/completer";
 import { ExtensionHost } from "./extensions/host";
 import { createSearchView, type SearchView } from "./ui/searchView";
 import { createAiChatView, type AiChatView } from "./ui/aiChatView";
+import { createDictView, type DictView } from "./ui/dictView";
 import { aiRewrite } from "./ui/aiRewrite";
 import { renderMarkdown } from "./ui/markdown";
 import { initAppearance, zoomBy } from "./ui/appearance";
@@ -44,7 +45,7 @@ interface Doc {
   dirty: boolean;
 }
 
-type ViewName = "explorer" | "search" | "ai" | "extensions" | "settings";
+type ViewName = "explorer" | "search" | "dict" | "ai" | "extensions" | "settings";
 
 export class App {
   private editor: EditorHost = createEditorHost();
@@ -92,6 +93,7 @@ export class App {
     },
   };
   private searchView: SearchView;
+  private dictView: DictView;
   private chatView: AiChatView;
 
   private tree: FileTree;
@@ -125,6 +127,7 @@ export class App {
     });
     this.searchView = createSearchView({ root: () => this.root, open: (p, l, c) => void this.openFile(p, l, c) });
     this.chatView = createAiChatView({ editor: this.editor, activeName: () => this.activeDoc()?.name ?? null });
+    this.dictView = createDictView({ editor: this.editor, activeName: () => this.activeDoc()?.name ?? null, hasDoc: () => !!this.activeDoc() });
   }
 
   async start() {
@@ -359,6 +362,7 @@ export class App {
     };
     addActivity("explorer", "files", t("view.explorer"));
     addActivity("search", "search", t("view.search"));
+    addActivity("dict", "book", t("view.dict"));
     addActivity("ai", "spark", t("view.ai"));
     addActivity("extensions", "puzzle", t("view.extensions"));
     activity.append(h("div", { class: "activity-spacer" }));
@@ -376,6 +380,7 @@ export class App {
     const explorer = h("div", { class: "view explorer-view" }, this.explorerEmpty, this.tree.el);
     this.views.set("explorer", explorer);
     this.views.set("search", this.searchView.el);
+    this.views.set("dict", this.dictView.el);
     this.views.set("ai", this.chatView.el);
     this.views.set("extensions", createExtensionsView(this.extensions));
     const viewsHost = h("div", { class: "sidebar-body" }, ...this.views.values());
@@ -798,7 +803,7 @@ export class App {
     }
     if (this.sys.os === "windows") {
       // 終わったことと終了コードがわかるように（何も出力しないプログラムでも安心できる）
-      cmd += `; Write-Host ""; Write-Host "--- ${t("run.finished")} ($LASTEXITCODE) ---" -ForegroundColor DarkGray`;
+      cmd += `; Write-Host ""; Write-Host "--- ${t("run.finished", { code: "$LASTEXITCODE" })} ---" -ForegroundColor DarkGray`;
     }
     this.lastRunDir = dirname(path);
     await this.terminal.run(cmd, dirname(path));
@@ -1097,6 +1102,7 @@ export class App {
           c("view.toggleSidebar", () => !this.el.classList.contains("sidebar-hidden")),
           c("terminal.toggle", () => this.terminal.isVisible),
           c("view.markdownPreview", () => this.previewOn),
+          c("view.dict"),
           c("view.zen", () => this.el.classList.contains("zen")),
           c("editor.toggleExplain", () => settings.get("editor.explain") !== "off"),
           c("view.fullscreen"),
@@ -1238,6 +1244,10 @@ export class App {
       explainError: () => void this.explainLastError(),
       openSettings: (section) => settingsPage.open(section),
       openHelp: (section) => helpPage.open(section),
+      openDict: (query) => {
+        this.showView("dict");
+        this.dictView.focus(query);
+      },
     });
     // ヘルプの中の「/〜」をクリックしたとき
     helpPage.runSlash = (name) => {
@@ -1379,6 +1389,10 @@ export class App {
     reg("help.open", "cmd.help", () => helpPage.open(), "F1", true);
     reg("help.slash", "cmd.slash", () => openSlashPalette("/"));
     reg("terminal.explainError", "cmd.explainError", () => this.explainLastError());
+    reg("view.dict", "cmd.dict", () => {
+      this.showView("dict");
+      this.dictView.focus();
+    }, "Mod-Shift-D", true);
     reg("help.shortcuts", "help.shortcuts", () => this.showShortcuts(), "Mod-K");
     reg("help.about", "help.about", () => this.showAbout());
     reg("app.checkUpdates", "cmd.checkUpdates", () => checkForUpdates(this.updateDeps, true));

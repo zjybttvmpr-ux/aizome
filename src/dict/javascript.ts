@@ -1,0 +1,67 @@
+import type { DictLanguage } from "./types";
+
+export const javascript: DictLanguage = {
+  id: "javascript",
+  label: "JavaScript / TypeScript",
+  exts: [".js", ".mjs", ".cjs", ".jsx", ".ts", ".mts", ".cts", ".tsx", ".vue", ".svelte"],
+  entries: [
+    ["入出力", "コンソールに表示", "console log 表示 ひょうじ 出力 print", "console.log(⟨\"こんにちは\"⟩);"],
+    ["入出力", "変数を文章に入れる（テンプレート文字列）", "テンプレート 埋め込み バッククォート", "`⟨名前⟩ は ${⟨x⟩} です`"],
+    ["入出力", "小数を桁をそろえて表示", "toFixed 小数点 桁", "⟨x⟩.toFixed(⟨2⟩)"],
+    ["入出力", "ダイアログを出す・入力を受け取る", "alert prompt confirm 入力", "const ⟨answer⟩ = prompt(\"⟨名前を入力⟩\");\nalert(`こんにちは、${answer}`);"],
+
+    ["変数・条件・繰り返し", "変数を作る", "const let 変数 宣言", "const ⟨name⟩ = ⟨value⟩;  // 変える変数なら let"],
+    ["変数・条件・繰り返し", "もし〜なら（if / else）", "if else 条件 分岐", "if (⟨条件⟩) {\n    ⟨⟩\n} else {\n    \n}"],
+    ["変数・条件・繰り返し", "値によって分ける（switch）", "switch case 場合分け", "switch (⟨value⟩) {\n    case ⟨1⟩:\n        ⟨⟩\n        break;\n    default:\n        break;\n}"],
+    ["変数・条件・繰り返し", "決まった回数くり返す", "for ループ 回数 くりかえし", "for (let ⟨i⟩ = 0; ⟨i⟩ < ⟨10⟩; ⟨i⟩++) {\n    ⟨⟩\n}"],
+    ["変数・条件・繰り返し", "配列の中身を順に取り出す", "for of ループ 要素", "for (const ⟨item⟩ of ⟨items⟩) {\n    ⟨console.log(item);⟩\n}"],
+    ["変数・条件・繰り返し", "オブジェクトのキーと値を順に", "Object.entries for キー", "for (const [⟨key⟩, ⟨value⟩] of Object.entries(⟨obj⟩)) {\n    console.log(key, value);\n}"],
+    ["変数・条件・繰り返し", "条件が成り立つあいだくり返す", "while ループ", "while (⟨条件⟩) {\n    ⟨⟩\n}"],
+    ["変数・条件・繰り返し", "1 行で条件分岐（三項演算子）", "三項 ? :", "const ⟨x⟩ = ⟨条件⟩ ? ⟨a⟩ : ⟨b⟩;"],
+    ["変数・条件・繰り返し", "値がないときの既定値", "?? null undefined 既定値 デフォルト", "const ⟨x⟩ = ⟨value⟩ ?? ⟨既定値⟩;"],
+    ["変数・条件・繰り返し", "中身があるときだけたどる", "?. オプショナルチェーン undefined", "⟨obj⟩?.⟨prop⟩?.⟨name⟩"],
+
+    ["文字列", "文字列の長さ", "length 文字数", "⟨s⟩.length"],
+    ["文字列", "区切って分ける", "split 分割", "⟨s⟩.split(\"⟨,⟩\")"],
+    ["文字列", "置き換える（全部）", "replaceAll 置換", "⟨s⟩.replaceAll(\"⟨古い⟩\", \"⟨新しい⟩\")"],
+    ["文字列", "前後の空白を取る", "trim 空白", "⟨s⟩.trim()"],
+    ["文字列", "〜を含むか", "includes 含む", "⟨s⟩.includes(\"⟨word⟩\")"],
+    ["文字列", "0 で埋めて桁をそろえる", "padStart ゼロ埋め", "String(⟨n⟩).padStart(⟨3⟩, \"0\")"],
+    ["文字列", "数と文字列の変換", "Number String parseInt 変換", "const ⟨n⟩ = Number(⟨text⟩);\nconst ⟨text2⟩ = String(⟨n⟩);"],
+
+    ["配列", "配列を作る", "array 配列 はいれつ", "const ⟨items⟩ = [⟨1, 2, 3⟩];"],
+    ["配列", "最後に追加・取り出す", "push pop 追加", "⟨items⟩.push(⟨x⟩);\nconst ⟨last⟩ = ⟨items⟩.pop();"],
+    ["配列", "全部に同じ計算をする", "map 変換", "const ⟨result⟩ = ⟨items⟩.map((⟨x⟩) => ⟨x * 2⟩);"],
+    ["配列", "条件に合うものだけ取り出す", "filter 絞り込み", "const ⟨result⟩ = ⟨items⟩.filter((⟨x⟩) => ⟨x > 0⟩);"],
+    ["配列", "条件に合う最初の 1 つ", "find 検索", "const ⟨found⟩ = ⟨items⟩.find((⟨x⟩) => ⟨x.id === id⟩);"],
+    ["配列", "合計を出す", "reduce sum 合計", "const ⟨total⟩ = ⟨items⟩.reduce((sum, x) => sum + x, 0);"],
+    ["配列", "小さい順に並べ替え（数）", "sort 並べ替え 昇順", "⟨items⟩.sort((a, b) => a - b);", "数のときは比べる関数が必要"],
+    ["配列", "文字列を五十音・辞書順に並べ替え", "sort localeCompare 日本語", "⟨items⟩.sort((a, b) => a.localeCompare(b, \"ja\"));"],
+    ["配列", "重複を取り除く", "Set 重複 ユニーク", "const ⟨unique⟩ = [...new Set(⟨items⟩)];"],
+    ["配列", "含むか調べる", "includes 含む", "⟨items⟩.includes(⟨x⟩)"],
+
+    ["関数・クラス", "関数を作る", "function 関数", "function ⟨name⟩(⟨引数⟩) {\n    ⟨⟩\n    return ⟨結果⟩;\n}"],
+    ["関数・クラス", "アロー関数", "アロー => 無名関数", "const ⟨name⟩ = (⟨x⟩) => {\n    ⟨⟩\n};"],
+    ["関数・クラス", "クラスを作る", "class クラス constructor", "class ⟨Name⟩ {\n    constructor(⟨name⟩) {\n        this.⟨name⟩ = ⟨name⟩;\n    }\n\n    ⟨hello⟩() {\n        ⟨⟩\n    }\n}"],
+    ["関数・クラス", "型を付ける（TypeScript）", "interface type 型 TypeScript", "interface ⟨User⟩ {\n    ⟨name⟩: ⟨string⟩;\n    ⟨age⟩?: number;\n}"],
+
+    ["非同期・通信", "少し待つ", "setTimeout 待つ タイマー", "setTimeout(() => {\n    ⟨⟩\n}, ⟨1000⟩);"],
+    ["非同期・通信", "一定時間ごとにくり返す", "setInterval タイマー くりかえし", "const ⟨timer⟩ = setInterval(() => {\n    ⟨⟩\n}, ⟨1000⟩);\n// 止めるとき: clearInterval(timer);"],
+    ["非同期・通信", "API からデータを取る（fetch）", "fetch API 通信 json", "const res = await fetch(\"⟨https://example.com/api⟩\");\nconst ⟨data⟩ = await res.json();"],
+    ["非同期・通信", "非同期関数とエラー処理", "async await try catch", "async function ⟨load⟩() {\n    try {\n        ⟨⟩\n    } catch (err) {\n        console.error(err);\n    }\n}"],
+    ["非同期・通信", "待つ関数（sleep）", "sleep Promise 待つ", "const sleep = (ms) => new Promise((r) => setTimeout(r, ms));\nawait sleep(⟨1000⟩);"],
+
+    ["画面（ブラウザ）", "要素を取得する", "querySelector getElementById DOM", "const ⟨el⟩ = document.querySelector(\"⟨#id⟩\");"],
+    ["画面（ブラウザ）", "クリックされたら動かす", "addEventListener click ボタン イベント", "⟨button⟩.addEventListener(\"click\", () => {\n    ⟨⟩\n});"],
+    ["画面（ブラウザ）", "文字を書き換える", "textContent innerText 書き換え", "⟨el⟩.textContent = ⟨\"新しい文字\"⟩;"],
+    ["画面（ブラウザ）", "要素を作って追加する", "createElement append 追加", "const ⟨li⟩ = document.createElement(\"⟨li⟩\");\n⟨li⟩.textContent = ⟨text⟩;\n⟨list⟩.append(⟨li⟩);"],
+    ["画面（ブラウザ）", "クラスを付け外しする", "classList toggle add remove", "⟨el⟩.classList.toggle(\"⟨active⟩\");"],
+    ["画面（ブラウザ）", "ブラウザに保存する", "localStorage 保存", "localStorage.setItem(\"⟨key⟩\", JSON.stringify(⟨data⟩));\nconst ⟨saved⟩ = JSON.parse(localStorage.getItem(\"⟨key⟩\") ?? \"null\");"],
+
+    ["便利", "ランダムな整数", "random 乱数", "const ⟨n⟩ = Math.floor(Math.random() * ⟨6⟩) + 1;"],
+    ["便利", "今日の日付", "Date 日付 今日", "const d = new Date();\nconst ⟨text⟩ = `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日`;"],
+    ["便利", "JSON に変換・JSON から戻す", "JSON stringify parse", "const ⟨text⟩ = JSON.stringify(⟨data⟩, null, 2);\nconst ⟨obj⟩ = JSON.parse(⟨text⟩);"],
+    ["便利", "ファイルを読む（Node.js）", "fs readFile ファイル node", "import { readFileSync } from \"node:fs\";\n\nconst ⟨text⟩ = readFileSync(\"⟨data.txt⟩\", \"utf8\");"],
+    ["便利", "ファイルに書く（Node.js）", "fs writeFile 保存 node", "import { writeFileSync } from \"node:fs\";\n\nwriteFileSync(\"⟨out.txt⟩\", ⟨text⟩, \"utf8\");"],
+  ],
+};

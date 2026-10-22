@@ -12,6 +12,33 @@ export interface CleanContext {
   maxLines?: number;
   /** 文章を書いてよい場所か（Markdown・テキスト・コメントの中など） */
   proseOk?: boolean;
+  /** ファイルの言語（例：Python）。違う言語の書き方の候補を捨てるのに使う */
+  language?: string;
+}
+
+/** Python のファイルに出てきたら、ほかの言語（JavaScript・C・Java など）の候補とみなす書き方 */
+const NOT_PYTHON = [
+  /^\s*(function\s+\w+\s*\(|const\s+\w+\s*=|let\s+\w+\s*=|var\s+\w+\s*=|console\.log|export\s|public\s|private\s|#include|using\s+\w|package\s+\w|fn\s+\w+\s*\(|func\s+\w+\s*\()/,
+  /\)\s*\{\s*$/,
+  /^\s*\}\s*else\b/,
+  /;\s*$/,
+  /=>\s*\{?/,
+  /^\s*import\s+.+\s+from\s+['"]/,
+  /\b(System\.out\.println|printf|std::)/,
+];
+/** JavaScript・C・Go などのファイルに出てきたら、Python の候補とみなす書き方 */
+const PYTHON_ONLY = [/^\s*def\s+\w+\s*\(.*\)\s*(->.*)?:\s*$/, /^\s*elif\b/, /^\s*(if|for|while)\b[^{;]*:\s*$/, /^\s*print\s*\(.*\)\s*$/, /^\s*from\s+[\w.]+\s+import\s/];
+const BRACE_LANGS = /^(JavaScript|TypeScript|C|C\+\+|C#|Java|Go|Rust|Kotlin|Swift|Dart|PHP|Scala|Groovy)/;
+
+/** ファイルの言語と違う書き方の候補か */
+export function wrongLanguage(text: string, language?: string): boolean {
+  if (!language) return false;
+  const lines = text.split("\n").filter((l) => l.trim() && !/^\s*(#|\/\/|\/\*|\*)/.test(l));
+  if (!lines.length) return false;
+  if (language === "Python") return lines.some((l) => NOT_PYTHON.some((re) => re.test(l)));
+  if (BRACE_LANGS.test(language) && !/^Go$/.test(language)) return lines.some((l) => PYTHON_ONLY.some((re) => re.test(l)));
+  if (language === "Go") return lines.some((l) => PYTHON_ONLY.slice(0, 2).some((re) => re.test(l)));
+  return false;
 }
 
 const SPECIAL_TOKENS = /<\|[^|>]*\|>|<fim_[a-z_]+>|<\/?s>|<EOT>|<PRE>|<SUF>|<MID>|<\|endoftext\|>/g;
@@ -116,6 +143,8 @@ export function cleanCompletion(raw: string, ctx: CleanContext): string {
 
   // 説明の文章（チャットの返事）は候補にしない
   if (looksLikeProse(s, ctx.proseOk)) return "";
+  // Python のファイルに JavaScript の候補、のような言語ちがいは出さない（文字列やコメントの中は別）
+  if (!ctx.proseOk && wrongLanguage(s, ctx.language)) return "";
 
   s = removeRepetition(s, ctx.prefix);
 

@@ -17,6 +17,7 @@ import {
   undo,
 } from "@codemirror/commands";
 import { openSearchPanel } from "@codemirror/search";
+import { snippet } from "@codemirror/autocomplete";
 import { foldAll, unfoldAll } from "@codemirror/language";
 import { languages } from "@codemirror/language-data";
 import { editorTheme, syntaxColors } from "./theme";
@@ -229,6 +230,23 @@ class CodeMirrorHost implements EditorHost {
     if (!this.view || !this.activeId) return;
     const pos = this.view.state.selection.main.head;
     this.view.dispatch({ changes: { from: pos, insert: text }, selection: { anchor: pos + text.length } });
+  }
+
+  insertSnippet(template: string) {
+    const view = this.view;
+    if (!view || !this.activeId) return;
+    const sel = view.state.selection.main;
+    let from = sel.from;
+    let to = sel.to;
+    const line = view.state.doc.lineAt(from);
+    if (template.includes("\n") && sel.empty && line.text.trim()) {
+      // 行の途中に複数行を入れると崩れるので、次の行を作ってそこに入れる
+      const indent = /^[ \t]*/.exec(line.text)![0];
+      view.dispatch({ changes: { from: line.to, insert: "\n" + indent }, selection: { anchor: line.to + 1 + indent.length } });
+      from = to = line.to + 1 + indent.length;
+    }
+    snippet(template)(view, null, from, to);
+    view.focus();
   }
 
   cursor() {

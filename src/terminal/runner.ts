@@ -42,5 +42,7 @@ export function expandCommand(c: RunConfig, file: string, workspace: string, os:
     fileBaseNoExt: stripExt(basename(file)),
     workspace: workspace || dirname(file),
   };
-  return tpl.replace(/\$\{(\w+)\}/g, (m, k: string) => vars[k] ?? m);
+  // PowerShell の "…" の中では $ と ` が特別な意味になるので、パスの中のものは文字として扱わせる
+  const esc = os === "windows" && c.windows ? (v: string) => v.replace(/[`$"]/g, (ch) => "`" + ch) : (v: string) => v;
+  return tpl.replace(/\$\{(\w+)\}/g, (m, k: string) => (k in vars ? esc(vars[k]) : m));
 }
