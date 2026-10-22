@@ -51,6 +51,8 @@ export class FileTree {
   private expanded = new Set<string>();
   private selected: string | null = null;
   private activeFile: string | null = null;
+  private gitFiles = new Map<string, string>();
+  private gitDirs = new Set<string>();
 
   constructor(private deps: FileTreeDeps) {
     this.el = h("div", { class: "tree", role: "tree" });
@@ -72,6 +74,34 @@ export class FileTree {
     this.activeFile = path;
     this.el.querySelectorAll(".tree-row.active").forEach((r) => r.classList.remove("active"));
     if (path) this.el.querySelector(`.tree-row[data-path="${CSS.escape(path)}"]`)?.classList.add("active");
+  }
+
+  /** Git の状態を反映する。キーは区切りを / にした絶対パス */
+  setGit(files: Map<string, string>) {
+    this.gitFiles = files;
+    this.gitDirs = new Set();
+    for (const p of files.keys()) {
+      let i = p.lastIndexOf("/");
+      while (i > 0) {
+        p.slice(0, i) && this.gitDirs.add(p.slice(0, i));
+        i = p.lastIndexOf("/", i - 1);
+      }
+    }
+    this.el.querySelectorAll<HTMLElement>(".tree-row").forEach((row) => this.applyGit(row, row.dataset.path ?? "", row.classList.contains("dir")));
+  }
+
+  private applyGit(row: HTMLElement, path: string, isDir: boolean) {
+    const key = path.replace(/\\/g, "/");
+    row.classList.remove("git-M", "git-A", "git-U", "git-D", "git-R", "git-C", "git-dir");
+    row.querySelector(".tree-git")?.remove();
+    const st = this.gitFiles.get(key);
+    if (st) {
+      row.classList.add(`git-${st}`);
+      row.append(h("span", { class: "tree-git", title: t(`git.${st}`) }, st === "U" ? "U" : st));
+    } else if (isDir && this.gitDirs.has(key)) {
+      row.classList.add("git-dir");
+      row.append(h("span", { class: "tree-git dot", "aria-hidden": "true" }));
+    }
   }
 
   async refresh() {
@@ -113,6 +143,7 @@ export class FileTree {
       h("span", { class: "tree-icon", html: icon(e.isDir ? (open ? "folderOpen" : "folder") : "file", 15) }),
       h("span", { class: "tree-name" }, e.name),
     );
+    this.applyGit(row, e.path, e.isDir);
     const wrap = h("div", { class: "tree-node" }, row);
     if (open) wrap.append(await this.renderDir(e.path, depth + 1));
 

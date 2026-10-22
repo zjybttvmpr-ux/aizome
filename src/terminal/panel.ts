@@ -164,6 +164,10 @@ export class TerminalPanel {
     this.renderTabs();
   }
 
+  clearActive() {
+    this.active?.view.clear();
+  }
+
   killActive() {
     if (this.active) this.close(this.active);
   }

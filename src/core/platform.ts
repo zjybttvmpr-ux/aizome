@@ -2,6 +2,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { open, save } from "@tauri-apps/plugin-dialog";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 
 export interface DirEntry {
   name: string;
@@ -26,6 +27,7 @@ export interface AiRequest {
   temperature?: number;
   stop?: string[];
   apiKey?: string;
+  repeatPenalty?: number;
 }
 
 export interface AiChunk {
@@ -52,11 +54,63 @@ export const fs = {
   rename: (from: string, to: string) => invoke<void>("fs_rename", { from, to }),
   remove: (path: string) => invoke<void>("fs_remove", { path }),
   exists: (path: string) => invoke<boolean>("fs_exists", { path }),
+  readDataUrl: (path: string) => invoke<string>("fs_read_data_url", { path }),
+  search: (opts: { root: string; query: string; regex: boolean; caseSensitive: boolean; wholeWord: boolean; limit?: number }) =>
+    invoke<SearchResult>("fs_search", opts),
+};
+
+export interface SearchHit {
+  path: string;
+  line: number;
+  col: number;
+  text: string;
+}
+
+export interface SearchResult {
+  hits: SearchHit[];
+  truncated: boolean;
+  filesSearched: number;
+}
+
+export interface GitStatus {
+  isRepo: boolean;
+  branch: string | null;
+  ahead: number;
+  behind: number;
+  files: { path: string; status: string }[];
+}
+
+export const git = {
+  status: (root: string) => invoke<GitStatus>("git_status", { root }),
+};
+
+export const appWindow = {
+  async setFullscreen(on: boolean) {
+    await getCurrentWindow().setFullscreen(on);
+  },
+  async isFullscreen() {
+    return getCurrentWindow().isFullscreen();
+  },
+  /** 閉じる前に確認する。handler が false を返すと閉じない */
+  onCloseRequested(handler: () => Promise<boolean>) {
+    const w = getCurrentWindow();
+    return w.onCloseRequested(async (event) => {
+      event.preventDefault();
+      if (await handler()) await w.destroy();
+    });
+  },
 };
 
 export const dialog = {
   async pickFolder(): Promise<string | null> {
     const r = await open({ directory: true, multiple: false });
+    return typeof r === "string" ? r : null;
+  },
+  async pickImage(): Promise<string | null> {
+    const r = await open({
+      multiple: false,
+      filters: [{ name: "Image", extensions: ["png", "jpg", "jpeg", "webp", "gif", "bmp", "svg", "avif"] }],
+    });
     return typeof r === "string" ? r : null;
   },
   async saveFile(defaultPath?: string): Promise<string | null> {

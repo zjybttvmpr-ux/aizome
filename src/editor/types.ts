@@ -9,6 +9,8 @@ export interface EditorHost {
   close(id: string): void;
   rename(oldId: string, newId: string, filename: string): Promise<void>;
   getText(id?: string): string;
+  /** 中身をまるごと置き換える（カーソル位置はできるだけ保つ） */
+  setText(id: string, text: string): void;
   getSelection(): string;
   replaceSelection(text: string): void;
   insertText(text: string): void;

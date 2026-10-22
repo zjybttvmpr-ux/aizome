@@ -18,8 +18,26 @@ export interface Settings {
   "terminal.shell": string;
   "terminal.fontSize": number;
   "workspace.last": string;
+  "workspace.recent": string[];
+  "session.files": string[];
+  "session.active": string;
   "extensions.disabled": string[];
   "extensions.granted": Record<string, string[]>;
+
+  "look.bgColor": string;
+  "look.accentColor": string;
+  "look.bgImage": string;
+  "look.bgOpacity": number;
+  "look.bgBlur": number;
+  "look.bgDim": number;
+  "look.bgFit": "cover" | "contain" | "tile" | "center";
+  "look.zoom": number;
+  "editor.fontFamily": string;
+  "editor.autoSave": "off" | "delay" | "focus";
+  "editor.trimTrailingWhitespace": boolean;
+  "editor.insertFinalNewline": boolean;
+  "editor.restoreTabs": boolean;
+  "editor.lineNumbers": boolean;
 }
 
 export const defaults: Settings = {
@@ -40,8 +58,26 @@ export const defaults: Settings = {
   "terminal.shell": "",
   "terminal.fontSize": 13,
   "workspace.last": "",
+  "workspace.recent": [],
+  "session.files": [],
+  "session.active": "",
   "extensions.disabled": [],
   "extensions.granted": {},
+
+  "look.bgColor": "",
+  "look.accentColor": "",
+  "look.bgImage": "",
+  "look.bgOpacity": 0.74,
+  "look.bgBlur": 0,
+  "look.bgDim": 0.2,
+  "look.bgFit": "cover",
+  "look.zoom": 1,
+  "editor.fontFamily": "",
+  "editor.autoSave": "off",
+  "editor.trimTrailingWhitespace": false,
+  "editor.insertFinalNewline": true,
+  "editor.restoreTabs": true,
+  "editor.lineNumbers": true,
 };
 
 const STORAGE_KEY = "aizome.settings.v1";

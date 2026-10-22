@@ -1,7 +1,9 @@
 mod ai;
 mod extensions;
 mod fsops;
+mod git;
 mod pty;
+mod search;
 
 use serde::Serialize;
 
@@ -41,6 +43,9 @@ pub fn run() {
             fsops::fs_rename,
             fsops::fs_remove,
             fsops::fs_exists,
+            fsops::fs_read_data_url,
+            search::fs_search,
+            git::git_status,
             pty::pty_spawn,
             pty::pty_write,
             pty::pty_resize,

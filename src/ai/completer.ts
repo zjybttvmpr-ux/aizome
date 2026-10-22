@@ -85,7 +85,7 @@ class Completer {
   }
 
   private async request(
-    req: { prompt: string; suffix?: string; maxTokens: number; temperature: number; stop?: string[] },
+    req: { prompt: string; suffix?: string; maxTokens: number; temperature: number; stop?: string[]; repeatPenalty?: number },
     onText: (full: string) => void,
   ): Promise<{ id: number; done: Promise<string> }> {
     await ensureListener();
@@ -97,7 +97,10 @@ class Completer {
   }
 
   /** エディタのインライン補完。新しい呼び出しが来たら前のものは捨てる */
-  async inline(ctx: { prefix: string; suffix: string }, onText: (full: string) => void): Promise<string | null> {
+  async inline(
+    ctx: { prefix: string; suffix: string; maxTokens?: number },
+    onText: (full: string) => void,
+  ): Promise<string | null> {
     if (!settings.get("ai.enabled")) return null;
     this.cancelInline();
     const seq = ++this.inlineSeq;
@@ -107,8 +110,9 @@ class Completer {
         {
           prompt: ctx.prefix,
           suffix: ctx.suffix,
-          maxTokens: settings.get("ai.maxTokens"),
+          maxTokens: ctx.maxTokens ?? settings.get("ai.maxTokens"),
           temperature: 0.15,
+          repeatPenalty: 1.12,
         },
         onText,
       );
@@ -145,11 +149,21 @@ class Completer {
   }
 
   /** 拡張機能などからの、指示文による生成 */
-  async ask(prompt: string, opts: { maxTokens?: number; temperature?: number } = {}): Promise<string> {
-    const { done } = await this.request(
-      { prompt, maxTokens: opts.maxTokens ?? 512, temperature: opts.temperature ?? 0.3 },
-      () => {},
+  async ask(
+    prompt: string,
+    opts: { maxTokens?: number; temperature?: number; onText?: (full: string) => void; onStart?: (cancel: () => void) => void } = {},
+  ): Promise<string> {
+    const { id, done } = await this.request(
+      { prompt, maxTokens: opts.maxTokens ?? 512, temperature: opts.temperature ?? 0.3, repeatPenalty: 1.1 },
+      opts.onText ?? (() => {}),
     );
+    opts.onStart?.(() => {
+      const p = pending.get(id);
+      pending.delete(id);
+      cancelled.add(id);
+      ai.cancel(id).catch(() => {});
+      p?.resolve(p.text);
+    });
     return done;
   }
 

@@ -155,6 +155,19 @@ class CodeMirrorHost implements EditorHost {
     return this.docs.get(key)?.state.doc.toString() ?? "";
   }
 
+  setText(id: string, text: string) {
+    const apply = (state: EditorState) => {
+      const head = Math.min(state.selection.main.head, text.length);
+      return { changes: { from: 0, to: state.doc.length, insert: text }, selection: { anchor: head } };
+    };
+    if (id === this.activeId && this.view) {
+      this.view.dispatch(apply(this.view.state));
+    } else {
+      const entry = this.docs.get(id);
+      if (entry) entry.state = entry.state.update(apply(entry.state)).state;
+    }
+  }
+
   getSelection() {
     if (!this.view || !this.activeId) return "";
     const s = this.view.state.selection.main;

@@ -41,9 +41,15 @@ export const commands = {
   },
 };
 
+/** "Mod-Shift-P" を [修飾キー..., キー] に分ける（"Mod--" のようにキー自体が "-" の場合も扱う） */
+function splitKey(key: string): string[] {
+  if (key.endsWith("--")) return [...key.slice(0, -2).split("-").filter(Boolean), "-"];
+  return key.split("-");
+}
+
 /** "Mod-Shift-P" を画面表示用の "Ctrl+Shift+P" / "⌘⇧P" にする */
 export function formatKey(key: string): string {
-  const parts = key.split("-");
+  const parts = splitKey(key);
   if (isMac) {
     const map: Record<string, string> = { Mod: "⌘", Ctrl: "⌃", Shift: "⇧", Alt: "⌥" };
     return parts.map((p) => map[p] ?? p.toUpperCase()).join("");
@@ -62,6 +68,9 @@ function eventToKey(e: KeyboardEvent): string {
   if (e.code === "Backquote") k = "`";
   else if (e.code === "Comma") k = ",";
   else if (e.code === "Backslash") k = "\\";
+  else if (e.code === "Minus") k = "-";
+  else if (e.code === "Equal") k = "=";
+  else if (e.code === "Semicolon") k = ";";
   else if (/^Key[A-Z]$/.test(e.code)) k = e.code.slice(3).toLowerCase();
   else if (/^Digit\d$/.test(e.code)) k = e.code.slice(5);
   else if (k.length === 1) k = k.toLowerCase();
@@ -69,7 +78,7 @@ function eventToKey(e: KeyboardEvent): string {
 }
 
 function normalize(key: string): string {
-  const parts = key.split("-");
+  const parts = splitKey(key);
   const last = parts.pop()!;
   const order = ["Mod", "Ctrl", "Alt", "Shift"];
   const mods = order.filter((m) => parts.includes(m));

@@ -41,6 +41,8 @@ pub struct AiRequest {
     temperature: Option<f32>,
     stop: Option<Vec<String>>,
     api_key: Option<String>,
+    /// 同じ言葉の繰り返しを抑える強さ（1.0 で無効）
+    repeat_penalty: Option<f32>,
 }
 
 #[derive(Clone, Serialize)]
@@ -77,7 +79,13 @@ async fn run(app: &AppHandle, client: &reqwest::Client, id: u32, req: AiRequest)
             "model": req.model,
             "prompt": req.prompt,
             "stream": true,
-            "options": { "num_predict": max_tokens, "temperature": temperature, "stop": stop }
+            "options": {
+                "num_predict": max_tokens,
+                "temperature": temperature,
+                "stop": stop,
+                "repeat_penalty": req.repeat_penalty.unwrap_or(1.1),
+                "repeat_last_n": 128
+            }
         });
         if let Some(s) = &req.suffix {
             body["suffix"] = json!(s);
@@ -90,6 +98,7 @@ async fn run(app: &AppHandle, client: &reqwest::Client, id: u32, req: AiRequest)
             "stream": true,
             "max_tokens": max_tokens,
             "temperature": temperature,
+            "frequency_penalty": ((req.repeat_penalty.unwrap_or(1.1) - 1.0) * 3.0).clamp(0.0, 1.0),
         });
         if !stop.is_empty() {
             body["stop"] = json!(stop);

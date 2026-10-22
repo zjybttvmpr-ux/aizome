@@ -140,3 +140,29 @@ pub fn fs_remove(path: String) -> Result<(), String> {
 pub fn fs_exists(path: String) -> bool {
     Path::new(&path).exists()
 }
+
+/// 画像ファイルを data: URL として読む（背景画像用）
+#[tauri::command]
+pub fn fs_read_data_url(path: String) -> Result<String, String> {
+    use base64::Engine;
+    let meta = fs::metadata(&path).map_err(err)?;
+    if meta.len() > 40 * 1024 * 1024 {
+        return Err("FILE_TOO_LARGE".into());
+    }
+    let ext = Path::new(&path)
+        .extension()
+        .map(|e| e.to_string_lossy().to_lowercase())
+        .unwrap_or_default();
+    let mime = match ext.as_str() {
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "webp" => "image/webp",
+        "gif" => "image/gif",
+        "bmp" => "image/bmp",
+        "svg" => "image/svg+xml",
+        "avif" => "image/avif",
+        _ => return Err("NOT_AN_IMAGE".into()),
+    };
+    let bytes = fs::read(&path).map_err(err)?;
+    Ok(format!("data:{mime};base64,{}", base64::engine::general_purpose::STANDARD.encode(bytes)))
+}

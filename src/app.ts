@@ -4,8 +4,8 @@ import { t } from "./core/i18n";
 import { bus } from "./core/events";
 import { settings } from "./core/settings";
 import { commands, formatKey, installKeybindings } from "./core/commands";
-import { fs, dialog, sys, type SysInfo } from "./core/platform";
-import { basename, dirname, isInside, resolveIn } from "./core/paths";
+import { fs, dialog, sys, git, appWindow, type SysInfo } from "./core/platform";
+import { basename, dirname, extname, isInside, relative, resolveIn } from "./core/paths";
 import { createEditorHost } from "./editor/editor";
 import type { EditorHost } from "./editor/types";
 import { TerminalPanel } from "./terminal/panel";
@@ -20,6 +20,11 @@ import { icon } from "./ui/icons";
 import { openCommandPalette, openQuickOpen, quickPick } from "./ui/palette";
 import { completer, type AiStatus } from "./ai/completer";
 import { ExtensionHost } from "./extensions/host";
+import { createSearchView, type SearchView } from "./ui/searchView";
+import { createAiChatView, type AiChatView } from "./ui/aiChatView";
+import { aiRewrite } from "./ui/aiRewrite";
+import { renderMarkdown } from "./ui/markdown";
+import { initAppearance, zoomBy } from "./ui/appearance";
 
 interface Doc {
   id: string;
@@ -28,7 +33,7 @@ interface Doc {
   dirty: boolean;
 }
 
-type ViewName = "explorer" | "extensions" | "settings";
+type ViewName = "explorer" | "search" | "ai" | "extensions" | "settings";
 
 export class App {
   private editor: EditorHost = createEditorHost();
@@ -57,6 +62,17 @@ export class App {
   private statusLeft!: HTMLElement;
   private statusRight!: HTMLElement;
   private explorerEmpty!: HTMLElement;
+  private breadcrumbsEl!: HTMLElement;
+  private previewEl!: HTMLElement;
+  private editorArea!: HTMLElement;
+  private previewOn = false;
+  private previewTimer: number | undefined;
+  private autoSaveTimer: number | undefined;
+  private gitBranch: string | null = null;
+  private gitChanges = 0;
+  private restoring = false;
+  private searchView: SearchView;
+  private chatView: AiChatView;
 
   private tree: FileTree;
   private terminal: TerminalPanel;
@@ -86,6 +102,8 @@ export class App {
         this.renderStatus();
       },
     });
+    this.searchView = createSearchView({ root: () => this.root, open: (p, l, c) => void this.openFile(p, l, c) });
+    this.chatView = createAiChatView({ editor: this.editor, activeName: () => this.activeDoc()?.name ?? null });
   }
 
   async start() {
@@ -99,14 +117,94 @@ export class App {
     } catch (err) {
       console.warn("sys_info", err);
     }
+    initAppearance();
     await this.extensions.loadAll();
     applyTheme(settings.get("ui.theme"));
 
     const last = settings.get("workspace.last");
-    if (last && (await fs.exists(last).catch(() => false))) await this.setRoot(last);
-    else this.renderExplorerState();
+    if (last && (await fs.exists(last).catch(() => false))) {
+      await this.setRoot(last);
+      if (settings.get("editor.restoreTabs")) await this.restoreSession();
+    } else this.renderExplorerState();
     this.renderTabs();
     this.renderStatus();
+
+    // 閉じる前に未保存の確認
+    appWindow.onCloseRequested(() => this.confirmQuit()).catch(() => {});
+    // ほかのアプリから戻ってきたら Git の状態を更新、離れたら自動保存
+    window.addEventListener("focus", () => void this.refreshGit());
+    window.addEventListener("blur", () => {
+      if (settings.get("editor.autoSave") === "focus") void this.saveAllDirty();
+    });
+    window.setInterval(() => void this.refreshGit(), 15000);
+  }
+
+  // ───────────── セッション（開いていたタブの復元）
+
+  private saveSession() {
+    if (this.restoring) return;
+    settings.set("session.files", this.docs.filter((d) => d.path).map((d) => d.path!));
+    settings.set("session.active", this.activeDoc()?.path ?? "");
+  }
+
+  private async restoreSession() {
+    const files = settings.get("session.files");
+    const active = settings.get("session.active");
+    this.restoring = true;
+    try {
+      for (const f of files) {
+        if (await fs.exists(f).catch(() => false)) await this.openFile(f);
+      }
+      if (active && this.docs.some((d) => d.path === active)) this.activate(active);
+    } finally {
+      this.restoring = false;
+      this.saveSession();
+    }
+  }
+
+  private async confirmQuit(): Promise<boolean> {
+    const dirty = this.docs.filter((d) => d.dirty);
+    if (!dirty.length) return true;
+    const answer = await choose(
+      t("quit.title", { n: String(dirty.length) }),
+      dirty.map((d) => `・${d.name}`).join("\n"),
+      [
+        { label: t("common.cancel"), value: "cancel", kind: "plain" },
+        { label: t("quit.discard"), value: "discard", kind: "plain" },
+        { label: t("quit.saveAll"), value: "save", kind: "primary" },
+      ],
+      "cancel",
+    );
+    if (answer === "cancel") return false;
+    if (answer === "save") {
+      for (const d of dirty) if (!(await this.save(d.id))) return false;
+    }
+    return true;
+  }
+
+  private async saveAllDirty() {
+    for (const d of this.docs) if (d.dirty && d.path) await this.save(d.id);
+  }
+
+  // ───────────── Git
+
+  private async refreshGit() {
+    if (!this.root) return;
+    try {
+      const st = await git.status(this.root);
+      const files = new Map<string, string>();
+      const base = this.root.replace(/\\/g, "/").replace(/\/+$/, "");
+      for (const f of st.files) files.set(`${base}/${f.path.replace(/\/+$/, "")}`, f.status);
+      this.tree.setGit(files);
+      const branch = st.isRepo ? st.branch : null;
+      if (branch !== this.gitBranch || files.size !== this.gitChanges) {
+        this.gitBranch = branch;
+        this.gitChanges = files.size;
+        this.renderStatus();
+      }
+    } catch {
+      /* git がなければ表示しない */
+    }
   }
 
   // ───────────── レイアウト
@@ -151,6 +249,8 @@ export class App {
       activity.append(b);
     };
     addActivity("explorer", "files", t("view.explorer"));
+    addActivity("search", "search", t("view.search"));
+    addActivity("ai", "spark", t("view.ai"));
     addActivity("extensions", "puzzle", t("view.extensions"));
     activity.append(h("div", { class: "activity-spacer" }));
     activity.append(button("terminal", t("cmd.toggleTerminal"), () => this.terminal.toggle(), "activity-btn"));
@@ -166,6 +266,8 @@ export class App {
     );
     const explorer = h("div", { class: "view explorer-view" }, this.explorerEmpty, this.tree.el);
     this.views.set("explorer", explorer);
+    this.views.set("search", this.searchView.el);
+    this.views.set("ai", this.chatView.el);
     this.views.set("extensions", createExtensionsView(this.extensions));
     this.views.set("settings", createSettingsView());
     const viewsHost = h("div", { class: "sidebar-body" }, ...this.views.values());
@@ -177,8 +279,11 @@ export class App {
     this.tabsEl = h("div", { class: "tabs", role: "tablist" });
     this.editorMount = h("div", { class: "editor-mount" });
     this.welcomeEl = this.buildWelcome();
-    const editorArea = h("div", { class: "editor-area" }, this.editorMount, this.welcomeEl);
-    const main = h("main", { class: "main" }, this.tabsEl, editorArea, panelResizer, this.terminal.el);
+    this.breadcrumbsEl = h("nav", { class: "breadcrumbs", "aria-label": t("breadcrumbs.label") });
+    this.previewEl = h("article", { class: "md-preview", hidden: true, "aria-label": t("preview.label") });
+    this.editorArea = h("div", { class: "editor-area" }, this.editorMount, this.previewEl, this.welcomeEl);
+    const editorArea = this.editorArea;
+    const main = h("main", { class: "main" }, this.tabsEl, this.breadcrumbsEl, editorArea, panelResizer, this.terminal.el);
 
     this.statusLeft = h("div", { class: "status-left" });
     this.statusRight = h("div", { class: "status-right" });
@@ -187,6 +292,7 @@ export class App {
     this.el = h("div", { class: "app" }, topbar, h("div", { class: "body" }, activity, this.sidebarEl, sideResizer, main), statusbar);
     this.el.style.setProperty("--side-w", `${settings.get("ui.sidebarWidth")}px`);
     this.el.style.setProperty("--panel-h", `${settings.get("ui.panelHeight")}px`);
+    this.el.classList.toggle("hide-line-numbers", !settings.get("editor.lineNumbers"));
     this.mountPoint.append(this.el);
 
     this.editor.mount(this.editorMount);
@@ -223,12 +329,26 @@ export class App {
           row("view.commandPalette", t("cmd.commandPalette")),
           row("terminal.toggle", t("cmd.toggleTerminal")),
         ),
+        h("div", {}, this.recentList()),
         h("p", { class: "welcome-hint" }, t("welcome.aiHint")),
       );
     };
     queueMicrotask(fill);
-    bus.on("settings:changed", ({ key }) => key === "ui.language" && fill());
+    bus.on("settings:changed", ({ key }) => (key === "ui.language" || key === "workspace.recent") && fill());
     return el;
+  }
+
+  private recentList(): HTMLElement | null {
+    const recent = settings.get("workspace.recent").filter((r) => r !== this.root);
+    if (!recent.length) return null;
+    return h(
+      "div",
+      { class: "welcome-recent" },
+      h("h2", {}, t("welcome.recent")),
+      ...recent.slice(0, 6).map((r) =>
+        h("button", { class: "recent-item", type: "button", title: r, onclick: () => this.openFolder(r) }, h("span", { class: "recent-name" }, basename(r)), h("span", { class: "recent-path" }, r)),
+      ),
+    );
   }
 
   private dragResize(handle: HTMLElement, axis: "x" | "y") {
@@ -270,6 +390,8 @@ export class App {
       el.hidden = !on;
       if (on) el.dispatchEvent(new Event("view:show"));
     }
+    if (view === "search") this.searchView.focus(this.editor.getSelection().split("\n")[0] || undefined);
+    if (view === "ai") this.chatView.focus();
     for (const [name, b] of this.activityButtons) b.classList.toggle("active", name === view);
     this.sidebarTitle.textContent = t(`view.${view}`);
     clear(this.sidebarActions);
@@ -308,12 +430,20 @@ export class App {
   }
 
   private async setRoot(root: string) {
+    if (this.root && this.root !== root) {
+      // 別のフォルダに移るときは、今のタブを閉じる
+      for (const d of [...this.docs]) await this.closeDoc(d.id);
+      if (this.docs.length) return;
+    }
     this.root = root;
     settings.set("workspace.last", root);
+    settings.set("workspace.recent", [root, ...settings.get("workspace.recent").filter((r) => r !== root)].slice(0, 10));
     await this.tree.setRoot(root);
     this.renderExplorerState();
     bus.emit("workspace:changed", { root });
     await this.reindex();
+    this.gitBranch = null;
+    void this.refreshGit();
   }
 
   private async reindex() {
@@ -355,6 +485,7 @@ export class App {
       this.docs.push(doc);
       await this.editor.open(doc.id, text, doc.name);
       bus.emit("file:opened", { path });
+      this.saveSession();
     }
     this.activate(doc.id);
     if (line) requestAnimationFrame(() => this.editor.goTo(line, col));
@@ -389,6 +520,44 @@ export class App {
     this.renderStatus();
     document.title = doc ? `${doc.dirty ? "● " : ""}${doc.name} — Aizome` : "Aizome";
     bus.emit("active:changed", { path: doc?.path ?? null });
+    this.renderBreadcrumbs();
+    this.renderPreview();
+    this.saveSession();
+  }
+
+  private renderBreadcrumbs() {
+    clear(this.breadcrumbsEl);
+    const doc = this.activeDoc();
+    if (!doc) return;
+    const rel = doc.path ? (this.root && isInside(this.root, doc.path) ? relative(this.root, doc.path) : doc.path) : doc.name;
+    const parts = rel.split(/[\\/]/).filter(Boolean);
+    parts.forEach((p, i) => {
+      if (i > 0) this.breadcrumbsEl.append(h("span", { class: "crumb-sep", "aria-hidden": "true", html: icon("chevron", 11) }));
+      this.breadcrumbsEl.append(h("span", { class: i === parts.length - 1 ? "crumb current" : "crumb" }, p));
+    });
+  }
+
+  private isMarkdown(doc?: Doc) {
+    return !!doc && [".md", ".markdown", ".mdx"].includes(extname(doc.path ?? doc.name));
+  }
+
+  private renderPreview() {
+    const doc = this.activeDoc();
+    const show = this.previewOn && this.isMarkdown(doc);
+    this.previewEl.hidden = !show;
+    this.editorArea.classList.toggle("with-preview", show);
+    if (!show) return;
+    clear(this.previewEl);
+    this.previewEl.append(renderMarkdown(this.editor.getText()));
+  }
+
+  private togglePreview() {
+    if (!this.isMarkdown(this.activeDoc())) {
+      toast(t("preview.onlyMarkdown"), "info");
+      return;
+    }
+    this.previewOn = !this.previewOn;
+    this.renderPreview();
   }
 
   async save(id = this.activeId, forceAs = false): Promise<boolean> {
@@ -399,8 +568,13 @@ export class App {
       path = await dialog.saveFile(this.root ? resolveIn(this.root, doc.path ? basename(doc.path) : "untitled.txt") : undefined);
       if (!path) return false;
     }
+    let text = this.editor.getText(doc.id);
+    const original = text;
+    if (settings.get("editor.trimTrailingWhitespace")) text = text.replace(/[ \t]+$/gm, "");
+    if (settings.get("editor.insertFinalNewline") && text.length && !text.endsWith("\n")) text += "\n";
+    if (text !== original) this.editor.setText(doc.id, text);
     try {
-      await fs.writeFile(path, this.editor.getText(doc.id));
+      await fs.writeFile(path, text);
     } catch (err) {
       toast(t("file.saveFailed", { name: doc.name, err: String(err) }), "error");
       return false;
@@ -419,6 +593,8 @@ export class App {
     this.renderStatus();
     if (this.activeId === doc.id) document.title = `${doc.name} — Aizome`;
     bus.emit("file:saved", { path });
+    this.saveSession();
+    void this.refreshGit();
     return true;
   }
 
@@ -454,6 +630,9 @@ export class App {
     }
     this.renderTabs();
     this.renderStatus();
+    this.renderBreadcrumbs();
+    this.renderPreview();
+    this.saveSession();
   }
 
   private handleRenamed(from: string, to: string) {
@@ -558,6 +737,12 @@ export class App {
         : h("span", { class: "status-item", title: title ?? text }, text);
 
     const doc = this.activeDoc();
+    if (this.gitBranch) {
+      const label = this.gitChanges ? `${this.gitBranch}  ${t("status.gitChanges", { n: String(this.gitChanges) })}` : this.gitBranch;
+      this.statusLeft.append(
+        h("button", { class: "status-item git-item", title: t("status.gitTitle"), onclick: () => void this.refreshGit() }, h("span", { class: "git-icon", "aria-hidden": "true" }), label),
+      );
+    }
     if (doc?.dirty) this.statusLeft.append(h("span", { class: "status-item dirty-note" }, t("status.unsaved")));
     for (const [, v] of this.statusItems) this.statusLeft.append(item(v.text, v.tooltip));
 
@@ -599,6 +784,35 @@ export class App {
     settings.set("ai.enabled", !settings.get("ai.enabled"));
   }
 
+  private toggleZen() {
+    const on = !this.el.classList.contains("zen");
+    this.el.classList.toggle("zen", on);
+    if (on) toast(t("zen.hint", { key: formatKey("Mod-Alt-Z") }), "info");
+    this.editor.focus();
+  }
+
+  private async revert() {
+    const doc = this.activeDoc();
+    if (!doc?.path) return;
+    try {
+      const text = await fs.readFile(doc.path);
+      this.editor.setText(doc.id, text);
+      doc.dirty = false;
+      this.renderTabs();
+      this.renderStatus();
+      toast(t("file.reverted", { name: doc.name }), "success");
+    } catch (err) {
+      toast(t("file.openFailed", { name: doc.name, err: String(err) }), "error");
+    }
+  }
+
+  private cycleTab(dir: number) {
+    if (this.docs.length < 2) return;
+    const i = this.docs.findIndex((d) => d.id === this.activeId);
+    const next = this.docs[(i + dir + this.docs.length) % this.docs.length];
+    this.activate(next.id);
+  }
+
   // ───────────── コマンド
 
   private registerCommands() {
@@ -632,6 +846,48 @@ export class App {
     reg("ai.toggle", "cmd.aiToggle", () => settings.set("ai.enabled", !settings.get("ai.enabled")));
     reg("ai.trigger", "cmd.aiTrigger", () => this.editor.triggerCompletion());
     reg("ext.reload", "cmd.reloadExtensions", () => this.extensions.reload());
+    reg("search.inFiles", "cmd.searchInFiles", () => this.showView("search"), "Mod-Shift-F");
+    reg("view.ai", "cmd.showAiChat", () => this.showView("ai"), "Mod-Shift-A");
+    reg("ai.rewrite", "cmd.aiRewrite", () => aiRewrite(this.editor), "Mod-I");
+    reg("ai.explain", "cmd.aiExplain", () => {
+      this.showView("ai");
+      this.chatView.ask(t("chat.example1"));
+    });
+    reg("ai.comment", "cmd.aiComment", () => aiRewrite(this.editor, t("rewrite.presetComment")));
+    reg("ai.fix", "cmd.aiFix", () => aiRewrite(this.editor, t("rewrite.presetFix")));
+    reg("view.markdownPreview", "cmd.markdownPreview", () => this.togglePreview(), "Mod-Shift-V");
+    reg("view.zen", "cmd.zen", () => this.toggleZen(), "Mod-Alt-Z", true);
+    reg("view.fullscreen", "cmd.fullscreen", async () => appWindow.setFullscreen(!(await appWindow.isFullscreen())), "F11", true);
+    reg("view.zoomIn", "cmd.zoomIn", () => zoomBy(0.1), "Mod-=", true);
+    reg("view.zoomOut", "cmd.zoomOut", () => zoomBy(-0.1), "Mod--", true);
+    reg("view.zoomReset", "cmd.zoomReset", () => settings.set("look.zoom", 1), "Mod-0", true);
+    // 日本語キーボードの「;+」キーでも拡大できるように
+    commands.register({ id: "view.zoomInJis", title: () => t("cmd.zoomIn"), key: "Mod-;", inTerminal: true, hidden: true, run: () => zoomBy(0.1) });
+    commands.register({ id: "view.zoomInShift", title: () => t("cmd.zoomIn"), key: "Mod-Shift-;", inTerminal: true, hidden: true, run: () => zoomBy(0.1) });
+    reg("editor.toggleWrap", "cmd.toggleWrap", () => settings.set("editor.wordWrap", !settings.get("editor.wordWrap")), "Alt-Z");
+    reg("editor.toggleLineNumbers", "cmd.toggleLineNumbers", () => settings.set("editor.lineNumbers", !settings.get("editor.lineNumbers")));
+    reg("file.openRecent", "cmd.openRecent", async () => {
+      const items = settings.get("workspace.recent").map((r) => ({ label: basename(r), detail: r, icon: "folder", value: r }));
+      if (!items.length) return toast(t("recent.none"), "info");
+      const picked = await quickPick(items, t("cmd.openRecent"));
+      if (picked) await this.openFolder(picked);
+    }, "Mod-R");
+    reg("file.revert", "cmd.revert", () => this.revert());
+    reg("file.saveAll", "cmd.saveAll", () => this.saveAllDirty(), "Mod-Alt-S");
+    reg("file.closeAll", "cmd.closeAll", async () => {
+      for (const d of [...this.docs]) await this.closeDoc(d.id);
+    });
+    reg("file.copyPath", "cmd.copyPath", () => {
+      const p = this.activeDoc()?.path;
+      if (p) void navigator.clipboard?.writeText(p).then(() => toast(t("chat.copied"), "success"));
+    });
+    reg("tabs.next", "cmd.nextTab", () => this.cycleTab(1), "Ctrl-Tab", true);
+    reg("tabs.prev", "cmd.prevTab", () => this.cycleTab(-1), "Ctrl-Shift-Tab", true);
+    // Windows / Linux では Ctrl が Mod 扱いになるため、同じ動作を Mod でも登録する
+    commands.register({ id: "tabs.nextMod", title: () => t("cmd.nextTab"), key: "Mod-Tab", inTerminal: true, hidden: true, run: () => this.cycleTab(1) });
+    commands.register({ id: "tabs.prevMod", title: () => t("cmd.prevTab"), key: "Mod-Shift-Tab", inTerminal: true, hidden: true, run: () => this.cycleTab(-1) });
+    reg("terminal.clear", "cmd.clearTerminal", () => this.terminal.clearActive());
+    reg("git.refresh", "cmd.gitRefresh", () => this.refreshGit());
     reg("theme.select", "cmd.selectTheme", async () => {
       const id = await quickPick(
         listThemes().map((th) => ({ label: th.label, detail: th.scheme === "dark" ? t("theme.dark") : t("theme.light"), value: th.id })),
@@ -644,6 +900,16 @@ export class App {
   private bindEvents() {
     this.editor.onChange((id) => {
       const doc = this.docs.find((d) => d.id === id);
+      if (doc && settings.get("editor.autoSave") === "delay" && doc.path) {
+        window.clearTimeout(this.autoSaveTimer);
+        this.autoSaveTimer = window.setTimeout(() => {
+          if (doc.dirty) void this.save(doc.id);
+        }, 1200);
+      }
+      if (this.previewOn && id === this.activeId) {
+        window.clearTimeout(this.previewTimer);
+        this.previewTimer = window.setTimeout(() => this.renderPreview(), 200);
+      }
       if (doc && !doc.dirty) {
         doc.dirty = true;
         this.renderTabs();
@@ -667,6 +933,7 @@ export class App {
         this.renderStatus();
       }
       if (key === "ui.theme") applyTheme(settings.get("ui.theme"));
+      if (key === "editor.lineNumbers") this.el.classList.toggle("hide-line-numbers", !settings.get("editor.lineNumbers"));
       if (key === "ai.enabled") {
         if (!settings.get("ai.enabled")) completer.cancelInline();
         completer.setStatus(settings.get("ai.enabled") ? "idle" : "off");

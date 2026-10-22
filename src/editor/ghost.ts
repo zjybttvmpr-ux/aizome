@@ -3,12 +3,21 @@
 import { Prec, StateEffect, StateField, type Extension } from "@codemirror/state";
 import { Decoration, EditorView, ViewPlugin, WidgetType, keymap, type ViewUpdate } from "@codemirror/view";
 import { completer } from "../ai/completer";
-import { cleanCompletion, shouldComplete } from "../ai/clean";
+import { cleanCompletion, commentIntent, contextKey, shouldComplete } from "../ai/clean";
 import { settings } from "../core/settings";
 
 interface Ghost {
   pos: number;
   text: string;
+  /** 却下されたときに覚えておくためのキー */
+  key: string;
+}
+
+/** 却下された候補（同じ場所で同じものを出し直さない） */
+const rejected = new Set<string>();
+function reject(key: string) {
+  rejected.add(key);
+  if (rejected.size > 300) rejected.delete(rejected.values().next().value as string);
 }
 
 const setGhost = StateEffect.define<Ghost | null>();
@@ -47,7 +56,7 @@ const ghostField = StateField.define<Ghost | null>({
       });
       if (simple && typed && value.text.startsWith(typed)) {
         const rest = value.text.slice(typed.length);
-        return rest ? { pos: value.pos + typed.length, text: rest } : null;
+        return rest ? { pos: value.pos + typed.length, text: rest, key: value.key } : null;
       }
       return null;
     }
@@ -72,14 +81,16 @@ function accept(view: EditorView, part?: "word"): boolean {
   view.dispatch({
     changes: { from: g.pos, insert: text },
     selection: { anchor: g.pos + text.length },
-    effects: setGhost.of(rest ? { pos: g.pos + text.length, text: rest } : null),
+    effects: setGhost.of(rest ? { pos: g.pos + text.length, text: rest, key: g.key } : null),
     userEvent: "input.complete",
   });
   return true;
 }
 
 function dismiss(view: EditorView): boolean {
-  if (!view.state.field(ghostField, false)) return false;
+  const g = view.state.field(ghostField, false);
+  if (!g) return false;
+  reject(g.key);
   view.dispatch({ effects: setGhost.of(null) });
   completer.cancelInline();
   return true;
@@ -95,24 +106,29 @@ async function requestCompletion(view: EditorView) {
   const doc = state.doc;
   const line = doc.lineAt(pos);
   const lineSuffix = doc.sliceString(pos, line.to);
-  const prefix = doc.sliceString(Math.max(0, pos - 4000), pos);
+  const intent = commentIntent(doc.sliceString(Math.max(0, pos - 2000), pos));
+  // コメントで指示が書かれているときは、前後をより広く見せて長めに書かせる
+  const prefix = doc.sliceString(Math.max(0, pos - (intent ? 6000 : 4000)), pos);
   const suffix = doc.sliceString(pos, Math.min(doc.length, pos + 1500));
   if (!shouldComplete(prefix, lineSuffix)) return;
 
   const multiline = lineSuffix.trim() === "";
+  const maxTokens = intent ? Math.max(settings.get("ai.maxTokens"), 320) : settings.get("ai.maxTokens");
+  const maxLines = intent ? 40 : 12;
   const startDoc = doc;
   const show = (raw: string) => {
     if (view.state.doc !== startDoc || view.state.selection.main.head !== pos) return;
-    const text = cleanCompletion(raw, { lineSuffix, suffix, multiline });
+    const text = cleanCompletion(raw, { lineSuffix, suffix, prefix, multiline, maxLines });
+    const key = contextKey(prefix, text);
     const current = view.state.field(ghostField, false);
-    if (!text) {
+    if (!text || rejected.has(key)) {
       if (current) view.dispatch({ effects: setGhost.of(null) });
       return;
     }
     if (current?.text === text) return;
-    view.dispatch({ effects: setGhost.of({ pos, text }) });
+    view.dispatch({ effects: setGhost.of({ pos, text, key }) });
   };
-  const final = await completer.inline({ prefix, suffix }, show);
+  const final = await completer.inline({ prefix, suffix, maxTokens }, show);
   if (final !== null) show(final);
 }
 
@@ -129,11 +145,20 @@ export function triggerCompletion(view: EditorView) {
 const scheduler = ViewPlugin.fromClass(
   class {
     update(u: ViewUpdate) {
-      const typed = u.transactions.some((tr) => tr.isUserEvent("input.type") || tr.isUserEvent("delete") || tr.isUserEvent("input.paste"));
+      // 表示していた候補が、確定されずに消えたら「却下」として覚える
+      const before = u.startState.field(ghostField, false);
+      const after = u.state.field(ghostField, false);
+      const accepted = u.transactions.some((tr) => tr.isUserEvent("input.complete"));
+      if (before && !after && !accepted && u.docChanged) reject(before.key);
+
+      // 文字入力・改行・貼り付け・削除のあとに補完する（候補の確定そのものは除く）
+      const typed = u.transactions.some((tr) => (tr.isUserEvent("input") && !tr.isUserEvent("input.complete")) || tr.isUserEvent("delete"));
       if (u.docChanged && typed) {
-        if (!u.state.field(ghostField, false)) {
+        if (!after) {
           completer.cancelInline();
-          schedule(u.view);
+          const pos = u.state.selection.main.head;
+          const intent = commentIntent(u.state.doc.sliceString(Math.max(0, pos - 2000), pos));
+          schedule(u.view, intent ? 120 : undefined);
         }
       } else if (u.selectionSet && !u.docChanged) {
         window.clearTimeout(timer);

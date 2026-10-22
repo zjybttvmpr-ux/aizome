@@ -9,8 +9,10 @@ function cssVar(name: string): string {
 
 function themeFromCss() {
   const v = (n: string, fallback: string) => cssVar(n) || fallback;
+  // 背景画像があるときは透明にして、パネルの半透明な色を見せる
+  const transparent = document.documentElement.classList.contains("has-bg");
   return {
-    background: v("--term-bg", "#151c30"),
+    background: transparent ? "rgba(0, 0, 0, 0)" : v("--term-bg", "#151c30"),
     foreground: v("--text", "#dce3f2"),
     cursor: v("--cursor", "#7cc7d6"),
     cursorAccent: v("--term-bg", "#151c30"),
@@ -48,6 +50,7 @@ export function createTermView(opts: { fontSize: number }): TermView {
     lineHeight: 1.25,
     cursorBlink: true,
     allowProposedApi: true,
+    allowTransparency: true,
     scrollback: 5000,
     theme: themeFromCss(),
   });
