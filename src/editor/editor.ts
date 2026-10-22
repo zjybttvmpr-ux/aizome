@@ -18,7 +18,8 @@ import {
 } from "@codemirror/commands";
 import { openSearchPanel } from "@codemirror/search";
 import { snippet } from "@codemirror/autocomplete";
-import { foldAll, unfoldAll } from "@codemirror/language";
+import { ensureSyntaxTree, foldAll, unfoldAll } from "@codemirror/language";
+import { highlightTree, tagHighlighter, tags } from "@lezer/highlight";
 import { languages } from "@codemirror/language-data";
 import { editorTheme, syntaxColors } from "./theme";
 import { docFilename, ghostText, triggerCompletion } from "./ghost";
@@ -63,6 +64,19 @@ function configExtensions(): Extension {
 function detect(filename: string): LanguageDescription | null {
   return LanguageDescription.matchFilename(languages, filenameForLanguage(filename));
 }
+
+/** 書き出し用：色の種類を短い名前で（k = キーワード、s = 文字列 …） */
+const exportHighlighter = tagHighlighter([
+  { tag: [tags.keyword, tags.controlKeyword, tags.definitionKeyword, tags.moduleKeyword, tags.operatorKeyword, tags.modifier, tags.self], class: "k" },
+  { tag: [tags.string, tags.special(tags.string), tags.regexp, tags.character, tags.escape], class: "s" },
+  { tag: [tags.comment, tags.lineComment, tags.blockComment, tags.docComment], class: "c" },
+  { tag: [tags.number, tags.integer, tags.float, tags.bool, tags.null, tags.atom], class: "n" },
+  { tag: [tags.function(tags.variableName), tags.function(tags.definition(tags.variableName)), tags.function(tags.propertyName)], class: "f" },
+  { tag: [tags.typeName, tags.className, tags.namespace, tags.standard(tags.typeName)], class: "t" },
+  { tag: [tags.definition(tags.variableName), tags.propertyName, tags.attributeName], class: "v" },
+  { tag: [tags.meta, tags.processingInstruction, tags.annotation], class: "m" },
+  { tag: [tags.tagName, tags.heading], class: "k" },
+]);
 
 interface Pane {
   el: HTMLElement;
@@ -443,6 +457,33 @@ class CodeMirrorHost implements EditorHost {
       endNew--;
     }
     this.view.dispatch({ changes: { from: start, to: endOld, insert: text.slice(start, endNew) }, userEvent: "input.replace" });
+  }
+
+  highlightLines(id: string) {
+    const state = this.viewOf(id)?.state ?? this.docs.get(id)?.state;
+    if (!state) return [];
+    const doc = state.doc;
+    const lines: { text: string; cls: string }[][] = [[]];
+    const push = (text: string, cls: string) => {
+      const parts = text.split("\n");
+      parts.forEach((part, i) => {
+        if (i > 0) lines.push([]);
+        if (part) lines[lines.length - 1].push({ text: part, cls });
+      });
+    };
+    const tree = ensureSyntaxTree(state, doc.length, 3000);
+    if (!tree) {
+      push(doc.toString(), "");
+      return lines;
+    }
+    let pos = 0;
+    highlightTree(tree, exportHighlighter, (from, to, cls) => {
+      if (from > pos) push(doc.sliceString(pos, from), "");
+      push(doc.sliceString(from, to), cls.split(" ")[0]);
+      pos = to;
+    });
+    if (pos < doc.length) push(doc.sliceString(pos), "");
+    return lines;
   }
 
   getSelection() {

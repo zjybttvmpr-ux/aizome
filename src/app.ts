@@ -4,7 +4,7 @@ import { t } from "./core/i18n";
 import { bus } from "./core/events";
 import { settings } from "./core/settings";
 import { commands, formatKey, installKeybindings } from "./core/commands";
-import { fs, dialog, sys, git, appWindow, osIntegration, runtimes, type SysInfo } from "./core/platform";
+import { fs, dialog, sys, git, appWindow, osIntegration, runtimes, tools, type SysInfo } from "./core/platform";
 import { basename, dirname, extname, isInside, join, relative, resolveIn, stripExt } from "./core/paths";
 import { LANG_CHOICES, directiveAsComment, guessLanguage, parseDirective, setDirective } from "./core/langDirective";
 import { createEditorHost } from "./editor/editor";
@@ -36,6 +36,8 @@ import { createSaveHistory } from "./ui/saveHistory";
 import { createFileGroups } from "./ui/fileGroups";
 import { exportSettings, importSettings } from "./ui/settingsTransfer";
 import { contextMenu, type MenuItem as CtxItem } from "./ui/fileTree";
+import { BUILD_TARGETS, RUN_TOOLS, fillBuild, isUnityScript, javaMainClass, type Toolchain } from "./run/build";
+import { askExportOptions, defaultExportOptions, exportBody, exportCss, exportDocx, exportHtmlDocument, exportText, toBase64, type ExportOptions } from "./ui/exportCode";
 import { clipHistory, clipLabel, startClipWatch } from "./core/clipHistory";
 import { buildFromJapanese } from "./ui/jpBuildDialog";
 import { sampleTemplate } from "./ai/jpBuild";
@@ -874,7 +876,7 @@ export class App {
   }
 
   /** 「値を見る」の結果を、今の表示（値／出力）とステップの位置に合わせて行の右に出す */
-  private refreshTrace(docId = this.activeId) {
+  private refreshTrace(docId = this.activeId, moveCursor = true) {
     if (!docId) return;
     const raw = this.traceRaw.get(docId);
     if (!raw) return;
@@ -882,7 +884,7 @@ export class App {
     const step = this.traceStep && this.traceStep.docId === docId ? this.traceStep : null;
     const time = step ? (stepTimes(raw, step.line)[step.index] ?? null) : null;
     this.editor.showValues(docId, { values: formatTrace(raw, view, time), raw, time });
-    if (step && docId === this.activeId) this.editor.goTo(step.line, 1);
+    if (step && docId === this.activeId && moveCursor && this.editor.cursor().line !== step.line) this.editor.goTo(step.line, 1);
     this.renderBreadcrumbs();
   }
 
@@ -916,6 +918,32 @@ export class App {
     step.index = Math.max(0, Math.min(times.length - 1, step.index + dir));
     this.traceStep = step;
     this.refreshTrace(doc.id);
+  }
+
+  /**
+   * ステップ表示中にカーソルを別の行へ動かしたとき：その行が「今の瞬間にいちばん近く」動いた回へ切り替えて、
+   * その行の具体的な値を見られるようにする
+   */
+  private followStepCursor() {
+    const doc = this.activeDoc();
+    const step = this.traceStep;
+    if (!doc || !step || step.docId !== doc.id) return;
+    const line = this.editor.cursor().line;
+    if (line === step.line) return;
+    const raw = this.traceRaw.get(doc.id);
+    if (!raw) return;
+    const times = stepTimes(raw, line);
+    if (!times.length) return;
+    const now = stepTimes(raw, step.line)[step.index] ?? 0;
+    let best = 0;
+    for (let i = 1; i < times.length; i++) {
+      const d = Math.abs(times[i] - now);
+      const bd = Math.abs(times[best] - now);
+      // 同じ近さなら、これから動く方（同じ回の続き）を選ぶ
+      if (d < bd || (d === bd && times[i] > now)) best = i;
+    }
+    this.traceStep = { docId: doc.id, line, index: best };
+    this.refreshTrace(doc.id, false);
   }
 
   /** ループを 1 段ぶん進める・戻す（外側のループの「次の回」など） */
@@ -1432,6 +1460,13 @@ export class App {
     } else if (inputsFile) {
       toast(t("inputs.onlyPython"), "info", 5000);
     }
+    // go・gcc・dotnet などが入っているか（入っていなければ入れ方を案内。入れた直後で PATH にないときは足す）
+    const tool = RUN_TOOLS[config.id];
+    if (tool && settings.get("run.checkTools")) {
+      const prefix = await this.ensureTools([tool]);
+      if (prefix === null) return;
+      cmd = prefix + cmd;
+    }
     if (config.id === "python" && settings.get("run.findPython")) {
       const resolved = await this.resolvePython(cmd);
       if (resolved === null) return;
@@ -1448,6 +1483,165 @@ export class App {
     const cwd = overrides?.fileDir && overrides.fileDir !== "." ? overrides.fileDir : overrides ? undefined : dirname(path);
     this.lastRunDir = cwd ?? dirname(path);
     await this.terminal.run(cmd, cwd);
+  }
+
+  /**
+   * コンパイラなどの道具を確かめる。足りなければ入れ方を聞いて null。
+   * 見つかったけれど PATH に入っていない（winget で入れた直後など）ときは、PATH に足す命令を返す
+   */
+  private async ensureTools(list: Toolchain[]): Promise<string | null> {
+    const win = this.sys.os === "windows";
+    let prefix = "";
+    for (const tc of list) {
+      if (!tc.names.length) continue;
+      let found: { dir: string; inPath: boolean } | null;
+      try {
+        found = await tools.find(tc.names);
+      } catch {
+        continue; // 調べられないときは、そのまま実行してみる
+      }
+      if (found) {
+        if (!found.inPath) {
+          prefix += win ? `$env:Path = "${found.dir.replace(/[`$"]/g, (c) => "`" + c)};" + $env:Path; ` : `export PATH="${found.dir.replace(/(["$`\\])/g, "\\$1")}:$PATH"; `;
+        }
+        continue;
+      }
+      const choices: { label: string; value: string; kind: "plain" | "primary" }[] = [
+        { label: t("common.cancel"), value: "cancel", kind: "plain" },
+        { label: t("tool.openPage"), value: "page", kind: "plain" },
+      ];
+      if (win && tc.winget) choices.push({ label: t("tool.install"), value: "winget", kind: "primary" });
+      const answer = await choose(
+        t("tool.missingTitle", { name: tc.label }),
+        t("tool.missing", { name: tc.label, cmd: tc.names[0] }) + (tc.note ? "\n\n" + tc.note : "") + (win && tc.winget ? "\n\n" + t("tool.wingetHint", { id: tc.winget }) : ""),
+        choices,
+        "cancel",
+      );
+      if (answer === "winget") {
+        await this.terminal.run(
+          `winget install -e --id ${tc.winget} --accept-source-agreements --accept-package-agreements; Write-Host ""; Write-Host "${t("tool.installedHint")}" -ForegroundColor Green`,
+        );
+      } else if (answer === "page") {
+        await this.terminal.run(win ? `Start-Process "${tc.url}"` : `(xdg-open "${tc.url}" || open "${tc.url}") >/dev/null 2>&1`);
+      }
+      return null;
+    }
+    return prefix;
+  }
+
+  /** ビルド：言語に合わせて、実行ファイル（.exe・.jar など）を「build」フォルダに作る */
+  private async buildActive() {
+    const doc = this.activeDoc();
+    if (!doc) {
+      toast(t("run.noFile"), "info");
+      return;
+    }
+    const text = this.editor.getText(doc.id);
+    const file = await this.prepareRunFile(doc);
+    if (!file) return;
+    const win = this.sys.os === "windows";
+    const config = findRunConfig(file.path);
+    const targets = config ? BUILD_TARGETS[config.id] : undefined;
+    const drop = async () => {
+      if (file.cleanup) await fs.remove(file.cleanup).catch(() => {});
+    };
+    if (!config || !targets) {
+      await drop();
+      toast(t(config ? "bld.noNeed" : "run.noConfig", { name: basename(file.path), lang: config?.label ?? "" }), "info", 7000);
+      return;
+    }
+    if (config.id === "csharp" && isUnityScript(text)) {
+      await drop();
+      toast(t("bld.unity"), "info", 8000);
+      return;
+    }
+    const target =
+      targets.length === 1
+        ? targets[0]
+        : await quickPick(
+            targets.map((x) => ({ label: x.label, detail: x.detail, value: x })),
+            t("bld.pick", { lang: config.label }),
+          );
+    if (!target) {
+      await drop();
+      return;
+    }
+    let pyCall = win ? "python" : "python3";
+    if (config.id === "python") {
+      const resolved = await this.resolvePython(pyCall + " ");
+      if (resolved === null) {
+        await drop();
+        return;
+      }
+      pyCall = resolved.trim();
+    }
+    const prefix = await this.ensureTools(target.tools);
+    if (prefix === null) {
+      await drop();
+      return;
+    }
+    const out = join(file.dir, "build");
+    await fs.createDir(out).catch(() => {});
+    const name = stripExt(basename(doc.path ?? doc.name)).replace(/\.aizome-run$/, "").replace(/[\\/:*?"<>|\s]+/g, "_") || "app";
+    const vars = { src: file.path, out, name, py: pyCall, main: javaMainClass(text, name) };
+    const body = fillBuild(win ? target.windows : target.unix, vars, win);
+    const result = target.result.replace("${out}", out).replace("${name}", name).replace(/\//g, win ? "\\" : "/");
+    const ok = t("bld.done", { path: win ? result : result.replace(/\.exe$/, "") });
+    const ng = t("bld.failed");
+    const q = (s: string) => s.replace(/[`$"]/g, (c) => "`" + c);
+    const cmd = win
+      ? `${prefix}${body}; if ($?) { Write-Host ""; Write-Host "--- ${q(ok)} ---" -ForegroundColor Green } else { Write-Host ""; Write-Host "--- ${q(ng)} ---" -ForegroundColor Red }${target.after ? "; " + target.after : ""}${this.cleanupCommand(file.cleanup)}`
+      : `${prefix}(${body}) && echo "--- ${ok} ---" || echo "--- ${ng} ---"${this.cleanupCommand(file.cleanup)}`;
+    toast(t("bld.started", { lang: config.label, target: target.label }), "info", 4000);
+    await this.terminal.run(cmd, file.dir);
+  }
+
+  /** コードを PDF・Word・HTML・テキストに書き出す（ページの形ごと） */
+  private async exportActive() {
+    const doc = this.activeDoc();
+    if (!doc) {
+      toast(t("print.noFile"), "info");
+      return;
+    }
+    const o = await askExportOptions(doc.name);
+    if (!o) return;
+    const lines = this.editor.highlightLines(doc.id);
+    const meta = { name: doc.name, path: doc.path ?? "", date: new Date().toLocaleString() };
+    const tab = settings.get("editor.tabSize");
+    if (o.format === "pdf") {
+      await this.printSheet(lines, o, meta, tab);
+      toast(t("export.pdfHint"), "info", 9000);
+      return;
+    }
+    const ext = o.format === "docx" ? ".docx" : o.format === "html" ? ".html" : ".txt";
+    const suggested = stripExt(doc.name) + (o.format === "txt" && extname(doc.name) === ".txt" ? "-印刷用" : "") + ext;
+    const path = await dialog.saveFile(doc.path ? join(dirname(doc.path), suggested) : suggested);
+    if (!path) return;
+    try {
+      if (o.format === "docx") await fs.writeBase64(path, toBase64(exportDocx(lines, o, meta, tab)));
+      else if (o.format === "html") await fs.writeFile(path, exportHtmlDocument(lines, o, meta, tab));
+      else await fs.writeFile(path, exportText(lines, o, meta, tab));
+      toast(t("export.saved", { path }), "success", 7000);
+    } catch (err) {
+      toast(t("export.failed", { err: String(err) }), "error");
+    }
+  }
+
+  /** 色付き・行番号付きのコードを印刷する（印刷の画面で「PDF に保存」も選べる） */
+  private async printSheet(lines: { text: string; cls: string }[][], o: ExportOptions, meta: { name: string; path: string; date: string }, tab: number) {
+    document.querySelector(".print-sheet")?.remove();
+    document.getElementById("print-export-style")?.remove();
+    const style = h("style", { id: "print-export-style" });
+    style.textContent = `@media print { ${exportCss(o, meta.name)} }`;
+    const sheet = h("div", { class: "print-sheet" });
+    sheet.innerHTML = exportBody(lines, o, meta, tab);
+    document.head.append(style);
+    document.body.append(sheet);
+    try {
+      await sys.print();
+    } catch {
+      window.print();
+    }
   }
 
   /**
@@ -1794,6 +1988,7 @@ export class App {
           c("file.revert"),
           sep,
           c("file.print"),
+          c("file.export"),
           c("file.copyPath"),
           sep,
           c("file.close"),
@@ -1866,7 +2061,7 @@ export class App {
       {
         type: "submenu",
         label: t("menu.run"),
-        items: () => [c("run.file"), c("run.editInputs"), c("run.trace"), c("run.stepNext"), c("run.stepPrev"), c("run.clearValues"), sep, c("terminal.new"), c("terminal.toggle", () => this.terminal.isVisible), c("terminal.clear")],
+        items: () => [c("run.file"), c("run.build"), c("run.editInputs"), c("run.trace"), c("run.stepNext"), c("run.stepPrev"), c("run.clearValues"), sep, c("terminal.new"), c("terminal.toggle", () => this.terminal.isVisible), c("terminal.clear")],
       },
       {
         type: "submenu",
@@ -1901,7 +2096,13 @@ export class App {
       toast(t("print.noFile"), "info");
       return;
     }
+    if (!(this.isMarkdown(doc) && this.previewOn)) {
+      const o = { ...defaultExportOptions(), format: "pdf" as const };
+      await this.printSheet(this.editor.highlightLines(doc.id), o, { name: doc.name, path: doc.path ?? "", date: new Date().toLocaleString() }, settings.get("editor.tabSize"));
+      return;
+    }
     document.querySelector(".print-sheet")?.remove();
+    document.getElementById("print-export-style")?.remove();
     const lines = this.editor.getText(doc.id).split("\n");
     const width = String(lines.length).length;
     const sheet = h(
@@ -2161,6 +2362,8 @@ export class App {
     edit("edit.foldAll", "cmd.foldAll", "foldAll");
     edit("edit.unfoldAll", "cmd.unfoldAll", "unfoldAll");
     reg("file.print", "cmd.print", () => this.printActive(), "Mod-Alt-P");
+    reg("file.export", "cmd.exportCode", () => this.exportActive(), "Mod-Alt-X");
+    reg("run.build", "cmd.build", () => this.buildActive(), "Mod-Shift-B", true);
     // 日本語から組み立てる（行番号を渡すとそのブロック、なければカーソル位置のブロック）
     commands.register({
       id: "ai.build",
@@ -2300,6 +2503,7 @@ export class App {
       requestAnimationFrame(() => {
         pending = false;
         this.renderStatus();
+        this.followStepCursor();
       });
     });
     completer.onStatus((s) => this.renderAi(s));

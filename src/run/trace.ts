@@ -246,7 +246,9 @@ export function formatTrace(result: TraceResult, view: TraceView = "values", tim
       if (view === "output") {
         if (r.o) out.set(line, { text: oneLine(r.o), detail, kind: current ? "current" : "past" });
       } else {
-        const text = varsText(r);
+        let text = varsText(r);
+        // 今の行は、その回に出した文字（print の結果など）も添える
+        if (current && r.o) text = text ? `${text}　→ ${oneLine(r.o, 40)}` : `→ ${oneLine(r.o, 60)}`;
         // 今の行以外は「その行が最後に動いたときの値」なので薄く
         if (text) out.set(line, { text, detail, kind: current ? "current" : "past" });
       }

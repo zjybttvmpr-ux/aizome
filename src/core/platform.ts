@@ -66,6 +66,8 @@ export const fs = {
   remove: (path: string) => invoke<void>("fs_remove", { path }),
   exists: (path: string) => invoke<boolean>("fs_exists", { path }),
   isDir: (path: string) => invoke<boolean>("fs_is_dir", { path }),
+  /** 文字ではないファイルを書く（中身は base64） */
+  writeBase64: (path: string, data: string) => invoke<void>("fsops_extra_write_base64", { path, data }),
   readDataUrl: (path: string) => invoke<string>("fs_read_data_url", { path }),
   search: (opts: { root: string; query: string; regex: boolean; caseSensitive: boolean; wholeWord: boolean; limit?: number }) =>
     invoke<SearchResult>("fs_search", opts),
@@ -238,6 +240,11 @@ export const runtimes = {
   listPythons: () => invoke<{ command: string; path: string; source: string; version: string }[]>("list_pythons"),
   findPython: () =>
     invoke<{ command: string | null; storeStub: boolean; source: string }>("find_python", { preferred: settings.get("run.pythonPath") || null }),
+};
+
+export const tools = {
+  /** コンパイラなどを探す（winget で入れた直後でも見つかるように、最新の PATH とよくある場所も見る） */
+  find: (names: string[]) => invoke<{ path: string; dir: string; inPath: boolean } | null>("find_tool", { names }),
 };
 
 export const clipboardWatch = {

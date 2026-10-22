@@ -9,10 +9,19 @@ mod pty;
 mod runtimes;
 mod encoding;
 mod search;
+mod tools;
 mod updater;
 
 use serde::Serialize;
 use tauri::Manager;
+
+/// 文字ではないファイル（Word の .docx など）を書く。中身は base64 で受け取る
+#[tauri::command(async)]
+fn fsops_extra_write_base64(path: String, data: String) -> Result<(), String> {
+    use base64::Engine;
+    let bytes = base64::engine::general_purpose::STANDARD.decode(data.as_bytes()).map_err(|e| e.to_string())?;
+    std::fs::write(&path, bytes).map_err(|e| e.to_string())
+}
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -99,6 +108,8 @@ pub fn run() {
             encoding::fs_write_file_enc,
             runtimes::find_python,
             runtimes::list_pythons,
+            tools::find_tool,
+            fsops_extra_write_base64,
             sys_info,
             print_page,
             app_info,

@@ -34,6 +34,8 @@ export interface EditorHost {
   setText(id: string, text: string): void;
   /** 表示中のファイルの中身を書き換える（変わった部分だけ置き換えるので、カーソルや元に戻すが自然） */
   applyText(text: string): void;
+  /** 書き出し・印刷用：行ごとに、色の種類（k・s・c・n・f・t・v・m、なしは ""）つきの文字 */
+  highlightLines(id: string): { text: string; cls: string }[][];
   getSelection(): string;
   replaceSelection(text: string): void;
   insertText(text: string): void;

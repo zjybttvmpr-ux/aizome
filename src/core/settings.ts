@@ -10,6 +10,10 @@ export interface Settings {
   "ui.splitRatio": number;
   /** コピー履歴（最近の 10 個） */
   "clip.history": boolean;
+  /** 実行の前に、コンパイラなどが入っているか確かめる */
+  "run.checkTools": boolean;
+  /** 書き出しの設定（前回のもの） */
+  "export.options": Record<string, unknown> | null;
   "ui.panelHeight": number;
   "editor.fontSize": number;
   "editor.tabSize": number;
@@ -136,6 +140,8 @@ export const defaults: Settings = {
   "ui.sidebarAutoCollapse": true,
   "ui.splitRatio": 0.5,
   "clip.history": true,
+  "run.checkTools": true,
+  "export.options": null,
   "ui.panelHeight": 240,
   "editor.fontSize": 14,
   "editor.tabSize": 4,

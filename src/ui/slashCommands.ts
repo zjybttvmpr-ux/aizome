@@ -200,6 +200,8 @@ export function registerBuiltinSlash(d: SlashDeps) {
 
     // ───── 実行
     cmd("auto", ["自動判定", "じどうはんてい", "予想", "よそう", "自動", "jidou", "推測"], "view.sideAuto", G.ai, "spark", "実行せずに AI が変数の中身とエラーの可能性を予想（変数にマウスを乗せると表示）"),
+    cmd("export", ["書き出し", "かきだし", "PDF", "pdf", "Word", "word", "ワード", "docx", "HTML", "html", "テキスト", "txt", "印刷用", "保存形式"], "file.export", G.file, "file", "コードを PDF・Word・HTML・テキストに、用紙・行番号・色付きで書き出す"),
+    cmd("build", ["ビルド", "びるど", "exe", "実行ファイル", "じっこうふぁいる", "jar", "コンパイル", "こんぱいる"], "run.build", G.run, "play", "言語に合わせて実行ファイル（.exe・.jar など）を build フォルダに作る"),
     cmd("clips", ["コピー履歴", "こぴーりれき", "履歴", "りれき", "クリップボード", "clipboard", "kopi"], "edit.pasteHistory", G.insert, "clock", "最近コピーした 10 個から選んで貼り付ける（あいぞめの外でコピーしたものも）"),
     cmd("split", ["左右", "左右に並べる", "さゆう", "並べる", "ならべる", "分割", "ぶんかつ", "右に並べる"], "view.splitRight", G.view, "sidebar", "今のファイルを右に並べる（タブの右クリックでも）"),
     cmd("unsplit", ["分割をやめる", "元に戻す", "並べるのをやめる", "ひとつに"], "view.unsplit", G.view, "sidebar", "左右に並べるのをやめる"),
@@ -458,8 +460,8 @@ export function registerBuiltinSlash(d: SlashDeps) {
       },
       run: () => d.openSettings(),
     },
-    cmd("export", ["設定の書き出し", "書き出し", "かきだし", "持ち運び", "もちはこび", "バックアップ", "backup"], "settings.export", G.settings, "file", "設定・グループ・自分の辞書・入力の登録をファイルに書き出す（ほかのパソコン用）"),
-    cmd("import", ["設定の読み込み", "読み込み", "よみこみ", "引き継ぎ", "ひきつぎ", "restore"], "settings.import", G.settings, "file", "書き出した設定ファイルを読み込む"),
+    cmd("settings-export", ["設定の書き出し", "せっていのかきだし", "持ち運び", "もちはこび", "バックアップ", "backup"], "settings.export", G.settings, "file", "設定・グループ・自分の辞書・入力の登録をファイルに書き出す（ほかのパソコン用）"),
+    cmd("settings-import", ["設定の読み込み", "せっていのよみこみ", "引き継ぎ", "ひきつぎ", "restore"], "settings.import", G.settings, "file", "書き出した設定ファイルを読み込む"),
     cmd("extensions", ["拡張機能", "かくちょう", "アドオン", "プラグイン", "kakuchou"], "view.extensions", G.settings, "puzzle"),
   );
 }
