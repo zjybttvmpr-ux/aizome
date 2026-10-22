@@ -1,0 +1,113 @@
+import { Terminal, type ILink } from "@xterm/xterm";
+import { FitAddon } from "@xterm/addon-fit";
+import "@xterm/xterm/css/xterm.css";
+import type { TermView } from "./types";
+
+function cssVar(name: string): string {
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+}
+
+function themeFromCss() {
+  const v = (n: string, fallback: string) => cssVar(n) || fallback;
+  return {
+    background: v("--term-bg", "#151c30"),
+    foreground: v("--text", "#dce3f2"),
+    cursor: v("--cursor", "#7cc7d6"),
+    cursorAccent: v("--term-bg", "#151c30"),
+    selectionBackground: v("--selection", "#2f4a7a"),
+    black: v("--ansi-black", "#2a3350"),
+    red: v("--ansi-red", "#e2747e"),
+    green: v("--ansi-green", "#8fc79a"),
+    yellow: v("--ansi-yellow", "#e3c35a"),
+    blue: v("--ansi-blue", "#7aa2e8"),
+    magenta: v("--ansi-magenta", "#c79be0"),
+    cyan: v("--ansi-cyan", "#6fc3d3"),
+    white: v("--ansi-white", "#dce3f2"),
+    brightBlack: v("--ansi-bright-black", "#5b6787"),
+    brightRed: v("--ansi-red", "#e2747e"),
+    brightGreen: v("--ansi-green", "#8fc79a"),
+    brightYellow: v("--ansi-yellow", "#e3c35a"),
+    brightBlue: v("--ansi-blue", "#7aa2e8"),
+    brightMagenta: v("--ansi-magenta", "#c79be0"),
+    brightCyan: v("--ansi-cyan", "#6fc3d3"),
+    brightWhite: v("--ansi-bright-white", "#ffffff"),
+  };
+}
+
+// path:line(:col)  例: src/main.rs:12:5 / C:\work\a.py:3
+const LOC = /((?:[A-Za-z]:)?[\w.\-~/\\]*[\w\-]+\.[A-Za-z0-9]{1,8}):(\d+)(?::(\d+))?/g;
+// Python のトレースバック  例: File "app.py", line 12
+const PY = /File "([^"]+)", line (\d+)/g;
+
+export function createTermView(opts: { fontSize: number }): TermView {
+  const el = document.createElement("div");
+  el.className = "term-view";
+  const term = new Terminal({
+    fontFamily: cssVar("--font-code") || "monospace",
+    fontSize: opts.fontSize,
+    lineHeight: 1.25,
+    cursorBlink: true,
+    allowProposedApi: true,
+    scrollback: 5000,
+    theme: themeFromCss(),
+  });
+  const fitAddon = new FitAddon();
+  term.loadAddon(fitAddon);
+  term.open(el);
+
+  let linkCb: ((path: string, line: number, col: number) => void) | null = null;
+  term.registerLinkProvider({
+    provideLinks(y, callback) {
+      const line = term.buffer.active.getLine(y - 1)?.translateToString(true) ?? "";
+      const links: ILink[] = [];
+      const add = (start: number, length: number, path: string, ln: number, col: number) => {
+        links.push({
+          range: { start: { x: start + 1, y }, end: { x: start + length, y } },
+          text: line.slice(start, start + length),
+          activate: () => linkCb?.(path, ln, col),
+        });
+      };
+      for (const m of line.matchAll(PY)) add(m.index ?? 0, m[0].length, m[1], Number(m[2]), 1);
+      for (const m of line.matchAll(LOC)) {
+        if (/^\d+$/.test(m[1]) || m[1].includes("://")) continue;
+        add(m.index ?? 0, m[0].length, m[1], Number(m[2]), Number(m[3] ?? 1));
+      }
+      callback(links.length ? links : undefined);
+    },
+  });
+
+  return {
+    el,
+    get cols() {
+      return term.cols;
+    },
+    get rows() {
+      return term.rows;
+    },
+    write: (d) => term.write(d),
+    onInput: (cb) => void term.onData(cb),
+    onResize: (cb) => void term.onResize(({ cols, rows }) => cb(cols, rows)),
+    onFileLink: (cb) => {
+      linkCb = cb;
+    },
+    fit: () => {
+      if (el.offsetParent !== null) {
+        try {
+          fitAddon.fit();
+        } catch {
+          /* 非表示中は測れない */
+        }
+      }
+    },
+    focus: () => term.focus(),
+    clear: () => term.clear(),
+    applyTheme: () => {
+      term.options.theme = themeFromCss();
+    },
+    setFontSize: (px) => {
+      term.options.fontSize = px;
+      fitAddon.fit();
+    },
+    dispose: () => term.dispose(),
+  };
+}

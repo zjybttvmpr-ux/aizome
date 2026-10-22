@@ -1,0 +1,15 @@
+{
+  "id": "aizome.toolkit",
+  "name": "ツールキット",
+  "version": "1.0.0",
+  "description": "文字数の表示、大文字変換、AI による選択範囲の説明。拡張機能を書くときの見本も兼ねています。",
+  "main": "main.js",
+  "permissions": ["ai"],
+  "contributes": {
+    "commands": [
+      { "id": "toolkit.count", "title": "文字数と行数を数える" },
+      { "id": "toolkit.upper", "title": "選択範囲を大文字にする" },
+      { "id": "toolkit.explain", "title": "AI で選択範囲を説明する", "key": "Mod-Alt-E" }
+    ]
+  }
+}

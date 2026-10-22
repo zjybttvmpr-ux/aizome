@@ -1,0 +1,40 @@
+{
+  "id": "example.hello",
+  "name": "Hello（サンプル）",
+  "version": "0.1.0",
+  "description": "あいさつの挿入と、TODO コメントの一覧。権限の確認が出る様子も試せます。",
+  "main": "main.js",
+  "permissions": ["workspace.read"],
+  "contributes": {
+    "commands": [
+      { "id": "hello.insert", "title": "あいさつを挿入", "key": "Mod-Alt-H" },
+      { "id": "hello.todos", "title": "このファイルの TODO を一覧" }
+    ],
+    "themes": [
+      {
+        "id": "example.matcha",
+        "label": "抹茶（サンプル）",
+        "scheme": "dark",
+        "colors": {
+          "--bg": "#161e18",
+          "--panel": "#1a231c",
+          "--editor-bg": "#18201a",
+          "--surface": "#212c23",
+          "--surface-hover": "#29362b",
+          "--border": "#27332a",
+          "--border-strong": "#334236",
+          "--term-bg": "#141a15",
+          "--accent": "#9cc37a",
+          "--accent-contrast": "#13200c",
+          "--accent-soft": "rgba(156, 195, 122, 0.14)",
+          "--accent-line": "rgba(156, 195, 122, 0.55)",
+          "--cursor": "#b6d98f",
+          "--selection": "#2f4430",
+          "--syn-keyword": "#b6d98f",
+          "--syn-function": "#d8c58a"
+        }
+      }
+    ],
+    "languages": [{ "extensions": [".jsonc"], "basedOn": ".json" }]
+  }
+}

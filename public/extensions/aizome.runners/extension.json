@@ -1,0 +1,27 @@
+{
+  "id": "aizome.runners",
+  "name": "標準の実行設定",
+  "version": "1.0.0",
+  "description": "F5 や「実行」ボタンで、開いているファイルをターミナルで実行します。",
+  "contributes": {
+    "runConfigs": [
+      { "id": "python", "label": "Python", "extensions": [".py"], "command": "cd \"${fileDir}\" && python3 \"${fileBase}\"", "windows": "Set-Location \"${fileDir}\"; python \"${fileBase}\"" },
+      { "id": "node", "label": "Node.js", "extensions": [".js", ".mjs", ".cjs"], "command": "cd \"${fileDir}\" && node \"${fileBase}\"", "windows": "Set-Location \"${fileDir}\"; node \"${fileBase}\"" },
+      { "id": "typescript", "label": "TypeScript（tsx）", "extensions": [".ts", ".mts"], "command": "cd \"${fileDir}\" && npx --yes tsx \"${fileBase}\"", "windows": "Set-Location \"${fileDir}\"; npx --yes tsx \"${fileBase}\"" },
+      { "id": "deno", "label": "Deno", "extensions": [".tsx"], "command": "cd \"${fileDir}\" && deno run \"${fileBase}\"" },
+      { "id": "go", "label": "Go", "extensions": [".go"], "command": "cd \"${fileDir}\" && go run \"${fileBase}\"", "windows": "Set-Location \"${fileDir}\"; go run \"${fileBase}\"" },
+      { "id": "rust", "label": "Rust（単体ファイル）", "extensions": [".rs"], "command": "cd \"${fileDir}\" && rustc \"${fileBase}\" -o \"${fileBaseNoExt}\" && \"./${fileBaseNoExt}\"", "windows": "Set-Location \"${fileDir}\"; rustc \"${fileBase}\" -o \"${fileBaseNoExt}.exe\"; if ($?) { & \".\\${fileBaseNoExt}.exe\" }" },
+      { "id": "c", "label": "C", "extensions": [".c"], "command": "cd \"${fileDir}\" && cc \"${fileBase}\" -o \"${fileBaseNoExt}\" && \"./${fileBaseNoExt}\"", "windows": "Set-Location \"${fileDir}\"; gcc \"${fileBase}\" -o \"${fileBaseNoExt}.exe\"; if ($?) { & \".\\${fileBaseNoExt}.exe\" }" },
+      { "id": "cpp", "label": "C++", "extensions": [".cpp", ".cc", ".cxx"], "command": "cd \"${fileDir}\" && c++ -std=c++17 \"${fileBase}\" -o \"${fileBaseNoExt}\" && \"./${fileBaseNoExt}\"", "windows": "Set-Location \"${fileDir}\"; g++ -std=c++17 \"${fileBase}\" -o \"${fileBaseNoExt}.exe\"; if ($?) { & \".\\${fileBaseNoExt}.exe\" }" },
+      { "id": "java", "label": "Java", "extensions": [".java"], "command": "cd \"${fileDir}\" && java \"${fileBase}\"", "windows": "Set-Location \"${fileDir}\"; java \"${fileBase}\"" },
+      { "id": "kotlin", "label": "Kotlin Script", "extensions": [".kts"], "command": "cd \"${fileDir}\" && kotlinc -script \"${fileBase}\"" },
+      { "id": "ruby", "label": "Ruby", "extensions": [".rb"], "command": "cd \"${fileDir}\" && ruby \"${fileBase}\"", "windows": "Set-Location \"${fileDir}\"; ruby \"${fileBase}\"" },
+      { "id": "php", "label": "PHP", "extensions": [".php"], "command": "cd \"${fileDir}\" && php \"${fileBase}\"", "windows": "Set-Location \"${fileDir}\"; php \"${fileBase}\"" },
+      { "id": "lua", "label": "Lua", "extensions": [".lua"], "command": "cd \"${fileDir}\" && lua \"${fileBase}\"", "windows": "Set-Location \"${fileDir}\"; lua \"${fileBase}\"" },
+      { "id": "shell", "label": "シェルスクリプト", "extensions": [".sh", ".bash", ".zsh"], "command": "cd \"${fileDir}\" && bash \"${fileBase}\"" },
+      { "id": "powershell", "label": "PowerShell", "extensions": [".ps1"], "command": "cd \"${fileDir}\" && pwsh -File \"${fileBase}\"", "windows": "Set-Location \"${fileDir}\"; & \".\\${fileBase}\"" },
+      { "id": "swift", "label": "Swift", "extensions": [".swift"], "command": "cd \"${fileDir}\" && swift \"${fileBase}\"" },
+      { "id": "dart", "label": "Dart", "extensions": [".dart"], "command": "cd \"${fileDir}\" && dart run \"${fileBase}\"", "windows": "Set-Location \"${fileDir}\"; dart run \"${fileBase}\"" }
+    ]
+  }
+}

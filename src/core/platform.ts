@@ -1,0 +1,97 @@
+// ネイティブ側（Rust）との窓口。Tauri への依存はこのファイルだけに閉じ込める。
+import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
+import { open, save } from "@tauri-apps/plugin-dialog";
+
+export interface DirEntry {
+  name: string;
+  path: string;
+  isDir: boolean;
+}
+
+export interface SysInfo {
+  os: string;
+  home: string;
+  defaultShell: string;
+  pathSep: string;
+}
+
+export interface AiRequest {
+  provider: "ollama" | "openai";
+  endpoint: string;
+  model: string;
+  prompt: string;
+  suffix?: string;
+  maxTokens?: number;
+  temperature?: number;
+  stop?: string[];
+  apiKey?: string;
+}
+
+export interface AiChunk {
+  id: number;
+  text: string;
+  done: boolean;
+  error: string | null;
+}
+
+export interface UserExtensionRecord {
+  dir: string;
+  manifest: unknown;
+  mainSource: string | null;
+  error: string | null;
+}
+
+export const fs = {
+  listDir: (path: string) => invoke<DirEntry[]>("fs_list_dir", { path }),
+  walk: (root: string, limit?: number) => invoke<string[]>("fs_walk", { root, limit }),
+  readFile: (path: string) => invoke<string>("fs_read_file", { path }),
+  writeFile: (path: string, content: string) => invoke<void>("fs_write_file", { path, content }),
+  createFile: (path: string) => invoke<void>("fs_create_file", { path }),
+  createDir: (path: string) => invoke<void>("fs_create_dir", { path }),
+  rename: (from: string, to: string) => invoke<void>("fs_rename", { from, to }),
+  remove: (path: string) => invoke<void>("fs_remove", { path }),
+  exists: (path: string) => invoke<boolean>("fs_exists", { path }),
+};
+
+export const dialog = {
+  async pickFolder(): Promise<string | null> {
+    const r = await open({ directory: true, multiple: false });
+    return typeof r === "string" ? r : null;
+  },
+  async saveFile(defaultPath?: string): Promise<string | null> {
+    const r = await save({ defaultPath });
+    return typeof r === "string" ? r : null;
+  },
+};
+
+export const pty = {
+  spawn: (opts: { cwd?: string; cols: number; rows: number; shell?: string }) =>
+    invoke<number>("pty_spawn", opts),
+  write: (id: number, data: string) => invoke<void>("pty_write", { id, data }),
+  resize: (id: number, cols: number, rows: number) => invoke<void>("pty_resize", { id, cols, rows }),
+  kill: (id: number) => invoke<void>("pty_kill", { id }),
+  onData: (cb: (p: { id: number; data: string }) => void) =>
+    listen<{ id: number; data: string }>("pty:data", (e) => cb(e.payload)),
+  onExit: (cb: (p: { id: number; code: number | null }) => void) =>
+    listen<{ id: number; code: number | null }>("pty:exit", (e) => cb(e.payload)),
+};
+
+export const ai = {
+  start: (req: AiRequest) => invoke<number>("ai_complete", { req }),
+  cancel: (id: number) => invoke<void>("ai_cancel", { id }),
+  models: (provider: string, endpoint: string, apiKey?: string) =>
+    invoke<string[]>("ai_models", { provider, endpoint, apiKey }),
+  onChunk: (cb: (c: AiChunk) => void) => listen<AiChunk>("ai:chunk", (e) => cb(e.payload)),
+};
+
+export const ext = {
+  dir: () => invoke<string>("ext_dir"),
+  list: () => invoke<UserExtensionRecord[]>("ext_list"),
+  install: (from: string) => invoke<string>("ext_install", { from }),
+  uninstall: (id: string) => invoke<void>("ext_uninstall", { id }),
+};
+
+export const sys = {
+  info: () => invoke<SysInfo>("sys_info"),
+};
