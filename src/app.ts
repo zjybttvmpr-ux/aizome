@@ -12,7 +12,8 @@ import { TerminalPanel } from "./terminal/panel";
 import { expandCommand, findRunConfig } from "./terminal/runner";
 import { FileTree } from "./ui/fileTree";
 import { createExtensionsView } from "./ui/extensionsView";
-import { createSettingsView } from "./ui/settingsView";
+import { settingsPage } from "./ui/settingsPage";
+import { describeAiError, ensureLocalAi } from "./ai/localAi";
 import { applyTheme, listThemes } from "./ui/themes";
 import { choose, inputBox } from "./ui/dialog";
 import { toast } from "./ui/toast";
@@ -132,6 +133,17 @@ export class App {
     } else this.renderExplorerState();
     this.renderTabs();
     this.renderStatus();
+
+    // PC の中の AI を探して、止まっていれば起動する（USB のモデルも探す）
+    void ensureLocalAi({ quiet: true });
+    let lastRecover = Date.now();
+    completer.onStatus((st, detail) => {
+      // つながらない・モデルがないときは、1分に1回まで自動で探し直す
+      if (st === "error" && /NOT_RUNNING|MODEL_NOT_FOUND|CONNECT_FAILED/.test(detail ?? "") && Date.now() - lastRecover > 60000) {
+        lastRecover = Date.now();
+        void ensureLocalAi({ quiet: true });
+      }
+    });
 
     // 閉じる前に未保存の確認
     appWindow.onCloseRequested(() => this.confirmQuit()).catch(() => {});
@@ -276,7 +288,7 @@ export class App {
     addActivity("extensions", "puzzle", t("view.extensions"));
     activity.append(h("div", { class: "activity-spacer" }));
     activity.append(button("terminal", t("cmd.toggleTerminal"), () => this.terminal.toggle(), "activity-btn"));
-    addActivity("settings", "gear", t("view.settings"));
+    activity.append(button("gear", t("view.settings"), () => settingsPage.toggle(), "activity-btn"));
 
     this.sidebarTitle = h("h2", { class: "sidebar-title" });
     this.sidebarActions = h("div", { class: "sidebar-actions" });
@@ -291,7 +303,6 @@ export class App {
     this.views.set("search", this.searchView.el);
     this.views.set("ai", this.chatView.el);
     this.views.set("extensions", createExtensionsView(this.extensions));
-    this.views.set("settings", createSettingsView());
     const viewsHost = h("div", { class: "sidebar-body" }, ...this.views.values());
     this.sidebarEl = h("aside", { class: "sidebar" }, h("div", { class: "sidebar-head" }, this.sidebarTitle, this.sidebarActions), viewsHost);
 
@@ -405,6 +416,10 @@ export class App {
   // ───────────── サイドバー
 
   private showView(view: ViewName) {
+    if (view === "settings") {
+      settingsPage.open();
+      return;
+    }
     this.currentView = view;
     this.el.classList.remove("sidebar-hidden");
     for (const [name, el] of this.views) {
@@ -829,16 +844,16 @@ export class App {
       status === "off" ? t("ai.off") : status === "error" ? t("ai.error") : model;
     this.aiPill.className = `ai-pill ${status}`;
     this.aiPill.title =
-      status === "error" ? `${t("ai.errorTitle")}\n${completer.lastError}` : status === "off" ? t("ai.offTitle") : t("ai.onTitle", { model });
+      status === "error" ? `${t("ai.errorTitle")}\n${describeAiError(completer.lastError)}` : status === "off" ? t("ai.offTitle") : t("ai.onTitle", { model });
     this.aiPill.innerHTML = "";
     this.aiPill.append(h("span", { class: "ai-drop", "aria-hidden": "true" }), h("span", { class: "ai-label" }, label));
   }
 
   private onAiPillClick() {
     if (completer.status === "error") {
-      toast(t("ai.errorDetail", { err: completer.lastError.slice(0, 200) }), "error", 8000);
+      toast(describeAiError(completer.lastError), "error", 10000);
       completer.setStatus(settings.get("ai.enabled") ? "idle" : "off");
-      this.showView("settings");
+      settingsPage.open("ai");
       return;
     }
     settings.set("ai.enabled", !settings.get("ai.enabled"));
@@ -1073,7 +1088,7 @@ export class App {
     reg("view.toggleSidebar", "cmd.toggleSidebar", () => this.el.classList.toggle("sidebar-hidden"), "Mod-B");
     reg("view.explorer", "cmd.showExplorer", () => this.showView("explorer"), "Mod-Shift-E");
     reg("view.extensions", "cmd.showExtensions", () => this.showView("extensions"), "Mod-Shift-X");
-    reg("view.settings", "cmd.showSettings", () => this.showView("settings"), "Mod-,");
+    reg("view.settings", "cmd.showSettings", () => settingsPage.toggle(), "Mod-,", true);
     reg("terminal.toggle", "cmd.toggleTerminal", () => this.terminal.toggle(), "Mod-`", true);
     reg("terminal.new", "cmd.newTerminal", () => this.terminal.newTerminal(), "Mod-Shift-`", true);
     reg("run.file", "cmd.run", () => this.runActive(), "F5", true);
@@ -1180,7 +1195,8 @@ export class App {
     });
     reg("ai.buildTemplate", "cmd.aiBuildTemplate", () => this.insertBuildTemplate());
     reg("app.quit", "cmd.quit", () => appWindow.close(), "Mod-Q", true);
-    reg("ai.settings", "cmd.aiSettings", () => this.showView("settings"));
+    reg("ai.settings", "cmd.aiSettings", () => settingsPage.open("ai"));
+    reg("ai.detect", "cmd.aiDetect", () => ensureLocalAi());
     reg("help.shortcuts", "help.shortcuts", () => this.showShortcuts(), "Mod-K");
     reg("help.about", "help.about", () => this.showAbout());
     reg("view.menu", "menu.open", () => this.menuButton.click(), "Alt-F", true);

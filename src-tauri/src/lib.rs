@@ -2,10 +2,12 @@ mod ai;
 mod extensions;
 mod fsops;
 mod git;
+mod local_ai;
 mod pty;
 mod search;
 
 use serde::Serialize;
+use tauri::Manager;
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -53,6 +55,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .manage(pty::PtyState::default())
         .manage(ai::AiState::new())
+        .manage(local_ai::LocalAiState::default())
         .invoke_handler(tauri::generate_handler![
             sys_info,
             print_page,
@@ -76,11 +79,21 @@ pub fn run() {
             ai::ai_complete,
             ai::ai_cancel,
             ai::ai_models,
+            ai::ai_diagnose,
+            local_ai::ai_autodetect,
+            local_ai::ai_use_models_dir,
+            local_ai::ai_import_gguf,
             extensions::ext_dir,
             extensions::ext_list,
             extensions::ext_install,
             extensions::ext_uninstall,
         ])
-        .run(tauri::generate_context!())
-        .expect("Aizome の起動に失敗しました");
+        .build(tauri::generate_context!())
+        .expect("Aizome の起動に失敗しました")
+        .run(|app, event| {
+            // 自分で起動した Ollama は、アプリを閉じるときに止める
+            if let tauri::RunEvent::Exit = event {
+                app.state::<local_ai::LocalAiState>().shutdown();
+            }
+        });
 }

@@ -14,20 +14,55 @@ use tauri::{AppHandle, Emitter, Manager, State};
 pub struct AiState {
     next: AtomicU32,
     tasks: Mutex<HashMap<u32, JoinHandle<()>>>,
-    client: reqwest::Client,
+    /// 同じ PC のサーバー用。学校や会社のプロキシ設定を通さない
+    local: reqwest::Client,
+    /// ほかの PC やインターネット上のサーバー用（OS のプロキシ設定に従う）
+    remote: reqwest::Client,
 }
 
 impl AiState {
     pub fn new() -> Self {
-        let client = reqwest::Client::builder()
+        let local = reqwest::Client::builder()
             .connect_timeout(Duration::from_secs(4))
+            .no_proxy()
             .build()
             .unwrap_or_default();
-        Self { next: AtomicU32::new(0), tasks: Mutex::new(HashMap::new()), client }
+        let remote = reqwest::Client::builder()
+            .connect_timeout(Duration::from_secs(8))
+            .build()
+            .unwrap_or_default();
+        Self { next: AtomicU32::new(0), tasks: Mutex::new(HashMap::new()), local, remote }
+    }
+
+    fn client_for(&self, endpoint: &str) -> reqwest::Client {
+        if is_local(endpoint) { self.local.clone() } else { self.remote.clone() }
     }
 }
 
-#[derive(Deserialize)]
+/// localhost / 127.x / ::1 / 0.0.0.0 なら同じ PC
+fn is_local(endpoint: &str) -> bool {
+    let rest = endpoint.trim().split("://").nth(1).unwrap_or(endpoint.trim());
+    let host = if rest.starts_with('[') {
+        rest.split(']').next().unwrap_or("").trim_start_matches('[').to_string()
+    } else {
+        rest.split(['/', ':']).next().unwrap_or("").to_string()
+    };
+    let host = host.to_lowercase();
+    host == "localhost" || host.ends_with(".localhost") || host.starts_with("127.") || host == "::1" || host == "0.0.0.0"
+}
+
+/// 接続エラーを、画面側で説明できる種類に分ける
+fn classify(e: &reqwest::Error) -> String {
+    if e.is_timeout() {
+        format!("TIMEOUT: {e}")
+    } else if e.is_connect() {
+        format!("NOT_RUNNING: {e}")
+    } else {
+        format!("CONNECT_FAILED: {e}")
+    }
+}
+
+#[derive(Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct AiRequest {
     /// "ollama" または "openai"
@@ -112,11 +147,19 @@ async fn run(app: &AppHandle, client: &reqwest::Client, id: u32, req: AiRequest)
         builder = builder.bearer_auth(key);
     }
 
-    let resp = builder.send().await.map_err(|e| format!("CONNECT_FAILED: {e}"))?;
+    let resp = builder.send().await.map_err(|e| classify(&e))?;
     let status = resp.status();
     if !status.is_success() {
         let body = resp.text().await.unwrap_or_default();
-        return Err(format!("HTTP {status}: {}", body.chars().take(300).collect::<String>()));
+        let short: String = body.chars().take(300).collect();
+        let lower = short.to_lowercase();
+        if status.as_u16() == 404 && lower.contains("not found") {
+            return Err(format!("MODEL_NOT_FOUND: {}", req.model));
+        }
+        if lower.contains("does not support insert") || lower.contains("suffix") && lower.contains("not support") {
+            return Err(format!("NO_FIM: {short}"));
+        }
+        return Err(format!("HTTP {status}: {short}"));
     }
 
     let mut stream = resp.bytes_stream();
@@ -161,11 +204,17 @@ async fn run(app: &AppHandle, client: &reqwest::Client, id: u32, req: AiRequest)
 #[tauri::command]
 pub fn ai_complete(app: AppHandle, state: State<'_, AiState>, req: AiRequest) -> Result<u32, String> {
     let id = state.next.fetch_add(1, Ordering::SeqCst) + 1;
-    let client = state.client.clone();
+    let client = state.client_for(&req.endpoint);
     let mut tasks = state.tasks.lock().map_err(|e| e.to_string())?;
     let app2 = app.clone();
     let handle = tauri::async_runtime::spawn(async move {
-        let result = run(&app2, &client, id, req).await;
+        let mut result = run(&app2, &client, id, req.clone()).await;
+        // 途中埋め（FIM）に対応していないモデルなら、後ろのコードを渡さずにやり直す
+        if matches!(&result, Err(e) if e.starts_with("NO_FIM")) && req.suffix.is_some() {
+            let mut plain = req;
+            plain.suffix = None;
+            result = run(&app2, &client, id, plain).await;
+        }
         let _ = app2.emit("ai:chunk", Chunk { id, text: String::new(), done: true, error: result.err() });
         if let Ok(mut t) = app2.state::<AiState>().tasks.lock() {
             t.remove(&id);
@@ -188,11 +237,11 @@ pub fn ai_cancel(state: State<'_, AiState>, id: u32) -> Result<(), String> {
 pub async fn ai_models(state: State<'_, AiState>, provider: String, endpoint: String, api_key: Option<String>) -> Result<Vec<String>, String> {
     let is_ollama = provider != "openai";
     let url = if is_ollama { format!("{}/api/tags", base(&endpoint)) } else { openai_url(&endpoint, "/models") };
-    let mut req = state.client.get(url).timeout(Duration::from_secs(6));
+    let mut req = state.client_for(&endpoint).get(url).timeout(Duration::from_secs(6));
     if let Some(key) = api_key.as_ref().filter(|k| !k.is_empty()) {
         req = req.bearer_auth(key);
     }
-    let resp = req.send().await.map_err(|e| format!("CONNECT_FAILED: {e}"))?;
+    let resp = req.send().await.map_err(|e| classify(&e))?;
     if !resp.status().is_success() {
         return Err(format!("HTTP {}", resp.status()));
     }
@@ -203,4 +252,63 @@ pub async fn ai_models(state: State<'_, AiState>, provider: String, endpoint: St
         .and_then(|l| l.as_array())
         .map(|arr| arr.iter().filter_map(|m| m.get(key).and_then(|n| n.as_str()).map(String::from)).collect())
         .unwrap_or_default())
+}
+
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Diagnosis {
+    /// サーバーに届いたか
+    reachable: bool,
+    /// 届かなかった理由（NOT_RUNNING / TIMEOUT / CONNECT_FAILED / HTTP ...）
+    error: Option<String>,
+    version: Option<String>,
+    models: Vec<String>,
+    /// 設定のモデルが入っているか
+    model_found: bool,
+    /// プロキシを通さずに接続したか
+    local: bool,
+}
+
+/// 接続の確認：サーバーが動いているか、設定のモデルが入っているかを調べる
+#[tauri::command]
+pub async fn ai_diagnose(state: State<'_, AiState>, provider: String, endpoint: String, model: String, api_key: Option<String>) -> Result<Diagnosis, String> {
+    let local = is_local(&endpoint);
+    let mut d = Diagnosis { reachable: false, error: None, version: None, models: vec![], model_found: false, local };
+    let client = state.client_for(&endpoint);
+    if provider != "openai" {
+        match client.get(format!("{}/api/version", base(&endpoint))).timeout(Duration::from_secs(5)).send().await {
+            Ok(r) if r.status().is_success() => {
+                d.reachable = true;
+                if let Ok(v) = r.json::<Value>().await {
+                    d.version = v.get("version").and_then(|x| x.as_str()).map(String::from);
+                }
+            }
+            Ok(r) => d.error = Some(format!("HTTP {}", r.status())),
+            Err(e) => d.error = Some(classify(&e)),
+        }
+    }
+    if d.reachable || provider == "openai" {
+        drop(client);
+        match ai_models(state, provider.clone(), endpoint.clone(), api_key).await {
+            Ok(list) => {
+                d.reachable = true;
+                d.error = None;
+                let want = model.trim().to_lowercase();
+                // "qwen2.5-coder" と "qwen2.5-coder:latest" は同じものとして扱う
+                let norm = |m: &str| {
+                    let m = m.to_lowercase();
+                    if m.contains(':') { m } else { format!("{m}:latest") }
+                };
+                d.model_found = list.iter().any(|m| norm(m) == norm(&want));
+                d.models = list;
+            }
+            Err(e) => {
+                if d.error.is_none() {
+                    d.error = Some(e);
+                }
+            }
+        }
+    }
+    Ok(d)
 }

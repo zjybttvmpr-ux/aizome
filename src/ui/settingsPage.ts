@@ -1,0 +1,468 @@
+// 設定画面：左に項目の一覧、右にその内容。上の検索欄で全項目から探せる
+import { h, clear } from "../core/dom";
+import { t } from "../core/i18n";
+import { settings, type Settings } from "../core/settings";
+import { bus } from "../core/events";
+import { commands, formatKey } from "../core/commands";
+import { ai, dialog, sys } from "../core/platform";
+import { basename } from "../core/paths";
+import { completer } from "../ai/completer";
+import { describeAiError, ensureLocalAi, useModelFile, useModelsDir } from "../ai/localAi";
+import { listThemes } from "./themes";
+import { icon } from "./icons";
+import { confirmBox } from "./dialog";
+
+type Key = keyof Settings;
+
+// ───────── 部品
+
+function row(label: string, control: HTMLElement, help?: string, inline = false) {
+  return h(
+    "div",
+    { class: "set-row" + (inline ? " inline" : ""), "data-label": label + " " + (help ?? "") },
+    h("div", { class: "set-text" }, h("span", { class: "set-label" }, label), help ? h("span", { class: "set-help" }, help) : null),
+    h("div", { class: "set-control" }, control),
+  );
+}
+
+function select<K extends Key>(key: K, options: { value: string; label: string }[]) {
+  const el = h("select", { class: "select" }, ...options.map((o) => h("option", { value: o.value, selected: String(settings.get(key)) === o.value }, o.label)));
+  el.addEventListener("change", () => settings.set(key, el.value as Settings[K]));
+  return el;
+}
+
+function number<K extends Key>(key: K, min: number, max: number, step = 1) {
+  const el = h("input", { class: "text-input num", type: "number", min, max, step, value: String(settings.get(key)) });
+  el.addEventListener("change", () => {
+    const v = Math.min(max, Math.max(min, Number(el.value) || min));
+    el.value = String(v);
+    settings.set(key, v as Settings[K]);
+  });
+  return el;
+}
+
+function text<K extends Key>(key: K, placeholder = "", type = "text") {
+  const el = h("input", { class: "text-input", type, value: String(settings.get(key) ?? ""), placeholder, spellcheck: "false" });
+  el.addEventListener("change", () => settings.set(key, el.value.trim() as Settings[K]));
+  return el;
+}
+
+function toggle<K extends Key>(key: K) {
+  const el = h("input", { type: "checkbox", class: "switch", checked: Boolean(settings.get(key)) });
+  el.addEventListener("change", () => settings.set(key, el.checked as Settings[K]));
+  return el;
+}
+
+function range<K extends Key>(key: K, min: number, max: number, step: number, format: (v: number) => string) {
+  const out = h("span", { class: "range-value" }, format(Number(settings.get(key))));
+  const el = h("input", { class: "range", type: "range", min, max, step, value: String(settings.get(key)) });
+  el.addEventListener("input", () => {
+    out.textContent = format(Number(el.value));
+    settings.set(key, Number(el.value) as Settings[K]);
+  });
+  return h("div", { class: "range-row" }, el, out);
+}
+
+function color(key: "look.bgColor" | "look.accentColor", cssVar: string) {
+  const current = () => settings.get(key) || getComputedStyle(document.documentElement).getPropertyValue(cssVar).trim();
+  const toHex7 = (v: string) => (/^#[0-9a-f]{6}$/i.test(v) ? v : /^#[0-9a-f]{3}$/i.test(v) ? "#" + v.slice(1).split("").map((c) => c + c).join("") : "#000000");
+  const picker = h("input", { class: "color-input", type: "color", value: toHex7(current()) });
+  const code = h("input", { class: "text-input mono", type: "text", value: settings.get(key), placeholder: t("settings.themeColor"), spellcheck: "false", maxlength: 7 });
+  const reset = h("button", { class: "btn small plain", type: "button", disabled: !settings.get(key) }, t("settings.reset"));
+  picker.addEventListener("input", () => {
+    code.value = picker.value;
+    settings.set(key, picker.value);
+    reset.disabled = false;
+  });
+  code.addEventListener("change", () => {
+    const v = code.value.trim();
+    if (!v || /^#?[0-9a-f]{3}([0-9a-f]{3})?$/i.test(v)) {
+      const val = v && !v.startsWith("#") ? "#" + v : v;
+      settings.set(key, val);
+      picker.value = toHex7(val || current());
+      reset.disabled = !val;
+    }
+  });
+  reset.addEventListener("click", () => {
+    settings.set(key, "");
+    code.value = "";
+    requestAnimationFrame(() => (picker.value = toHex7(current())));
+    reset.disabled = true;
+  });
+  return h("div", { class: "field-row color-row" }, picker, code, reset);
+}
+
+function button(label: string, onclick: () => unknown, kind = "plain") {
+  const b = h("button", { class: `btn small ${kind}`, type: "button" }, label);
+  b.addEventListener("click", async () => {
+    b.disabled = true;
+    try {
+      await onclick();
+    } finally {
+      b.disabled = false;
+    }
+  });
+  return b;
+}
+
+// ───────── 各ページ
+
+interface Section {
+  id: string;
+  label: string;
+  icon: string;
+  build: () => HTMLElement[];
+}
+
+function aiStatusPanel(): HTMLElement {
+  const panel = h("div", { class: "ai-check" });
+  const line = (ok: boolean | null, label: string, detail?: string) =>
+    h(
+      "div",
+      { class: "ai-check-line " + (ok === null ? "wait" : ok ? "ok" : "ng") },
+      h("span", { class: "ai-check-mark", "aria-hidden": "true" }, ok === null ? "…" : ok ? "✓" : "✕"),
+      h("div", {}, h("div", { class: "ai-check-label" }, label), detail ? h("div", { class: "ai-check-detail" }, detail) : null),
+    );
+
+  const run = async (auto: boolean) => {
+    clear(panel);
+    panel.append(line(null, t(auto ? "aiCheck.searching" : "aiCheck.checking")));
+    if (auto) await ensureLocalAi();
+    const provider = settings.get("ai.provider");
+    const endpoint = settings.get("ai.endpoint");
+    const model = settings.get("ai.model");
+    try {
+      const d = await ai.diagnose(provider, endpoint, model, settings.get("ai.apiKey") || undefined);
+      clear(panel);
+      panel.append(
+        line(d.reachable, d.reachable ? t("aiCheck.serverOk", { endpoint }) + (d.version ? `（Ollama ${d.version}）` : "") : t("aiCheck.serverNg", { endpoint }), d.reachable ? undefined : describeAiError(d.error ?? "")),
+      );
+      if (d.reachable) {
+        panel.append(
+          line(
+            d.modelFound,
+            d.modelFound ? t("aiCheck.modelOk", { model }) : t("aiCheck.modelNg", { model }),
+            d.modelFound ? undefined : d.models.length ? t("aiCheck.pickInstalled") : t("aiCheck.noModels"),
+          ),
+        );
+        if (!d.modelFound && d.models.length) {
+          panel.append(
+            h(
+              "div",
+              { class: "ai-model-chips" },
+              ...d.models.map((m) =>
+                h("button", { class: "chip", type: "button", onclick: () => (settings.set("ai.model", m), completer.setStatus("idle"), void run(false)) }, m),
+              ),
+            ),
+          );
+        }
+      }
+      if (d.reachable && d.modelFound) completer.setStatus(settings.get("ai.enabled") ? "idle" : "off");
+    } catch (err) {
+      clear(panel);
+      panel.append(line(false, t("aiCheck.failed"), describeAiError(String(err))));
+    }
+  };
+
+  const wrap = h(
+    "div",
+    { class: "set-row block", "data-label": t("aiCheck.title") },
+    h("div", { class: "set-text" }, h("span", { class: "set-label" }, t("aiCheck.title")), h("span", { class: "set-help" }, t("aiCheck.help"))),
+    h("div", { class: "set-actions" }, button(t("aiCheck.auto"), () => run(true), "primary"), button(t("aiCheck.check"), () => run(false))),
+    panel,
+  );
+  void run(false);
+  return wrap;
+}
+
+function modelPicker(): HTMLElement {
+  const input = text("ai.model", "qwen2.5-coder:1.5b");
+  const list = h("datalist", { id: "ai-models-list" });
+  input.setAttribute("list", "ai-models-list");
+  completer
+    .models()
+    .then((ms) => ms.forEach((m) => list.append(h("option", { value: m }))))
+    .catch(() => {});
+  return h("div", { class: "field-row" }, input, list);
+}
+
+function sections(): Section[] {
+  const isOpenAI = settings.get("ai.provider") === "openai";
+  const bgImage = settings.get("look.bgImage");
+  return [
+    {
+      id: "general",
+      label: t("set.general"),
+      icon: "sidebar",
+      build: () => [
+        row(t("settings.language"), select("ui.language", [{ value: "ja", label: "日本語" }, { value: "en", label: "English" }])),
+        row(t("settings.theme"), select("ui.theme", listThemes().map((th) => ({ value: th.id, label: th.label })))),
+        row(t("settings.zoom"), range("look.zoom", 0.6, 1.8, 0.1, (v) => `${Math.round(v * 100)}%`), t("set.zoomHelp", { key: formatKey("Mod-;") })),
+      ],
+    },
+    {
+      id: "look",
+      label: t("set.look"),
+      icon: "spark",
+      build: () => [
+        row(t("settings.bgColor"), color("look.bgColor", "--bg"), t("settings.bgColorHelp")),
+        row(t("settings.accentColor"), color("look.accentColor", "--accent")),
+        row(
+          t("settings.bgImage"),
+          h(
+            "div",
+            { class: "field-row" },
+            button(bgImage ? t("settings.bgImageChange") : t("settings.bgImagePick"), async () => {
+              const p = await dialog.pickImage();
+              if (p) settings.set("look.bgImage", p);
+            }, "primary"),
+            bgImage ? button(t("settings.bgImageRemove"), () => settings.set("look.bgImage", "")) : null!,
+          ),
+          bgImage ? basename(bgImage) : t("settings.bgImageNone"),
+        ),
+        ...(bgImage
+          ? [
+              row(t("settings.bgOpacity"), range("look.bgOpacity", 0.3, 1, 0.02, (v) => `${Math.round(v * 100)}%`), t("settings.bgOpacityHelp")),
+              row(t("settings.bgDim"), range("look.bgDim", 0, 0.9, 0.05, (v) => `${Math.round(v * 100)}%`)),
+              row(t("settings.bgBlur"), range("look.bgBlur", 0, 24, 1, (v) => `${v}px`)),
+              row(
+                t("settings.bgFit"),
+                select("look.bgFit", [
+                  { value: "cover", label: t("settings.fit.cover") },
+                  { value: "contain", label: t("settings.fit.contain") },
+                  { value: "center", label: t("settings.fit.center") },
+                  { value: "tile", label: t("settings.fit.tile") },
+                ]),
+              ),
+            ]
+          : []),
+      ],
+    },
+    {
+      id: "editor",
+      label: t("settings.editor"),
+      icon: "file",
+      build: () => [
+        row(t("settings.fontSize"), number("editor.fontSize", 10, 28)),
+        row(t("settings.fontFamily"), text("editor.fontFamily", "JetBrains Mono"), t("settings.fontFamilyHelp")),
+        row(t("settings.tabSize"), number("editor.tabSize", 1, 8)),
+        row(t("settings.wordWrap"), toggle("editor.wordWrap"), undefined, true),
+        row(t("settings.lineNumbers"), toggle("editor.lineNumbers"), undefined, true),
+      ],
+    },
+    {
+      id: "files",
+      label: t("set.files"),
+      icon: "folder",
+      build: () => [
+        row(
+          t("settings.autoSave"),
+          select("editor.autoSave", [
+            { value: "off", label: t("settings.autoSave.off") },
+            { value: "delay", label: t("settings.autoSave.delay") },
+            { value: "focus", label: t("settings.autoSave.focus") },
+          ]),
+        ),
+        row(t("settings.trimWhitespace"), toggle("editor.trimTrailingWhitespace"), undefined, true),
+        row(t("settings.finalNewline"), toggle("editor.insertFinalNewline"), undefined, true),
+        row(t("settings.restoreTabs"), toggle("editor.restoreTabs"), undefined, true),
+      ],
+    },
+    {
+      id: "ai",
+      label: t("set.ai"),
+      icon: "spark",
+      build: () => [
+        row(t("settings.aiEnabled"), toggle("ai.enabled"), undefined, true),
+        aiStatusPanel(),
+        row(t("settings.model"), modelPicker(), t("settings.modelHelp")),
+        row(
+          t("set.loadModel"),
+          h(
+            "div",
+            { class: "field-row wrap" },
+            button(t("set.pickGguf"), async () => {
+              const p = await dialog.pickModelFile();
+              if (p) await useModelFile(p);
+            }, "primary"),
+            button(t("set.pickModelsDir"), async () => {
+              const p = await dialog.pickFolder();
+              if (p) await useModelsDir(p);
+            }),
+          ),
+          t("set.loadModelHelp"),
+        ),
+        row(
+          t("settings.provider"),
+          select("ai.provider", [
+            { value: "ollama", label: "Ollama" },
+            { value: "openai", label: t("settings.openaiCompat") },
+          ]),
+        ),
+        row(t("settings.endpoint"), text("ai.endpoint", isOpenAI ? "http://127.0.0.1:8080" : "http://127.0.0.1:11434")),
+        ...(isOpenAI ? [row(t("settings.apiKey"), text("ai.apiKey", t("settings.apiKeyPlaceholder"), "password"))] : []),
+        row(t("settings.debounce"), number("ai.debounceMs", 50, 2000, 10), t("settings.debounceHelp")),
+        row(t("settings.maxTokens"), number("ai.maxTokens", 16, 512, 8)),
+      ],
+    },
+    {
+      id: "build",
+      label: t("set.build"),
+      icon: "play",
+      build: () => [
+        row(t("build.keepComments"), toggle("build.keepComments"), t("set.keepCommentsHelp"), true),
+        row(t("cmd.aiBuildTemplate"), button(t("set.insertTemplate"), () => commands.execute("ai.buildTemplate")), t("set.buildHelp")),
+      ],
+    },
+    {
+      id: "terminal",
+      label: t("settings.terminal"),
+      icon: "terminal",
+      build: () => [
+        row(t("settings.shell"), text("terminal.shell", t("settings.shellPlaceholder")), t("settings.shellHelp")),
+        row(t("settings.fontSize"), number("terminal.fontSize", 9, 24)),
+      ],
+    },
+    {
+      id: "about",
+      label: t("set.about"),
+      icon: "refresh",
+      build: () => {
+        const version = h("span", {}, "…");
+        sys.appInfo().then((i) => (version.textContent = i.version)).catch(() => (version.textContent = "—"));
+        return [
+          row(t("set.version"), version),
+          row(t("help.shortcuts"), button(t("set.showShortcuts"), () => commands.execute("help.shortcuts"))),
+          row(t("set.downloadPage"), h("code", { class: "set-code" }, "https://zjybttvmpr-ux.github.io/aizome/"), t("set.downloadHelp")),
+          row(t("set.reset"), button(t("set.resetButton"), async () => {
+            if (await confirmBox(t("set.reset"), t("set.resetConfirm"), t("set.resetButton"), true)) {
+              localStorage.removeItem("aizome.settings.v1");
+              location.reload();
+            }
+          }), t("set.resetHelp")),
+        ];
+      },
+    },
+  ];
+}
+
+// ───────── 画面
+
+class SettingsPage {
+  private el: HTMLElement | null = null;
+  private current = "general";
+  private query = "";
+
+  get isOpen() {
+    return !!this.el;
+  }
+
+  open(section?: string) {
+    if (section) this.current = section;
+    if (!this.el) {
+      this.el = h("div", { class: "settings-page", role: "dialog", "aria-label": t("view.settings") });
+      document.body.append(this.el);
+      document.addEventListener("keydown", this.onKey, true);
+    }
+    this.render();
+  }
+
+  close() {
+    this.el?.remove();
+    this.el = null;
+    this.query = "";
+    document.removeEventListener("keydown", this.onKey, true);
+  }
+
+  toggle(section?: string) {
+    if (this.el && (!section || section === this.current)) this.close();
+    else this.open(section);
+  }
+
+  private onKey = (e: KeyboardEvent) => {
+    if (e.key === "Escape" && !document.querySelector(".modal-backdrop, .palette-backdrop, .menu")) {
+      e.preventDefault();
+      e.stopPropagation();
+      this.close();
+    }
+  };
+
+  refresh() {
+    if (this.el) this.render();
+  }
+
+  private render() {
+    const el = this.el!;
+    const focusedSearch = document.activeElement?.classList.contains("set-search");
+    clear(el);
+    const all = sections();
+    const search = h("input", { class: "text-input set-search", type: "search", placeholder: t("set.search"), value: this.query, spellcheck: "false", "aria-label": t("set.search") });
+    search.addEventListener("input", () => {
+      this.query = search.value;
+      this.renderContent(content, all);
+    });
+    const nav = h(
+      "nav",
+      { class: "set-nav", "aria-label": t("view.settings") },
+      ...all.map((s) =>
+        h(
+          "button",
+          {
+            class: "set-nav-item" + (s.id === this.current && !this.query ? " active" : ""),
+            type: "button",
+            onclick: () => {
+              this.current = s.id;
+              this.query = "";
+              this.render();
+            },
+          },
+          h("span", { html: icon(s.icon, 15) }),
+          h("span", {}, s.label),
+        ),
+      ),
+    );
+    const content = h("div", { class: "set-content" });
+    el.append(
+      h(
+        "div",
+        { class: "set-side" },
+        h("div", { class: "set-head" }, h("h2", {}, t("view.settings")), h("button", { class: "icon-btn", type: "button", title: t("common.close"), "aria-label": t("common.close"), html: icon("x", 16), onclick: () => this.close() })),
+        search,
+        nav,
+      ),
+      content,
+    );
+    this.renderContent(content, all);
+    if (focusedSearch) {
+      search.focus();
+      search.setSelectionRange(search.value.length, search.value.length);
+    }
+  }
+
+  private renderContent(content: HTMLElement, all: Section[]) {
+    clear(content);
+    const q = this.query.trim().toLowerCase();
+    if (!q) {
+      const s = all.find((x) => x.id === this.current) ?? all[0];
+      content.append(h("h1", { class: "set-title" }, s.label), h("div", { class: "set-list" }, ...s.build()));
+      this.el?.querySelectorAll(".set-nav-item").forEach((b, i) => b.classList.toggle("active", all[i] === s));
+      return;
+    }
+    this.el?.querySelectorAll(".set-nav-item").forEach((b) => b.classList.remove("active"));
+    let hits = 0;
+    for (const s of all) {
+      const rows = s.build().filter((r) => (r.dataset.label ?? r.textContent ?? "").toLowerCase().includes(q) || s.label.toLowerCase().includes(q));
+      if (!rows.length) continue;
+      hits += rows.length;
+      content.append(h("h2", { class: "set-group-title" }, s.label), h("div", { class: "set-list" }, ...rows));
+    }
+    if (!hits) content.append(h("p", { class: "set-empty" }, t("set.noMatch")));
+  }
+}
+
+export const settingsPage = new SettingsPage();
+
+// 表示言語やテーマ、背景画像の有無が変わったら描き直す
+bus.on("settings:changed", ({ key }) => {
+  if (["ui.language", "ai.provider", "look.bgImage", "ui.theme"].includes(key)) requestAnimationFrame(() => settingsPage.refresh());
+});

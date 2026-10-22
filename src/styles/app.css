@@ -2374,3 +2374,269 @@ html.has-bg .select {
 .build-actions {
   flex-wrap: wrap;
 }
+
+/* ───────── 設定画面（項目ごとのページ） */
+
+.settings-page {
+  position: fixed;
+  top: var(--top-h);
+  bottom: var(--status-h);
+  left: 48px;
+  right: 0;
+  z-index: 60;
+  display: grid;
+  grid-template-columns: 240px minmax(0, 1fr);
+  background: var(--editor-bg);
+  border-top: 1px solid var(--border);
+}
+
+html.has-bg .settings-page {
+  background: color-mix(in srgb, var(--editor-bg) 94%, transparent);
+  backdrop-filter: blur(8px);
+}
+
+.set-side {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+  padding: 14px 10px;
+  background: var(--panel);
+  border-right: 1px solid var(--border);
+  overflow: auto;
+}
+
+.set-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 4px 0 8px;
+}
+
+.set-head h2 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.set-search {
+  height: 32px;
+}
+
+.set-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.set-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 34px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-muted);
+  text-align: left;
+}
+
+.set-nav-item:hover {
+  background: var(--surface);
+  color: var(--text);
+}
+
+.set-nav-item.active {
+  background: var(--accent-soft);
+  color: var(--text);
+}
+
+.set-nav-item.active .icon {
+  color: var(--accent);
+}
+
+.set-content {
+  min-height: 0;
+  overflow: auto;
+  padding: 28px clamp(20px, 5vw, 56px) 80px;
+}
+
+.set-title {
+  margin: 0 0 18px;
+  font-size: 22px;
+  font-weight: 600;
+}
+
+.set-group-title {
+  margin: 26px 0 8px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.set-group-title:first-child {
+  margin-top: 0;
+}
+
+.set-list {
+  max-width: 760px;
+  border-top: 1px solid var(--border);
+}
+
+.set-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(220px, 340px);
+  align-items: center;
+  gap: 8px 28px;
+  padding: 14px 2px;
+  border-bottom: 1px solid var(--border);
+}
+
+.set-row.inline .set-control {
+  justify-self: end;
+}
+
+.set-row.block {
+  grid-template-columns: 1fr;
+}
+
+.set-text {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.set-label {
+  color: var(--text);
+}
+
+.set-help {
+  color: var(--text-faint);
+  font-size: 12px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+.set-control {
+  min-width: 0;
+}
+
+.set-control .text-input.num {
+  width: 110px;
+}
+
+.set-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.field-row.wrap {
+  flex-wrap: wrap;
+}
+
+.set-code {
+  font-family: var(--font-code);
+  font-size: 12px;
+  color: var(--text-muted);
+  user-select: all;
+  overflow-wrap: anywhere;
+}
+
+.set-empty {
+  color: var(--text-faint);
+}
+
+/* 接続の状態 */
+
+.ai-check {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--panel);
+}
+
+.ai-check-line {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.ai-check-mark {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  font-size: 12px;
+  font-weight: 700;
+  background: var(--surface);
+  color: var(--text-muted);
+}
+
+.ai-check-line.ok .ai-check-mark {
+  background: rgba(140, 199, 155, 0.2);
+  color: var(--ok);
+}
+
+.ai-check-line.ng .ai-check-mark {
+  background: rgba(229, 123, 130, 0.18);
+  color: var(--danger);
+}
+
+.ai-check-label {
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.ai-check-detail {
+  margin-top: 2px;
+  color: var(--text-muted);
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+
+.ai-model-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding-left: 30px;
+}
+
+.chip {
+  height: 28px;
+  padding: 0 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: 14px;
+  background: transparent;
+  color: var(--text);
+  font: 12px var(--font-code);
+}
+
+.chip:hover {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+@media (max-width: 860px) {
+  .settings-page {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+  .set-side {
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .set-nav {
+    flex-direction: row;
+    overflow-x: auto;
+  }
+  .set-row {
+    grid-template-columns: 1fr;
+  }
+}

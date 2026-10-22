@@ -117,6 +117,10 @@ export const dialog = {
     });
     return typeof r === "string" ? r : null;
   },
+  async pickModelFile(): Promise<string | null> {
+    const r = await open({ multiple: false, filters: [{ name: "GGUF", extensions: ["gguf"] }] });
+    return typeof r === "string" ? r : null;
+  },
   async saveFile(defaultPath?: string): Promise<string | null> {
     const r = await save({ defaultPath });
     return typeof r === "string" ? r : null;
@@ -135,12 +139,37 @@ export const pty = {
     listen<{ id: number; code: number | null }>("pty:exit", (e) => cb(e.payload)),
 };
 
+export interface AiDiagnosis {
+  reachable: boolean;
+  error: string | null;
+  version: string | null;
+  models: string[];
+  modelFound: boolean;
+  local: boolean;
+}
+
+export interface AiDetected {
+  endpoint: string | null;
+  models: string[];
+  source: "running" | "started" | "usb" | "folder";
+  ollamaPath: string | null;
+  modelsDir: string | null;
+  foundDirs: string[];
+  foundGguf: string[];
+  error: string | null;
+}
+
 export const ai = {
   start: (req: AiRequest) => invoke<number>("ai_complete", { req }),
   cancel: (id: number) => invoke<void>("ai_cancel", { id }),
   models: (provider: string, endpoint: string, apiKey?: string) =>
     invoke<string[]>("ai_models", { provider, endpoint, apiKey }),
   onChunk: (cb: (c: AiChunk) => void) => listen<AiChunk>("ai:chunk", (e) => cb(e.payload)),
+  diagnose: (provider: string, endpoint: string, model: string, apiKey?: string) =>
+    invoke<AiDiagnosis>("ai_diagnose", { provider, endpoint, model, apiKey }),
+  autodetect: (endpoint: string) => invoke<AiDetected>("ai_autodetect", { endpoint }),
+  useModelsDir: (dir: string) => invoke<AiDetected>("ai_use_models_dir", { dir }),
+  importGguf: (path: string, name: string, endpoint: string) => invoke<string>("ai_import_gguf", { path, name, endpoint }),
 };
 
 export const ext = {
