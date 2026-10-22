@@ -401,6 +401,21 @@ const ja: Dict = {
   "update.status": "↑ {version} に更新",
   "set.autoUpdate": "新しいバージョンを自動で確認",
   "set.autoUpdateHelp": "起動したときと、6 時間ごとに確認します。入れ替えるのはボタンを押したときだけです。",
+  "drop.title": "ここに落として開く",
+  "drop.help": "ファイルはタブで、フォルダはワークスペースとして開きます。.gguf は AI のモデルとして読み込みます。",
+  "set.osIntegration": "右クリックと「プログラムから開く」",
+  "set.osIntegrationHelp": ".py などのファイルを右クリックしたときの「プログラムから開く」の候補と、「Aizome で開く」メニューに出します。いつも使うアプリは変わりません。",
+  "set.osIntegrationAuto": "アプリを入れたときに登録されています",
+  "set.osRegistered": "登録済み",
+  "set.osNotRegistered": "登録されていません",
+  "set.osRegister": "登録する",
+  "set.osUnregister": "登録を解除",
+  "terminal.pickShell": "シェルを選んで開く",
+  "terminal.interrupt": "実行中のプログラムを止める（Ctrl+C）",
+  "terminal.rerun": "もう一度実行",
+  "terminal.default": "既定",
+  "terminal.setDefault": "いつも使うシェル",
+  "terminal.noShells": "シェルが見つかりません",
 };
 
 const en: Dict = {
@@ -783,6 +798,21 @@ const en: Dict = {
   "update.status": "↑ Update to {version}",
   "set.autoUpdate": "Check for new versions automatically",
   "set.autoUpdateHelp": "Checks at startup and every 6 hours. Nothing is installed until you click the button.",
+  "drop.title": "Drop to open",
+  "drop.help": "Files open in tabs, folders open as the workspace. A .gguf file loads as an AI model.",
+  "set.osIntegration": "Right-click and Open with",
+  "set.osIntegrationHelp": "Shows Aizome in Open with for files such as .py, and adds an Open with Aizome menu. Your default apps don't change.",
+  "set.osIntegrationAuto": "Registered when the app was installed",
+  "set.osRegistered": "Registered",
+  "set.osNotRegistered": "Not registered",
+  "set.osRegister": "Register",
+  "set.osUnregister": "Unregister",
+  "terminal.pickShell": "Open with a shell",
+  "terminal.interrupt": "Stop the running program (Ctrl+C)",
+  "terminal.rerun": "Run again",
+  "terminal.default": "Default",
+  "terminal.setDefault": "Default shell",
+  "terminal.noShells": "No shells found",
 };
 
 const dicts: Record<string, Dict> = { ja, en };

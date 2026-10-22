@@ -172,25 +172,47 @@ fn work_dir() -> Result<PathBuf, String> {
     Ok(dir)
 }
 
-/// このアプリが終わるのを待ってから、入れ替えて起動し直すスクリプトを動かす
-fn spawn_detached_script(dir: &Path, script: String) -> Result<(), String> {
+/// 更新係として起動されたことを示す引数
+pub const HELPER_FLAG: &str = "--aizome-apply-update";
+
+/// 更新係として起動されたなら、入れ替えを行って true を返す（Windows のみ）。
+/// 引数: --aizome-apply-update <インストーラー> <終わりを待つ PID> <起動し直す exe>
+pub fn run_helper_if_requested() -> bool {
+    let args: Vec<String> = std::env::args().collect();
+    if args.get(1).map(String::as_str) != Some(HELPER_FLAG) {
+        return false;
+    }
     #[cfg(windows)]
     {
-        use std::os::windows::process::CommandExt;
-        let path = dir.join("update.cmd");
-        std::fs::write(&path, script).map_err(|e| e.to_string())?;
-        Command::new("cmd")
-            .args(["/C"])
-            .arg(&path)
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            // 画面を出さず、このアプリから切り離して動かす
-            .creation_flags(0x0800_0000 | 0x0000_0008)
-            .spawn()
-            .map_err(|e| e.to_string())?;
+        let (Some(installer), Some(pid), Some(exe)) = (args.get(2), args.get(3).and_then(|p| p.parse::<u32>().ok()), args.get(4)) else {
+            return true;
+        };
+        wait_for_exit(pid);
+        // NSIS のインストーラーを画面なしで実行し、終わるのを待つ
+        let ok = Command::new(installer).arg("/S").status().map(|s| s.success()).unwrap_or(false);
+        let _ = ok;
+        let _ = Command::new(exe).spawn();
     }
-    #[cfg(not(windows))]
+    true
+}
+
+#[cfg(windows)]
+fn wait_for_exit(pid: u32) {
+    use windows_sys::Win32::Foundation::CloseHandle;
+    use windows_sys::Win32::System::Threading::{OpenProcess, WaitForSingleObject};
+    const SYNCHRONIZE: u32 = 0x0010_0000;
+    unsafe {
+        let h = OpenProcess(SYNCHRONIZE, 0, pid);
+        if !h.is_null() {
+            WaitForSingleObject(h, 60_000);
+            CloseHandle(h);
+        }
+    }
+}
+
+/// このアプリが終わるのを待ってから、入れ替えて起動し直すスクリプトを動かす（Mac / Linux）
+#[cfg(not(windows))]
+fn spawn_detached_script(dir: &Path, script: String) -> Result<(), String> {
     {
         let path = dir.join("update.sh");
         std::fs::write(&path, script).map_err(|e| e.to_string())?;
@@ -205,6 +227,7 @@ fn spawn_detached_script(dir: &Path, script: String) -> Result<(), String> {
     Ok(())
 }
 
+#[cfg(not(windows))]
 fn q(p: &Path) -> String {
     p.to_string_lossy().replace('"', "")
 }
@@ -223,16 +246,22 @@ pub async fn update_install(app: AppHandle, url: String) -> Result<(), String> {
     {
         let installer = dir.join("Aizome-setup.exe");
         download(&app, &url, &installer).await?;
-        let script = format!(
-            "@echo off\r\n\
-             :wait\r\n\
-             tasklist /FI \"PID eq {pid}\" 2>nul | find \"{pid}\" >nul && (timeout /t 1 /nobreak >nul & goto wait)\r\n\
-             \"{inst}\" /S\r\n\
-             start \"\" \"{exe}\"\r\n",
-            inst = q(&installer),
-            exe = q(&exe),
-        );
-        spawn_detached_script(&dir, script)?;
+        // 動いている Aizome.exe は上書きできないので、Aizome 自身の写しを「更新係」として動かす。
+        // 更新係はこのアプリが終わるのを待ち、インストーラーを実行して、新しい Aizome を起動する
+        let helper = dir.join("Aizome-updater.exe");
+        std::fs::copy(&exe, &helper).map_err(|e| e.to_string())?;
+        use std::os::windows::process::CommandExt;
+        Command::new(&helper)
+            .arg(HELPER_FLAG)
+            .arg(&installer)
+            .arg(pid.to_string())
+            .arg(&exe)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .creation_flags(0x0000_0008) // このアプリから切り離す
+            .spawn()
+            .map_err(|e| e.to_string())?;
     }
 
     #[cfg(target_os = "macos")]

@@ -4,7 +4,7 @@ import { t } from "../core/i18n";
 import { settings, type Settings } from "../core/settings";
 import { bus } from "../core/events";
 import { commands, formatKey } from "../core/commands";
-import { ai, dialog, sys } from "../core/platform";
+import { ai, dialog, osIntegration, sys } from "../core/platform";
 import { basename } from "../core/paths";
 import { completer } from "../ai/completer";
 import { describeAiError, ensureLocalAi, useModelFile, useModelsDir } from "../ai/localAi";
@@ -186,6 +186,33 @@ function modelPicker(): HTMLElement {
   return h("div", { class: "field-row" }, input, list);
 }
 
+/** 「プログラムから開く」と右クリックメニューへの登録（Windows） */
+function osRow(): HTMLElement {
+  const control = h("div", { class: "field-row" }, h("span", { class: "set-help" }, "…"));
+  const r = row(t("set.osIntegration"), control, t("set.osIntegrationHelp"));
+  const render = async () => {
+    const st = await osIntegration.status().catch(() => ({ supported: false, registered: false }));
+    clear(control);
+    if (!st.supported) {
+      control.append(h("span", { class: "set-help" }, t("set.osIntegrationAuto")));
+      return;
+    }
+    control.append(
+      h("span", { class: "set-help" }, st.registered ? t("set.osRegistered") : t("set.osNotRegistered")),
+      button(st.registered ? t("set.osUnregister") : t("set.osRegister"), async () => {
+        try {
+          await osIntegration.set(!st.registered);
+          await render();
+        } catch (err) {
+          control.append(h("span", { class: "set-help" }, String(err)));
+        }
+      }, st.registered ? "plain" : "primary"),
+    );
+  };
+  void render();
+  return r;
+}
+
 function sections(): Section[] {
   const isOpenAI = settings.get("ai.provider") === "openai";
   const bgImage = settings.get("look.bgImage");
@@ -333,6 +360,7 @@ function sections(): Section[] {
         return [
           row(t("set.version"), h("div", { class: "field-row" }, version, button(t("cmd.checkUpdates"), () => commands.execute("app.checkUpdates"), "primary"))),
           row(t("set.autoUpdate"), toggle("update.autoCheck"), t("set.autoUpdateHelp"), true),
+          osRow(),
           row(t("help.shortcuts"), button(t("set.showShortcuts"), () => commands.execute("help.shortcuts"))),
           row(t("set.downloadPage"), h("code", { class: "set-code" }, "https://zjybttvmpr-ux.github.io/aizome/"), t("set.downloadHelp")),
           row(t("set.reset"), button(t("set.resetButton"), async () => {

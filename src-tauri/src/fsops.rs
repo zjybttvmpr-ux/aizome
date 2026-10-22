@@ -30,7 +30,7 @@ fn err<E: std::fmt::Display>(e: E) -> String {
     e.to_string()
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn fs_list_dir(path: String) -> Result<Vec<DirEntry>, String> {
     let mut out = Vec::new();
     for entry in fs::read_dir(&path).map_err(err)? {
@@ -52,7 +52,7 @@ pub fn fs_list_dir(path: String) -> Result<Vec<DirEntry>, String> {
 }
 
 /// ワークスペース内のファイルを列挙する（クイックオープン用）
-#[tauri::command]
+#[tauri::command(async)]
 pub fn fs_walk(root: String, limit: Option<usize>) -> Result<Vec<String>, String> {
     let limit = limit.unwrap_or(20_000);
     let mut out = Vec::new();
@@ -77,7 +77,7 @@ pub fn fs_walk(root: String, limit: Option<usize>) -> Result<Vec<String>, String
     Ok(out)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn fs_read_file(path: String) -> Result<String, String> {
     let meta = fs::metadata(&path).map_err(err)?;
     if meta.len() > MAX_FILE_BYTES {
@@ -94,7 +94,7 @@ pub fn fs_read_file(path: String) -> Result<String, String> {
     }
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn fs_write_file(path: String, content: String) -> Result<(), String> {
     if let Some(parent) = Path::new(&path).parent() {
         fs::create_dir_all(parent).map_err(err)?;
@@ -102,7 +102,7 @@ pub fn fs_write_file(path: String, content: String) -> Result<(), String> {
     fs::write(&path, content).map_err(err)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn fs_create_file(path: String) -> Result<(), String> {
     if Path::new(&path).exists() {
         return Err("ALREADY_EXISTS".into());
@@ -110,7 +110,7 @@ pub fn fs_create_file(path: String) -> Result<(), String> {
     fs_write_file(path, String::new())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn fs_create_dir(path: String) -> Result<(), String> {
     if Path::new(&path).exists() {
         return Err("ALREADY_EXISTS".into());
@@ -118,7 +118,7 @@ pub fn fs_create_dir(path: String) -> Result<(), String> {
     fs::create_dir_all(&path).map_err(err)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn fs_rename(from: String, to: String) -> Result<(), String> {
     if Path::new(&to).exists() {
         return Err("ALREADY_EXISTS".into());
@@ -126,7 +126,7 @@ pub fn fs_rename(from: String, to: String) -> Result<(), String> {
     fs::rename(&from, &to).map_err(err)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn fs_remove(path: String) -> Result<(), String> {
     let p = Path::new(&path);
     if p.is_dir() {
@@ -136,13 +136,18 @@ pub fn fs_remove(path: String) -> Result<(), String> {
     }
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn fs_exists(path: String) -> bool {
     Path::new(&path).exists()
 }
 
+#[tauri::command(async)]
+pub fn fs_is_dir(path: String) -> bool {
+    Path::new(&path).is_dir()
+}
+
 /// 画像ファイルを data: URL として読む（背景画像用）
-#[tauri::command]
+#[tauri::command(async)]
 pub fn fs_read_data_url(path: String) -> Result<String, String> {
     use base64::Engine;
     let meta = fs::metadata(&path).map_err(err)?;

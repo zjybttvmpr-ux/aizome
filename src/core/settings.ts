@@ -55,7 +55,7 @@ export const defaults: Settings = {
   "ai.provider": "ollama",
   "ai.endpoint": "http://127.0.0.1:11434",
   "ai.model": "qwen2.5-coder:1.5b",
-  "ai.debounceMs": 220,
+  "ai.debounceMs": 300,
   "ai.maxTokens": 96,
   "ai.apiKey": "",
   "terminal.shell": "",

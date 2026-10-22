@@ -1,5 +1,6 @@
 import { Terminal, type ILink } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
+import { WebglAddon } from "@xterm/addon-webgl";
 import "@xterm/xterm/css/xterm.css";
 import type { TermView } from "./types";
 
@@ -57,6 +58,14 @@ export function createTermView(opts: { fontSize: number }): TermView {
   const fitAddon = new FitAddon();
   term.loadAddon(fitAddon);
   term.open(el);
+  // GPU で描画して、たくさん出力しても重くならないようにする（使えない環境ではふつうの描画）
+  try {
+    const webgl = new WebglAddon();
+    webgl.onContextLoss(() => webgl.dispose());
+    term.loadAddon(webgl);
+  } catch {
+    /* WebGL が使えなければそのまま */
+  }
 
   let linkCb: ((path: string, line: number, col: number) => void) | null = null;
   term.registerLinkProvider({

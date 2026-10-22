@@ -6,6 +6,7 @@ import { h, clear } from "../core/dom";
 import { icon } from "../ui/icons";
 import { t } from "../core/i18n";
 import { createTermView } from "./xtermView";
+import { menu, type MenuItem } from "../ui/menu";
 import type { TermView } from "./types";
 
 interface Session {
@@ -31,16 +32,25 @@ export class TerminalPanel {
   private counter = 0;
   private visible = false;
   private listening = false;
+  private lastRun: { command: string; cwd?: string } | null = null;
+  private shells: { name: string; command: string }[] | null = null;
 
   constructor(private deps: TerminalDeps) {
     this.tabsEl = h("div", { class: "panel-tabs", role: "tablist" });
     this.body = h("div", { class: "panel-body" });
+    const plus = this.button("plus", t("terminal.new"), () => this.newTerminal());
+    const pick = this.button("chevronDown", t("terminal.pickShell"), () => void this.pickShell(pick));
+    pick.classList.add("narrow");
     const actions = h(
       "div",
       { class: "panel-actions" },
-      this.button("plus", t("terminal.new"), () => this.newTerminal()),
+      this.button("stop", t("terminal.interrupt"), () => this.interrupt()),
+      this.button("refresh", t("terminal.rerun"), () => void this.rerun()),
+      h("span", { class: "panel-sep" }),
+      plus,
+      pick,
       this.button("trash", t("terminal.kill"), () => this.killActive()),
-      this.button("chevronDown", t("terminal.hide"), () => this.hide()),
+      this.button("x", t("terminal.hide"), () => this.hide()),
     );
     this.el = h("section", { class: "panel", "aria-label": t("terminal.title") }, h("header", { class: "panel-header" }, this.tabsEl, actions), this.body);
 
@@ -97,7 +107,44 @@ export class TerminalPanel {
     else this.show();
   }
 
-  async newTerminal(opts: { name?: string; runner?: boolean; cwd?: string } = {}): Promise<Session> {
+  /** 実行中のプログラムを止める（Ctrl+C を送る） */
+  interrupt() {
+    const s = this.active;
+    if (s?.alive && s.ptyId !== null) pty.write(s.ptyId, "\x03").catch(() => {});
+    s?.view.focus();
+  }
+
+  /** 最後に実行したものをもう一度 */
+  async rerun() {
+    if (this.lastRun) await this.run(this.lastRun.command, this.lastRun.cwd);
+  }
+
+  private async pickShell(anchor: HTMLElement) {
+    const shells = (this.shells ??= await pty.shells().catch(() => []));
+    const items: MenuItem[] = shells.map((sh) => ({
+      type: "action",
+      label: sh.name,
+      hint: sh.command === (settings.get("terminal.shell") || "") ? t("terminal.default") : undefined,
+      run: () => this.newTerminal({ name: sh.name, shell: sh.command }),
+    }));
+    if (shells.length) {
+      items.push({ type: "separator" });
+      items.push({
+        type: "submenu",
+        label: t("terminal.setDefault"),
+        items: () =>
+          shells.map((sh) => ({
+            type: "action",
+            label: sh.name,
+            checked: (settings.get("terminal.shell") || "") === sh.command,
+            run: () => settings.set("terminal.shell", sh.command),
+          })),
+      });
+    }
+    menu.open(anchor, items.length ? items : [{ type: "note", label: t("terminal.noShells") }]);
+  }
+
+  async newTerminal(opts: { name?: string; runner?: boolean; cwd?: string; shell?: string } = {}): Promise<Session> {
     await this.listen();
     if (!this.visible) {
       this.visible = true;
@@ -128,7 +175,7 @@ export class TerminalPanel {
         cwd: opts.cwd ?? this.deps.cwd(),
         cols: Math.max(view.cols, 20),
         rows: Math.max(view.rows, 5),
-        shell: settings.get("terminal.shell") || undefined,
+        shell: opts.shell ?? (settings.get("terminal.shell") || undefined),
       });
     } catch (err) {
       session.alive = false;
@@ -207,9 +254,12 @@ export class TerminalPanel {
 
   /** 実行用ターミナルでコマンドを流す（なければ作る） */
   async run(command: string, cwd?: string) {
+    this.lastRun = { command, cwd };
     let s = this.sessions.find((x) => x.runner && x.alive && x.ptyId !== null);
     if (!s) {
-      s = await this.newTerminal({ name: t("terminal.runTab"), runner: true, cwd });
+      // 実行用のコマンドは PowerShell 向けに書いてあるので、Windows の実行タブは PowerShell にする
+      const isWindows = navigator.userAgent.includes("Windows");
+      s = await this.newTerminal({ name: t("terminal.runTab"), runner: true, cwd, shell: isWindows ? "powershell.exe" : undefined });
       // シェルのプロンプトが出るまで少し待つ
       await new Promise((r) => setTimeout(r, 350));
     } else {

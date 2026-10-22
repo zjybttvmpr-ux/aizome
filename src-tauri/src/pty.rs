@@ -5,8 +5,8 @@ use serde::Serialize;
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::path::Path;
-use std::sync::atomic::{AtomicU32, Ordering};
-use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager, State};
 
@@ -35,14 +35,16 @@ struct ExitPayload {
 }
 
 pub fn default_shell() -> String {
+    static SHELL: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    SHELL.get_or_init(detect_shell).clone()
+}
+
+fn detect_shell() -> String {
     #[cfg(windows)]
     {
-        let has_pwsh = std::process::Command::new("where")
-            .arg("pwsh")
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .status()
-            .map(|s| s.success())
+        // where コマンドを起動せず、PATH から pwsh.exe を探す
+        let has_pwsh = std::env::var_os("PATH")
+            .map(|p| std::env::split_paths(&p).any(|d| d.join("pwsh.exe").is_file()))
             .unwrap_or(false);
         if has_pwsh { "pwsh.exe".into() } else { "powershell.exe".into() }
     }
@@ -65,7 +67,81 @@ fn err<E: std::fmt::Display>(e: E) -> String {
     e.to_string()
 }
 
-#[tauri::command]
+/// "C:\\Program Files\\Git\\bin\\bash.exe" --login のように、引用符を考えて分ける
+fn split_command(s: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut cur = String::new();
+    let mut quoted = false;
+    for c in s.trim().chars() {
+        match c {
+            '"' => quoted = !quoted,
+            c if c.is_whitespace() && !quoted => {
+                if !cur.is_empty() {
+                    out.push(std::mem::take(&mut cur));
+                }
+            }
+            c => cur.push(c),
+        }
+    }
+    if !cur.is_empty() {
+        out.push(cur);
+    }
+    out
+}
+
+#[derive(Serialize)]
+pub struct ShellInfo {
+    name: String,
+    command: String,
+}
+
+/// この PC で使えるシェルの一覧（ターミナルの「＋」から選べる）
+#[tauri::command(async)]
+pub fn pty_shells() -> Vec<ShellInfo> {
+    let mut out = Vec::new();
+    #[cfg(windows)]
+    {
+        let in_path = |exe: &str| {
+            std::env::var_os("PATH").map(|p| std::env::split_paths(&p).any(|d| d.join(exe).is_file())).unwrap_or(false)
+        };
+        out.push(ShellInfo { name: "PowerShell".into(), command: "powershell.exe".into() });
+        if in_path("pwsh.exe") {
+            out.push(ShellInfo { name: "PowerShell 7".into(), command: "pwsh.exe".into() });
+        }
+        out.push(ShellInfo { name: "コマンドプロンプト (cmd)".into(), command: "cmd.exe".into() });
+        for base in [std::env::var("ProgramFiles").unwrap_or_default(), std::env::var("LOCALAPPDATA").map(|l| format!("{l}\\Programs")).unwrap_or_default()] {
+            let bash = Path::new(&base).join("Git").join("bin").join("bash.exe");
+            if !base.is_empty() && bash.is_file() {
+                out.push(ShellInfo { name: "Git Bash".into(), command: format!("\"{}\" --login -i", bash.to_string_lossy()) });
+                break;
+            }
+        }
+        if in_path("wsl.exe") {
+            out.push(ShellInfo { name: "WSL (Linux)".into(), command: "wsl.exe".into() });
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        let mut seen = std::collections::HashSet::new();
+        let mut add = |cmd: String| {
+            if Path::new(&cmd).is_file() && seen.insert(cmd.clone()) {
+                let name = Path::new(&cmd).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or(cmd.clone());
+                out.push(ShellInfo { name, command: cmd });
+            }
+        };
+        if let Ok(sh) = std::env::var("SHELL") {
+            add(sh);
+        }
+        if let Ok(list) = std::fs::read_to_string("/etc/shells") {
+            for l in list.lines().map(str::trim).filter(|l| l.starts_with('/')) {
+                add(l.to_string());
+            }
+        }
+    }
+    out
+}
+
+#[tauri::command(async)]
 pub fn pty_spawn(
     app: AppHandle,
     state: State<'_, PtyState>,
@@ -79,12 +155,32 @@ pub fn pty_spawn(
         .map_err(err)?;
 
     let shell = shell.filter(|s| !s.trim().is_empty()).unwrap_or_else(default_shell);
-    let mut parts = shell.split_whitespace();
-    let program = parts.next().unwrap_or("sh");
-    let mut cmd = CommandBuilder::new(program);
-    for a in parts {
+    let parts = split_command(&shell);
+    let program = parts.first().cloned().unwrap_or_else(|| "sh".into());
+    let mut cmd = CommandBuilder::new(&program);
+    let user_args = &parts[1..];
+    for a in user_args {
         cmd.arg(a);
     }
+    // Windows の日本語が文字化けしないよう、UTF-8 で動かす
+    #[cfg(windows)]
+    {
+    if user_args.is_empty() {
+        let exe = Path::new(&program).file_name().map(|f| f.to_string_lossy().to_lowercase()).unwrap_or_default();
+        if exe == "cmd.exe" || exe == "cmd" {
+            cmd.args(["/K", "chcp 65001 >nul"]);
+        } else if exe.starts_with("powershell") || exe.starts_with("pwsh") {
+            cmd.args([
+                "-NoLogo",
+                "-NoExit",
+                "-Command",
+                "[Console]::InputEncoding=[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; chcp 65001 > $null",
+            ]);
+        }
+    }
+    }
+    cmd.env("PYTHONUTF8", "1");
+    cmd.env("PYTHONIOENCODING", "utf-8");
     match cwd.filter(|c| Path::new(c).is_dir()) {
         Some(c) => cmd.cwd(c),
         None => cmd.cwd(crate::fsops::home_dir()),
@@ -105,23 +201,50 @@ pub fn pty_spawn(
         .map_err(err)?
         .insert(id, Session { master: pair.master, writer, child });
 
-    // 出力の読み取り
-    let app_out = app.clone();
+    // 出力の読み取り。たくさん出力するプログラムでも画面が固まらないよう、
+    // 読んだ分はためておき、別のスレッドが 16ms ごと（1 秒に約 60 回）にまとめて送る
+    let shared: Arc<(Mutex<Vec<u8>>, AtomicBool)> = Arc::new((Mutex::new(Vec::new()), AtomicBool::new(false)));
+    let reader_side = shared.clone();
     std::thread::spawn(move || {
-        let mut buf = [0u8; 8192];
-        let mut pending: Vec<u8> = Vec::new();
+        let mut buf = [0u8; 16384];
         loop {
             match reader.read(&mut buf) {
                 Ok(0) | Err(_) => break,
                 Ok(n) => {
-                    pending.extend_from_slice(&buf[..n]);
-                    let valid = utf8_valid_prefix(&pending);
-                    if valid > 0 {
-                        let data = String::from_utf8_lossy(&pending[..valid]).to_string();
-                        pending.drain(..valid);
-                        let _ = app_out.emit("pty:data", DataPayload { id, data });
+                    if let Ok(mut b) = reader_side.0.lock() {
+                        // 画面が追いつかないほど出たら、古い分は捨てて最新を見せる
+                        if b.len() > 4 * 1024 * 1024 {
+                            let cut = b.len() - 1024 * 1024;
+                            b.drain(..cut);
+                        }
+                        b.extend_from_slice(&buf[..n]);
                     }
                 }
+            }
+        }
+        reader_side.1.store(true, Ordering::SeqCst);
+    });
+    let app_out = app.clone();
+    std::thread::spawn(move || {
+        let mut carry: Vec<u8> = Vec::new();
+        loop {
+            std::thread::sleep(Duration::from_millis(16));
+            let finished = shared.1.load(Ordering::SeqCst);
+            let chunk = match shared.0.lock() {
+                Ok(mut b) => std::mem::take(&mut *b),
+                Err(_) => break,
+            };
+            if !chunk.is_empty() {
+                carry.extend_from_slice(&chunk);
+                let valid = utf8_valid_prefix(&carry);
+                if valid > 0 {
+                    let data = String::from_utf8_lossy(&carry[..valid]).to_string();
+                    carry.drain(..valid);
+                    let _ = app_out.emit("pty:data", DataPayload { id, data });
+                }
+            }
+            if finished && chunk.is_empty() {
+                break;
             }
         }
     });

@@ -78,6 +78,8 @@ pub struct AiRequest {
     api_key: Option<String>,
     /// 同じ言葉の繰り返しを抑える強さ（1.0 で無効）
     repeat_penalty: Option<f32>,
+    /// true ならチャット用の書式を付けずに、そのまま続きを書かせる（Ollama のみ）
+    raw: Option<bool>,
 }
 
 #[derive(Clone, Serialize)]
@@ -114,6 +116,7 @@ async fn run(app: &AppHandle, client: &reqwest::Client, id: u32, req: AiRequest)
             "model": req.model,
             "prompt": req.prompt,
             "stream": true,
+            "keep_alive": "30m",
             "options": {
                 "num_predict": max_tokens,
                 "temperature": temperature,
@@ -124,6 +127,9 @@ async fn run(app: &AppHandle, client: &reqwest::Client, id: u32, req: AiRequest)
         });
         if let Some(s) = &req.suffix {
             body["suffix"] = json!(s);
+        }
+        if req.raw == Some(true) {
+            body["raw"] = json!(true);
         }
         client.post(format!("{}/api/generate", base(&req.endpoint))).json(&body)
     } else {
@@ -211,8 +217,10 @@ pub fn ai_complete(app: AppHandle, state: State<'_, AiState>, req: AiRequest) ->
         let mut result = run(&app2, &client, id, req.clone()).await;
         // 途中埋め（FIM）に対応していないモデルなら、後ろのコードを渡さずにやり直す
         if matches!(&result, Err(e) if e.starts_with("NO_FIM")) && req.suffix.is_some() {
+            // チャット用の書式を付けると「説明文」を返してくるので、raw で続きだけを書かせる
             let mut plain = req;
             plain.suffix = None;
+            plain.raw = Some(true);
             result = run(&app2, &client, id, plain).await;
         }
         let _ = app2.emit("ai:chunk", Chunk { id, text: String::new(), done: true, error: result.err() });

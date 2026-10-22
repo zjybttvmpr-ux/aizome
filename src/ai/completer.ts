@@ -59,6 +59,8 @@ type StatusListener = (s: AiStatus, detail?: string) => void;
 
 class Completer {
   private inlineId: number | null = null;
+  /** 最近の応答時間（ミリ秒）の平均。遅い PC では候補を頼む回数を減らす */
+  private latency = 0;
   private inlineSeq = 0;
   private listeners = new Set<StatusListener>();
   status: AiStatus = settings.get("ai.enabled") ? "idle" : "off";
@@ -109,10 +111,13 @@ class Completer {
       const { id, done } = await this.request(
         {
           prompt: ctx.prefix,
-          suffix: ctx.suffix,
+          // 後ろが空だと Ollama がチャット用の書式に切り替えてしまうので、改行を1つ渡して途中埋めのままにする
+          suffix: ctx.suffix || "\n",
           maxTokens: ctx.maxTokens ?? settings.get("ai.maxTokens"),
           temperature: 0.15,
           repeatPenalty: 1.12,
+          // チャット口調で話し始めたり、コードの囲み（```）を書き出したら止める
+          stop: ["<|endoftext|>", "<|file_sep|>", "<|im_end|>", "<|fim_prefix|>", "```"],
         },
         onText,
       );
@@ -122,7 +127,10 @@ class Completer {
         return null;
       }
       this.inlineId = id;
+      const started = performance.now();
       const text = await done;
+      const took = performance.now() - started;
+      this.latency = this.latency ? this.latency * 0.7 + took * 0.3 : took;
       if (this.inlineId === id) {
         this.inlineId = null;
         this.setStatus("idle");
@@ -132,6 +140,13 @@ class Completer {
       this.setStatus("error", String((err as Error).message ?? err));
       return null;
     }
+  }
+
+  /** 次の候補を頼むまでの待ち時間。応答が遅いほど長く待って、PC の負担を減らす */
+  recommendedDelay(): number {
+    const base = settings.get("ai.debounceMs");
+    if (this.latency < 800) return base;
+    return Math.min(1500, Math.max(base, Math.round(this.latency * 0.5)));
   }
 
   cancelInline() {

@@ -56,12 +56,12 @@ fn read_one(dir: &Path) -> UserExtension {
     UserExtension { dir: dir_s, manifest, main_source, error }
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn ext_dir(app: AppHandle) -> Result<String, String> {
     Ok(extensions_root(&app)?.to_string_lossy().to_string())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn ext_list(app: AppHandle) -> Result<Vec<UserExtension>, String> {
     let root = extensions_root(&app)?;
     let mut out = Vec::new();
@@ -95,7 +95,7 @@ fn copy_dir(from: &Path, to: &Path) -> std::io::Result<()> {
 }
 
 /// フォルダから拡張機能をコピーして追加する。戻り値は拡張機能ID
-#[tauri::command]
+#[tauri::command(async)]
 pub fn ext_install(app: AppHandle, from: String) -> Result<String, String> {
     let src = PathBuf::from(&from);
     let manifest: Value = serde_json::from_str(&fs::read_to_string(src.join("extension.json")).map_err(|_| "NO_MANIFEST")?).map_err(err)?;
@@ -111,7 +111,7 @@ pub fn ext_install(app: AppHandle, from: String) -> Result<String, String> {
     Ok(id)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn ext_uninstall(app: AppHandle, id: String) -> Result<(), String> {
     if !valid_id(&id) {
         return Err("INVALID_ID".into());

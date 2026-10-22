@@ -10,6 +10,8 @@ export interface CleanContext {
   /** 複数行を許すか（行末で補完するとき true） */
   multiline: boolean;
   maxLines?: number;
+  /** 文章を書いてよい場所か（Markdown・テキスト・コメントの中など） */
+  proseOk?: boolean;
 }
 
 const SPECIAL_TOKENS = /<\|[^|>]*\|>|<fim_[a-z_]+>|<\/?s>|<EOT>|<PRE>|<SUF>|<MID>|<\|endoftext\|>/g;
@@ -38,6 +40,24 @@ export function commentIntent(prefix: string): string | null {
   const text = block.join(" ").replace(/^(\/\/|#|--|;+|\/\*+|\*+|<!--|%|')\s*/gm, "").trim();
   // 区切り線や空のコメントは指示とみなさない
   return /[\p{L}\p{N}]{2,}/u.test(text) ? text : null;
+}
+
+// AI がコードの続きではなく「返事」を書き始めたときの言い出し
+const CHAT_OPENERS =
+  /^(it (looks|seems) like|it appears|here('s| is| are)\b|sure[,!. ]|certainly|of course|i('m| am| can| see| think| will|'ll| would)\b|this (code|snippet|script|program|line|is)\b|the (code|snippet|error|line) (you|is|above|provided)|you (can|might|may|are|should|need|have)\b|to (fix|import|use|do|achieve)\b|note[:：]|explanation|let('s| me)\b|please\b|great[,!.]|unfortunately|as an ai|in (python|javascript|this (case|example)))/i;
+const CHAT_OPENERS_JA = /^(この(コード|スニペット|プログラム|行)|以下(は|の|に)|はい[、。！]|もちろん|申し訳|コードが|例えば|おそらく|ご(質問|指摘)|それでは|まず(は|、)|説明)/;
+
+/** 候補が、コードではなく説明の文章に見えるか */
+export function looksLikeProse(text: string, proseOk = false): boolean {
+  const first = text.split("\n").map((l) => l.trim()).find(Boolean) ?? "";
+  if (!first) return false;
+  if (CHAT_OPENERS.test(first) || CHAT_OPENERS_JA.test(first)) return !proseOk || /^(it looks like|here('s| is)|sure|certainly|as an ai|はい|もちろん|申し訳)/i.test(first);
+  if (proseOk) return false;
+  // 単語が多く、記号がほとんどなく、文末が句点などで終わる行は文章とみなす
+  const words = first.split(/\s+/).filter(Boolean);
+  const codeChars = (first.match(/[()[\]{}=;<>_+*/\\|&$#@`'"]/g) ?? []).length;
+  if (words.length >= 7 && codeChars === 0 && /[.!?:。！？：]$/.test(first)) return true;
+  return false;
 }
 
 function norm(s: string) {
@@ -93,6 +113,9 @@ export function cleanCompletion(raw: string, ctx: CleanContext): string {
     const max = ctx.maxLines ?? 12;
     if (lines.length > max) s = lines.slice(0, max).join("\n");
   }
+
+  // 説明の文章（チャットの返事）は候補にしない
+  if (looksLikeProse(s, ctx.proseOk)) return "";
 
   s = removeRepetition(s, ctx.prefix);
 

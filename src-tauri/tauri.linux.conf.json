@@ -1,0 +1,120 @@
+{
+  "bundle": {
+    "fileAssociations": [
+      {
+        "ext": [
+          "py",
+          "pyw"
+        ],
+        "name": "Python",
+        "role": "Editor",
+        "mimeType": "text/x-python"
+      },
+      {
+        "ext": [
+          "js",
+          "mjs",
+          "cjs",
+          "jsx",
+          "ts",
+          "mts",
+          "tsx"
+        ],
+        "name": "JavaScript / TypeScript",
+        "role": "Editor",
+        "mimeType": "text/javascript"
+      },
+      {
+        "ext": [
+          "html",
+          "htm",
+          "css",
+          "scss",
+          "sass",
+          "less",
+          "vue",
+          "svelte"
+        ],
+        "name": "Web",
+        "role": "Editor",
+        "mimeType": "text/html"
+      },
+      {
+        "ext": [
+          "json",
+          "jsonc",
+          "yaml",
+          "yml",
+          "toml",
+          "ini",
+          "cfg",
+          "conf",
+          "xml",
+          "csv",
+          "sql",
+          "env"
+        ],
+        "name": "Data",
+        "role": "Editor",
+        "mimeType": "application/json"
+      },
+      {
+        "ext": [
+          "md",
+          "markdown",
+          "txt",
+          "log"
+        ],
+        "name": "Markdown / Text",
+        "role": "Editor",
+        "mimeType": "text/plain"
+      },
+      {
+        "ext": [
+          "c",
+          "h",
+          "cpp",
+          "cc",
+          "cxx",
+          "hpp"
+        ],
+        "name": "C / C++",
+        "role": "Editor",
+        "mimeType": "text/x-c++src"
+      },
+      {
+        "ext": [
+          "rs",
+          "go",
+          "java",
+          "kt",
+          "kts",
+          "cs",
+          "rb",
+          "php",
+          "lua",
+          "swift",
+          "dart",
+          "r",
+          "pl"
+        ],
+        "name": "Other source",
+        "role": "Editor",
+        "mimeType": "text/x-csrc"
+      },
+      {
+        "ext": [
+          "sh",
+          "bash",
+          "zsh",
+          "ps1",
+          "bat",
+          "cmd"
+        ],
+        "name": "Shell",
+        "role": "Editor",
+        "mimeType": "text/x-shellscript"
+      }
+    ]
+  }
+}

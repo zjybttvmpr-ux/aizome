@@ -3,7 +3,15 @@
 import { Prec, StateEffect, StateField, type Extension } from "@codemirror/state";
 import { Decoration, EditorView, ViewPlugin, WidgetType, keymap, type ViewUpdate } from "@codemirror/view";
 import { completer } from "../ai/completer";
-import { cleanCompletion, commentIntent, contextKey, shouldComplete } from "../ai/clean";
+import { cleanCompletion, commentIntent, contextKey, isCommentLine, shouldComplete } from "../ai/clean";
+import { language } from "@codemirror/language";
+
+/** 言語の付いていない文書（テキスト）や Markdown か */
+function isProseFile(view: EditorView): boolean {
+  const lang = view.state.facet(language);
+  const name = lang?.name ?? "";
+  return !lang || /markdown|plain/i.test(name);
+}
 import { settings } from "../core/settings";
 
 interface Ghost {
@@ -113,12 +121,15 @@ async function requestCompletion(view: EditorView) {
   if (!shouldComplete(prefix, lineSuffix)) return;
 
   const multiline = lineSuffix.trim() === "";
+  // Markdown やテキスト、コメントの中では文章の候補も出してよい
+  const linePrefix = doc.sliceString(line.from, pos);
+  const proseOk = isProseFile(view) || isCommentLine(linePrefix + "xx") || /["'`]/.test(linePrefix) && (linePrefix.split(/["'`]/).length - 1) % 2 === 1;
   const maxTokens = intent ? Math.max(settings.get("ai.maxTokens"), 320) : settings.get("ai.maxTokens");
   const maxLines = intent ? 40 : 12;
   const startDoc = doc;
   const show = (raw: string) => {
     if (view.state.doc !== startDoc || view.state.selection.main.head !== pos) return;
-    const text = cleanCompletion(raw, { lineSuffix, suffix, prefix, multiline, maxLines });
+    const text = cleanCompletion(raw, { lineSuffix, suffix, prefix, multiline, maxLines, proseOk });
     const key = contextKey(prefix, text);
     const current = view.state.field(ghostField, false);
     if (!text || rejected.has(key)) {
@@ -132,7 +143,7 @@ async function requestCompletion(view: EditorView) {
   if (final !== null) show(final);
 }
 
-function schedule(view: EditorView, delay = settings.get("ai.debounceMs")) {
+function schedule(view: EditorView, delay = completer.recommendedDelay()) {
   window.clearTimeout(timer);
   if (!settings.get("ai.enabled")) return;
   timer = window.setTimeout(() => requestCompletion(view), delay);

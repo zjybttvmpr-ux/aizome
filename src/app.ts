@@ -4,7 +4,7 @@ import { t } from "./core/i18n";
 import { bus } from "./core/events";
 import { settings } from "./core/settings";
 import { commands, formatKey, installKeybindings } from "./core/commands";
-import { fs, dialog, sys, git, appWindow, type SysInfo } from "./core/platform";
+import { fs, dialog, sys, git, appWindow, osIntegration, type SysInfo } from "./core/platform";
 import { basename, dirname, extname, isInside, relative, resolveIn } from "./core/paths";
 import { createEditorHost } from "./editor/editor";
 import type { EditorHost } from "./editor/types";
@@ -13,7 +13,7 @@ import { expandCommand, findRunConfig } from "./terminal/runner";
 import { FileTree } from "./ui/fileTree";
 import { createExtensionsView } from "./ui/extensionsView";
 import { settingsPage } from "./ui/settingsPage";
-import { describeAiError, ensureLocalAi } from "./ai/localAi";
+import { describeAiError, ensureLocalAi, useModelFile } from "./ai/localAi";
 import { checkForUpdates, openUpdateDialog, startUpdateChecks, type UpdateDeps } from "./ui/updates";
 import type { UpdateInfo } from "./core/platform";
 import { applyTheme, listThemes } from "./ui/themes";
@@ -155,6 +155,17 @@ export class App {
       }
     });
 
+    // ファイルやフォルダを画面にドラッグして開く
+    this.setupFileDrop();
+
+    // 「プログラムから開く」や右クリックから渡されたファイルを開く（起動中に渡されたものも）
+    const takeOpenPaths = async () => {
+      const paths = await osIntegration.takeOpenPaths().catch(() => [] as string[]);
+      if (paths.length) await this.openDropped(paths);
+    };
+    await takeOpenPaths();
+    osIntegration.onOpenPaths(() => void takeOpenPaths()).catch(() => {});
+
     // 新しい版がないか、ときどき調べる
     startUpdateChecks(this.updateDeps);
 
@@ -165,7 +176,8 @@ export class App {
     window.addEventListener("blur", () => {
       if (settings.get("editor.autoSave") === "focus") void this.saveAllDirty();
     });
-    window.setInterval(() => void this.refreshGit(), 15000);
+    // 見ていないあいだは Git を調べない
+    window.setInterval(() => document.hasFocus() && void this.refreshGit(), 30000);
   }
 
   // ───────────── セッション（開いていたタブの復元）
@@ -213,6 +225,47 @@ export class App {
 
   private async saveAllDirty() {
     for (const d of this.docs) if (d.dirty && d.path) await this.save(d.id);
+  }
+
+  // ───────────── ドラッグ＆ドロップ
+
+  private setupFileDrop() {
+    const overlay = h(
+      "div",
+      { class: "drop-overlay", hidden: true, "aria-hidden": "true" },
+      h("div", { class: "drop-box" }, h("span", { html: icon("folderOpen", 28) }), h("strong", {}, t("drop.title")), h("span", {}, t("drop.help"))),
+    );
+    document.body.append(overlay);
+    appWindow
+      .onFileDrop(({ type, paths }) => {
+        if (type === "enter" || type === "over") overlay.hidden = false;
+        else overlay.hidden = true;
+        if (type === "drop" && paths.length) void this.openDropped(paths);
+      })
+      .catch((err) => console.warn("drag-drop", err));
+  }
+
+  private async openDropped(paths: string[]) {
+    const dirs: string[] = [];
+    const files: string[] = [];
+    for (const p of paths) {
+      const isDir = await fs.isDir(p).catch(() => false);
+      (isDir ? dirs : files).push(p);
+    }
+    // フォルダはワークスペースとして開く（いくつか落とされたら最初の1つ）
+    if (dirs.length) await this.openFolder(dirs[0]);
+    for (const f of files) {
+      const ext = extname(f);
+      if (ext === ".gguf") {
+        // AI のモデルファイルなら読み込む
+        await useModelFile(f);
+      } else if ([".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".avif"].includes(ext) && settingsPage.isOpen) {
+        // 設定画面を開いているときに画像を落としたら背景にする
+        settings.set("look.bgImage", f);
+      } else {
+        await this.openFile(f);
+      }
+    }
   }
 
   // ───────────── Git

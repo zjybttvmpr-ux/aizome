@@ -3,6 +3,7 @@ mod extensions;
 mod fsops;
 mod git;
 mod local_ai;
+mod os_integration;
 mod pty;
 mod search;
 mod updater;
@@ -19,7 +20,7 @@ struct SysInfo {
     path_sep: String,
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn sys_info() -> SysInfo {
     SysInfo {
         os: std::env::consts::OS.to_string(),
@@ -52,8 +53,39 @@ fn app_info(app: tauri::AppHandle) -> AppInfo {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    // 更新係として起動されたときは、入れ替えだけして終わる
+    if updater::run_helper_if_requested() {
+        return;
+    }
+
+    let builder = tauri::Builder::default();
+    // すでに Aizome が開いていれば、新しく開かずにそちらにファイルを渡す
+    #[cfg(desktop)]
+    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, argv, cwd| {
+        let paths = os_integration::paths_from_args(&argv, std::path::Path::new(&cwd));
+        if paths.is_empty() {
+            if let Some(w) = app.get_webview_window("main") {
+                let _ = w.unminimize();
+                let _ = w.set_focus();
+            }
+        } else {
+            os_integration::deliver(app, paths);
+        }
+    }));
+
+    builder
         .plugin(tauri_plugin_dialog::init())
+        .manage(os_integration::OpenRequests::default())
+        .setup(|app| {
+            // 「プログラムから開く」などで渡されたファイル
+            let args: Vec<String> = std::env::args().collect();
+            let cwd = std::env::current_dir().unwrap_or_default();
+            let paths = os_integration::paths_from_args(&args, &cwd);
+            os_integration::deliver(app.handle(), paths);
+            // 右クリックメニューと「プログラムから開く」に登録（Windows・初回のみ）
+            os_integration::auto_register(app.handle());
+            Ok(())
+        })
         .manage(pty::PtyState::default())
         .manage(ai::AiState::new())
         .manage(local_ai::LocalAiState::default())
@@ -70,10 +102,12 @@ pub fn run() {
             fsops::fs_rename,
             fsops::fs_remove,
             fsops::fs_exists,
+            fsops::fs_is_dir,
             fsops::fs_read_data_url,
             search::fs_search,
             git::git_status,
             pty::pty_spawn,
+            pty::pty_shells,
             pty::pty_write,
             pty::pty_resize,
             pty::pty_kill,
@@ -85,6 +119,9 @@ pub fn run() {
             local_ai::ai_use_models_dir,
             local_ai::ai_import_gguf,
             updater::update_check,
+            os_integration::take_open_paths,
+            os_integration::os_integration_status,
+            os_integration::os_integration_set,
             updater::update_install,
             extensions::ext_dir,
             extensions::ext_list,
@@ -94,9 +131,16 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("Aizome の起動に失敗しました")
         .run(|app, event| {
-            // 自分で起動した Ollama は、アプリを閉じるときに止める
-            if let tauri::RunEvent::Exit = event {
-                app.state::<local_ai::LocalAiState>().shutdown();
+            match event {
+                // 自分で起動した Ollama は、アプリを閉じるときに止める
+                tauri::RunEvent::Exit => app.state::<local_ai::LocalAiState>().shutdown(),
+                // Mac：Finder の「このアプリで開く」から渡されたファイル
+                #[cfg(target_os = "macos")]
+                tauri::RunEvent::Opened { urls } => {
+                    let paths = urls.iter().filter_map(|u| u.to_file_path().ok()).map(|p| p.to_string_lossy().to_string()).collect();
+                    os_integration::deliver(app, paths);
+                }
+                _ => {}
             }
         });
 }

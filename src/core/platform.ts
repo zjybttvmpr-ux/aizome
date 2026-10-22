@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { getCurrentWebview } from "@tauri-apps/api/webview";
 
 export interface DirEntry {
   name: string;
@@ -28,6 +29,7 @@ export interface AiRequest {
   stop?: string[];
   apiKey?: string;
   repeatPenalty?: number;
+  raw?: boolean;
 }
 
 export interface AiChunk {
@@ -54,6 +56,7 @@ export const fs = {
   rename: (from: string, to: string) => invoke<void>("fs_rename", { from, to }),
   remove: (path: string) => invoke<void>("fs_remove", { path }),
   exists: (path: string) => invoke<boolean>("fs_exists", { path }),
+  isDir: (path: string) => invoke<boolean>("fs_is_dir", { path }),
   readDataUrl: (path: string) => invoke<string>("fs_read_data_url", { path }),
   search: (opts: { root: string; query: string; regex: boolean; caseSensitive: boolean; wholeWord: boolean; limit?: number }) =>
     invoke<SearchResult>("fs_search", opts),
@@ -90,6 +93,13 @@ export const appWindow = {
   },
   async isFullscreen() {
     return getCurrentWindow().isFullscreen();
+  },
+  /** ファイルやフォルダが画面にドラッグされたとき */
+  onFileDrop(cb: (e: { type: "enter" | "over" | "drop" | "leave"; paths: string[] }) => void) {
+    return getCurrentWebview().onDragDropEvent((event) => {
+      const p = event.payload as { type: "enter" | "over" | "drop" | "leave"; paths?: string[] };
+      cb({ type: p.type, paths: p.paths ?? [] });
+    });
   },
   /** 閉じる（閉じる前の確認を通る） */
   async close() {
@@ -133,6 +143,7 @@ export const pty = {
   write: (id: number, data: string) => invoke<void>("pty_write", { id, data }),
   resize: (id: number, cols: number, rows: number) => invoke<void>("pty_resize", { id, cols, rows }),
   kill: (id: number) => invoke<void>("pty_kill", { id }),
+  shells: () => invoke<{ name: string; command: string }[]>("pty_shells"),
   onData: (cb: (p: { id: number; data: string }) => void) =>
     listen<{ id: number; data: string }>("pty:data", (e) => cb(e.payload)),
   onExit: (cb: (p: { id: number; code: number | null }) => void) =>
@@ -194,6 +205,14 @@ export const updater = {
   install: (url: string) => invoke<void>("update_install", { url }),
   onProgress: (cb: (p: { received: number; total: number }) => void) =>
     listen<{ received: number; total: number }>("update:progress", (e) => cb(e.payload)),
+};
+
+export const osIntegration = {
+  /** OS から「開いて」と渡されたファイル（受け取ると空になる） */
+  takeOpenPaths: () => invoke<string[]>("take_open_paths"),
+  onOpenPaths: (cb: () => void) => listen<string[]>("open:paths", () => cb()),
+  status: () => invoke<{ supported: boolean; registered: boolean }>("os_integration_status"),
+  set: (enabled: boolean) => invoke<void>("os_integration_set", { enabled }),
 };
 
 export const sys = {
