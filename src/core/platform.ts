@@ -53,6 +53,12 @@ export const fs = {
   walk: (root: string, limit?: number) => invoke<string[]>("fs_walk", { root, limit }),
   readFile: (path: string) => invoke<string>("fs_read_file", { path }),
   writeFile: (path: string, content: string) => invoke<void>("fs_write_file", { path, content }),
+  /** 文字コードを指定して（空なら自動で判定して）読む */
+  readFileEnc: (path: string, encoding?: string, guess = true) =>
+    invoke<{ text: string; encoding: string; bom: boolean; lossy: boolean; eol: "crlf" | "lf" }>("fs_read_file_enc", { path, encoding: encoding ?? null, guess }),
+  /** 文字コード・BOM・改行コードを指定して書く */
+  writeFileEnc: (path: string, content: string, encoding: string, bom: boolean, eol: "crlf" | "lf") =>
+    invoke<void>("fs_write_file_enc", { path, content, encoding, bom, eol }),
   createFile: (path: string) => invoke<void>("fs_create_file", { path }),
   createDir: (path: string) => invoke<void>("fs_create_dir", { path }),
   rename: (from: string, to: string) => invoke<void>("fs_rename", { from, to }),

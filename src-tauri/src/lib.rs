@@ -6,6 +6,7 @@ mod local_ai;
 mod os_integration;
 mod pty;
 mod runtimes;
+mod encoding;
 mod search;
 mod updater;
 
@@ -91,6 +92,8 @@ pub fn run() {
         .manage(ai::AiState::new())
         .manage(local_ai::LocalAiState::default())
         .invoke_handler(tauri::generate_handler![
+            encoding::fs_read_file_enc,
+            encoding::fs_write_file_enc,
             runtimes::find_python,
             sys_info,
             print_page,

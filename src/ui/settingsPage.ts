@@ -12,6 +12,7 @@ import { listThemes } from "./themes";
 import { icon } from "./icons";
 import { confirmBox } from "./dialog";
 import { LANG_CHOICES } from "../core/langDirective";
+import { ENCODINGS } from "../core/encodings";
 
 type Key = keyof Settings;
 
@@ -330,6 +331,20 @@ function sections(): Section[] {
           t("set.newFileLanguage"),
           select("files.newFileLanguage", LANG_CHOICES.map((c) => ({ value: c.ext, label: c.label }))),
           t("set.newFileLanguageHelp"),
+        ),
+        row(
+          t("set.encoding"),
+          select("files.encoding", ENCODINGS.map((e) => ({ value: e.id, label: e.label }))),
+          t("set.encodingHelp"),
+        ),
+        row(t("set.guessEncoding"), toggle("files.guessEncoding"), t("set.guessEncodingHelp"), true),
+        row(
+          t("set.eol"),
+          select("files.eol", [
+            { value: "lf", label: "LF（\\n）" },
+            { value: "crlf", label: "CRLF（\\r\\n・Windows のメモ帳など）" },
+          ]),
+          t("set.eolHelp"),
         ),
         row(t("settings.trimWhitespace"), toggle("editor.trimTrailingWhitespace"), undefined, true),
         row(t("settings.finalNewline"), toggle("editor.insertFinalNewline"), undefined, true),

@@ -142,6 +142,7 @@ export function registerBuiltinSlash(d: SlashDeps) {
     cmd("saveas", ["名前を付けて保存", "なまえをつけて", "別名", "betsumei"], "file.saveAs", G.file, "file"),
     cmd("saveall", ["すべて保存", "ぜんぶ保存", "全部保存"], "file.saveAll", G.file, "file"),
     cmd("copypath", ["パス", "ぱす", "場所をコピー", "pasu"], "file.copyPath", G.file, "file"),
+    cmd("encoding", ["文字コード", "もじこーど", "エンコード", "utf8", "utf-8", "shift_jis", "sjis", "文字化け", "もじばけ", "改行コード", "crlf"], "file.encoding", G.file, "text", "UTF-8・Shift_JIS などで保存し直す／開き直す・改行コード"),
     cmd("print", ["印刷", "いんさつ", "insatsu", "プリント"], "file.print", G.file, "file"),
     {
       name: "find",

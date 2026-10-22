@@ -47,6 +47,12 @@ export interface Settings {
   "editor.zenkaku": boolean;
   /** 新しいファイル（保存前）を何語として扱うか（拡張子） */
   "files.newFileLanguage": string;
+  /** 新しく保存するファイルの文字コード */
+  "files.encoding": "utf-8" | "utf-8-bom" | "shift_jis" | "euc-jp" | "utf-16le";
+  /** UTF-8 で読めないファイルを Shift_JIS などとして読む */
+  "files.guessEncoding": boolean;
+  /** 新しく保存するファイルの改行コード */
+  "files.eol": "auto" | "lf" | "crlf";
   "dict.user": { lang: string; title: string; code: string; keys?: string }[];
   "update.skipVersion": string;
 }
@@ -97,6 +103,9 @@ export const defaults: Settings = {
   "editor.listKey": "tab",
   "editor.zenkaku": true,
   "files.newFileLanguage": ".py",
+  "files.encoding": "utf-8",
+  "files.guessEncoding": true,
+  "files.eol": "lf",
   "dict.user": [],
   "update.skipVersion": "",
 };

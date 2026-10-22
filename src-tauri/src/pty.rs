@@ -174,7 +174,7 @@ pub fn pty_spawn(
                 "-NoLogo",
                 "-NoExit",
                 "-Command",
-                "[Console]::InputEncoding=[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; chcp 65001 > $null",
+                "[Console]::InputEncoding=[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; $OutputEncoding=[System.Text.Encoding]::UTF8; $PSDefaultParameterValues['*:Encoding']='utf8'; chcp 65001 > $null",
             ]);
         }
     }

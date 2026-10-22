@@ -38,6 +38,7 @@ import { helpPage } from "./ui/helpPage";
 import { listSlash, openSlashPalette } from "./ui/slash";
 import { registerBuiltinSlash, showErrorExplanation } from "./ui/slashCommands";
 import { countChars } from "./core/jpText";
+import { ENCODINGS, encodingById, encodingLabel } from "./core/encodings";
 import { TRACER_PY, formatTrace, type TraceResult } from "./run/trace";
 
 interface Doc {
@@ -45,6 +46,16 @@ interface Doc {
   path: string | null;
   name: string;
   dirty: boolean;
+  /** 文字コード（"utf-8" "shift_jis" など）と BOM・改行コード。保存するときにこのとおり書く */
+  encoding: string;
+  bom: boolean;
+  eol: "crlf" | "lf";
+}
+
+/** 新しく保存するファイルの文字コード（設定） */
+function defaultEncoding(): { encoding: string; bom: boolean; eol: "crlf" | "lf" } {
+  const e = encodingById(settings.get("files.encoding"));
+  return { encoding: e.encoding, bom: e.bom, eol: settings.get("files.eol") === "crlf" ? "crlf" : "lf" };
 }
 
 type ViewName = "explorer" | "search" | "dict" | "ai" | "extensions" | "settings";
@@ -599,8 +610,10 @@ export class App {
     let doc = this.docs.find((d) => d.path === path);
     if (!doc) {
       let text: string;
+      let read: Awaited<ReturnType<typeof fs.readFileEnc>>;
       try {
-        text = await fs.readFile(path);
+        read = await fs.readFileEnc(path, undefined, settings.get("files.guessEncoding"));
+        text = read.text;
       } catch (err) {
         const msg = String(err);
         toast(
@@ -609,7 +622,9 @@ export class App {
         );
         return;
       }
-      doc = { id: path, path, name: basename(path), dirty: false };
+      doc = { id: path, path, name: basename(path), dirty: false, encoding: read.encoding, bom: read.bom, eol: read.eol };
+      if (read.encoding !== "utf-8") toast(t("enc.openedAs", { name: doc.name, enc: encodingLabel(read.encoding, read.bom) }), "info", 7000);
+      if (read.lossy) toast(t("enc.lossy", { name: doc.name }), "warn", 9000);
       this.docs.push(doc);
       await this.editor.open(doc.id, text, doc.name);
       this.appliedName.set(doc.id, doc.name);
@@ -646,7 +661,7 @@ export class App {
 
   newUntitled() {
     const id = `untitled:${++this.untitledSeq}`;
-    const doc: Doc = { id, path: null, name: t("file.untitled", { n: String(this.untitledSeq) }), dirty: false };
+    const doc: Doc = { id, path: null, name: t("file.untitled", { n: String(this.untitledSeq) }), dirty: false, ...defaultEncoding() };
     this.docs.push(doc);
     const name = `untitled${settings.get("files.newFileLanguage") || ".py"}`;
     this.appliedName.set(id, name);
@@ -678,6 +693,67 @@ export class App {
     if (this.appliedName.get(doc.id) === name) return;
     this.appliedName.set(doc.id, name);
     void this.editor.rename(doc.id, doc.id, name).then(() => this.renderStatus());
+  }
+
+  /** 文字コード：保存する文字コードを変える／文字コードを指定して開き直す／改行コードを変える */
+  async pickEncoding() {
+    const doc = this.activeDoc();
+    if (!doc) return;
+    type Act = "save" | "reopen" | "eol";
+    const act = await quickPick<Act>(
+      [
+        { label: t("enc.actSave"), detail: t("enc.now", { enc: encodingLabel(doc.encoding, doc.bom) }), value: "save" },
+        ...(doc.path ? [{ label: t("enc.actReopen"), detail: t("enc.actReopenDetail"), value: "reopen" as Act }] : []),
+        { label: t("enc.actEol", { eol: doc.eol === "crlf" ? "LF" : "CRLF" }), detail: t("enc.nowEol", { eol: doc.eol === "crlf" ? "CRLF" : "LF" }), value: "eol" },
+      ],
+      t("enc.pick"),
+    );
+    if (!act) return;
+    if (act === "eol") {
+      doc.eol = doc.eol === "crlf" ? "lf" : "crlf";
+      doc.dirty = true;
+      this.renderTabs();
+      this.renderStatus();
+      if (doc.path) await this.save(doc.id, false, { keepDirective: true });
+      toast(t("enc.eolChanged", { eol: doc.eol === "crlf" ? "CRLF" : "LF" }), "success");
+      return;
+    }
+    const choice = await quickPick(
+      ENCODINGS.map((e) => ({ label: e.label, detail: e.note, value: e })),
+      act === "save" ? t("enc.actSave") : t("enc.actReopen"),
+    );
+    if (!choice) return;
+    if (act === "save") {
+      doc.encoding = choice.encoding;
+      doc.bom = choice.bom;
+      doc.dirty = true;
+      this.renderTabs();
+      this.renderStatus();
+      if (doc.path && (await this.save(doc.id, false, { keepDirective: true }))) toast(t("enc.savedAs", { enc: choice.label }), "success");
+      else if (!doc.path) toast(t("enc.willSaveAs", { enc: choice.label }), "info");
+      return;
+    }
+    if (!doc.path) return;
+    if (doc.dirty) {
+      const ok = await choose(t("enc.reopenTitle"), t("enc.reopenDirty"), [
+        { label: t("common.cancel"), value: false, kind: "plain" },
+        { label: t("enc.reopenAnyway"), value: true, kind: "danger" },
+      ], false);
+      if (!ok) return;
+    }
+    try {
+      const read = await fs.readFileEnc(doc.path, choice.encoding);
+      doc.encoding = read.encoding;
+      doc.bom = read.bom || choice.bom;
+      doc.eol = read.eol;
+      this.editor.setText(doc.id, read.text);
+      doc.dirty = false;
+      this.renderTabs();
+      this.renderStatus();
+      toast(read.lossy ? t("enc.reopenLossy", { enc: choice.label }) : t("enc.reopened", { enc: choice.label }), read.lossy ? "warn" : "success", 7000);
+    } catch (err) {
+      toast(t("file.openFailed", { name: doc.name, err: String(err) }), "error");
+    }
   }
 
   /** ステータスバーの言語をクリック：1 行目に「## 言語 ##」を書いて切り替える */
@@ -774,9 +850,27 @@ export class App {
       toast(t("lang.savedOtherExt", { name: directive.label, file: basename(path) }), "warn", 8000);
     }
     try {
-      await fs.writeFile(path, text);
+      await fs.writeFileEnc(path, text, doc.encoding, doc.bom, doc.eol);
     } catch (err) {
-      toast(t("file.saveFailed", { name: doc.name, err: String(err) }), "error");
+      const msg = String(err);
+      const bad = /UNMAPPABLE: (.*)/.exec(msg);
+      if (bad) {
+        // Shift_JIS などで書けない文字（絵文字・一部の漢字）があるとき
+        const asUtf8 = await choose(
+          t("enc.unmappableTitle", { enc: encodingLabel(doc.encoding, doc.bom) }),
+          t("enc.unmappable", { chars: bad[1], enc: encodingLabel(doc.encoding, doc.bom) }),
+          [
+            { label: t("common.cancel"), value: false, kind: "plain" },
+            { label: t("enc.saveUtf8"), value: true, kind: "primary" },
+          ],
+          false,
+        );
+        if (!asUtf8) return false;
+        doc.encoding = "utf-8";
+        doc.bom = false;
+        return this.save(doc.id, false, opts);
+      }
+      toast(t("file.saveFailed", { name: doc.name, err: msg }), "error");
       return false;
     }
     if (doc.path !== path) {
@@ -1043,7 +1137,8 @@ export class App {
       if (!ok) return false;
     }
     try {
-      await fs.writeFile(path, text);
+      const enc = defaultEncoding();
+      await fs.writeFileEnc(path, text, enc.encoding, enc.bom, enc.eol);
     } catch (err) {
       toast(t("file.saveFailed", { name: basename(path), err: String(err) }), "error");
       return false;
@@ -1147,7 +1242,7 @@ export class App {
       this.statusRight.append(
         item(t("status.position", { line: String(pos.line), col: String(pos.col) }), undefined, () => void this.goToLine()),
         item(t("status.spaces", { n: String(settings.get("editor.tabSize")) })),
-        item("UTF-8"),
+        item(`${encodingLabel(doc.encoding, doc.bom)}  ${doc.eol === "crlf" ? "CRLF" : "LF"}`, t("enc.pick"), () => void this.pickEncoding()),
         item(this.editor.languageName(), t("lang.pick"), () => void this.pickLanguage()),
       );
     }
@@ -1191,7 +1286,10 @@ export class App {
     const doc = this.activeDoc();
     if (!doc?.path) return;
     try {
-      const text = await fs.readFile(doc.path);
+      const read = await fs.readFileEnc(doc.path, doc.encoding);
+      const text = read.text;
+      doc.bom = read.bom;
+      doc.eol = read.eol;
       this.editor.setText(doc.id, text);
       doc.dirty = false;
       this.renderTabs();
@@ -1574,6 +1672,7 @@ export class App {
     reg("help.open", "cmd.help", () => helpPage.open(), "F1", true);
     reg("help.slash", "cmd.slash", () => openSlashPalette("/"));
     reg("terminal.explainError", "cmd.explainError", () => this.explainLastError());
+    reg("file.encoding", "cmd.encoding", () => this.pickEncoding());
     reg("run.trace", "cmd.trace", () => this.traceActive(), "F6", true);
     reg("run.clearValues", "cmd.clearValues", () => {
       const doc = this.activeDoc();
