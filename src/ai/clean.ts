@@ -14,6 +14,8 @@ export interface CleanContext {
   proseOk?: boolean;
   /** ファイルの言語（例：Python）。違う言語の書き方の候補を捨てるのに使う */
   language?: string;
+  /** false なら言語ちがいの候補も出す */
+  languageFilter?: boolean;
 }
 
 /** Python のファイルに出てきたら、ほかの言語（JavaScript・C・Java など）の候補とみなす書き方 */
@@ -144,7 +146,7 @@ export function cleanCompletion(raw: string, ctx: CleanContext): string {
   // 説明の文章（チャットの返事）は候補にしない
   if (looksLikeProse(s, ctx.proseOk)) return "";
   // Python のファイルに JavaScript の候補、のような言語ちがいは出さない（文字列やコメントの中は別）
-  if (!ctx.proseOk && wrongLanguage(s, ctx.language)) return "";
+  if (!ctx.proseOk && ctx.languageFilter !== false && wrongLanguage(s, ctx.language)) return "";
 
   s = removeRepetition(s, ctx.prefix);
 

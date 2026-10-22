@@ -4,6 +4,8 @@ import { Decoration, EditorView, ViewPlugin, WidgetType, type DecorationSet, typ
 import { commands, formatKey } from "../core/commands";
 import { t } from "../core/i18n";
 import { START_MARK, findLanguage } from "../ai/jpBuild";
+import { settings } from "../core/settings";
+import { sideModeChanged } from "./sideMode";
 
 class BuildButton extends WidgetType {
   constructor(readonly line: number, readonly lang: string) {
@@ -33,6 +35,7 @@ class BuildButton extends WidgetType {
 const markLine = Decoration.line({ class: "cm-build-mark" });
 
 function build(view: EditorView): DecorationSet {
+  if (!settings.get("editor.buildLens")) return Decoration.none;
   const b = new RangeSetBuilder<Decoration>();
   for (const { from, to } of view.visibleRanges) {
     let pos = from;
@@ -58,7 +61,7 @@ export function buildLens(): Extension {
         this.decorations = build(view);
       }
       update(u: ViewUpdate) {
-        if (u.docChanged || u.viewportChanged) this.decorations = build(u.view);
+        if (u.docChanged || u.viewportChanged || u.transactions.some((tr) => tr.effects.some((e) => e.is(sideModeChanged)))) this.decorations = build(u.view);
       }
     },
     { decorations: (v) => v.decorations },

@@ -3,6 +3,8 @@ import { RangeSetBuilder, type Extension } from "@codemirror/state";
 import { Decoration, EditorView, ViewPlugin, WidgetType, type DecorationSet, type ViewUpdate } from "@codemirror/view";
 import { parseDirective } from "../core/langDirective";
 import { t } from "../core/i18n";
+import { settings } from "../core/settings";
+import { sideModeChanged } from "./sideMode";
 
 class TagWidget extends WidgetType {
   constructor(readonly label: string) {
@@ -25,6 +27,7 @@ class TagWidget extends WidgetType {
 const lineMark = Decoration.line({ class: "cm-lang-directive" });
 
 function build(view: EditorView): DecorationSet {
+  if (!settings.get("editor.langTag") || !settings.get("files.langDirective")) return Decoration.none;
   const line = view.state.doc.line(1);
   const choice = parseDirective(line.text);
   if (!choice) return Decoration.none;
@@ -42,7 +45,7 @@ export function langTag(): Extension {
         this.decorations = build(view);
       }
       update(u: ViewUpdate) {
-        if (u.docChanged) this.decorations = build(u.view);
+        if (u.docChanged || u.transactions.some((tr) => tr.effects.some((e) => e.is(sideModeChanged)))) this.decorations = build(u.view);
       }
     },
     { decorations: (v) => v.decorations },

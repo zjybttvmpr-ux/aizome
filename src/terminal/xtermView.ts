@@ -1,4 +1,5 @@
 import { toast } from "../ui/toast";
+import { settings } from "../core/settings";
 import { t } from "../core/i18n";
 import { Terminal, type ILink } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
@@ -87,7 +88,7 @@ export function createTermView(opts: { fontSize: number }): TermView {
     }
   };
   term.attachCustomKeyEventHandler((e) => {
-    if (e.type !== "keydown") return true;
+    if (e.type !== "keydown" || !settings.get("terminal.smartCopy")) return true;
     const mod = e.ctrlKey || e.metaKey;
     if (!mod || e.altKey) return true;
     const k = e.key.toLowerCase();
@@ -113,6 +114,7 @@ export function createTermView(opts: { fontSize: number }): TermView {
   });
   // 右クリック：選んでいればコピー、なければ貼り付け（Windows Terminal と同じ）
   el.addEventListener("contextmenu", (e) => {
+    if (!settings.get("terminal.smartCopy")) return;
     e.preventDefault();
     if (!copySelection()) void pasteClipboard();
   });

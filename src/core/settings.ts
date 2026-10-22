@@ -47,6 +47,43 @@ export interface Settings {
   "editor.zenkaku": boolean;
   /** 行の右に出すもの：説明／値（値を見るの結果）／自動判定（AI の予想）／なし */
   "editor.sideView": "explain" | "values" | "auto" | "off";
+  // ───── 機能のオン・オフ
+  /** 実行する場所：ファイルの場所／開いているフォルダ／移動しない（ターミナルの今の場所） */
+  "run.cwd": "file" | "workspace" | "terminal";
+  /** Python を実行するとき、本物の Python を探して使う（Store 案内用の仮の python を避ける） */
+  "run.findPython": boolean;
+  /** 実行の最後に「終了しました（終了コード）」を出す */
+  "run.showFinished": boolean;
+  /** 1 行目の ## py ## で言語を指定できる */
+  "files.langDirective": boolean;
+  /** 保存するとき 1 行目の ## py ## を取り除く */
+  "files.stripDirective": boolean;
+  /** 保存前のファイルの言語を中身から推測する */
+  "files.guessLanguage": boolean;
+  /** ファイルの言語と違う書き方の AI 候補を出さない */
+  "ai.languageFilter": boolean;
+  /** 複数行の AI 候補を文法で確かめて、崩れた行より後ろを出さない */
+  "ai.syntaxTrim": boolean;
+  /** ###構築py### の行に「▶ 組み立てる」ボタン */
+  "editor.buildLens": boolean;
+  /** 変数にマウスを乗せたときの小窓（値・自動判定） */
+  "editor.valueHover": boolean;
+  /** 1 行目の ## py ## の横の「← Python として扱います」 */
+  "editor.langTag": boolean;
+  /** ターミナルで、選んで Ctrl+C でコピー・Ctrl+V で貼り付け・右クリック */
+  "terminal.smartCopy": boolean;
+  /** 上の「値を見る」ボタン */
+  "ui.traceButton": boolean;
+  /** 上の「/ 便利機能」「? ヘルプ」ボタン */
+  "ui.topTools": boolean;
+  /** 左の「コード辞書」ボタン */
+  "ui.dictButton": boolean;
+  /** ターミナルの「エラーを日本語で解説」ボタン */
+  "ui.errorButton": boolean;
+  /** ファイル名の右の「説明／値／自動判定／なし」 */
+  "ui.sideSwitch": boolean;
+  /** ステータスバーに選んだ文字数 */
+  "ui.selectionCount": boolean;
   /** 新しいファイル（保存前）を何語として扱うか（拡張子） */
   "files.newFileLanguage": string;
   /** 新しく保存するファイルの文字コード */
@@ -105,6 +142,24 @@ export const defaults: Settings = {
   "editor.listKey": "tab",
   "editor.zenkaku": true,
   "editor.sideView": "explain",
+  "run.cwd": "file",
+  "run.findPython": true,
+  "run.showFinished": true,
+  "files.langDirective": true,
+  "files.stripDirective": true,
+  "files.guessLanguage": true,
+  "ai.languageFilter": true,
+  "ai.syntaxTrim": true,
+  "editor.buildLens": true,
+  "editor.valueHover": true,
+  "editor.langTag": true,
+  "terminal.smartCopy": true,
+  "ui.traceButton": true,
+  "ui.topTools": true,
+  "ui.dictButton": true,
+  "ui.errorButton": true,
+  "ui.sideSwitch": true,
+  "ui.selectionCount": true,
   "files.newFileLanguage": ".py",
   "files.encoding": "utf-8",
   "files.guessEncoding": true,

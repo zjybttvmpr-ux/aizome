@@ -161,7 +161,7 @@ function tooltipBox(name: string, lineNo: number, body: string, source: string):
 const varHover = hoverTooltip(
   (view, pos) => {
     const mode = sideMode();
-    if (mode !== "auto" && mode !== "values") return null;
+    if ((mode !== "auto" && mode !== "values") || !settings.get("editor.valueHover")) return null;
     const word = wordAt(view.state, pos);
     if (!word) return null;
     const lineNo = view.state.doc.lineAt(pos).number;

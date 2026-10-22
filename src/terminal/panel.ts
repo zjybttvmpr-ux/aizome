@@ -48,7 +48,11 @@ export class TerminalPanel {
       { class: "panel-actions" },
       this.button("stop", t("terminal.interrupt"), () => this.interrupt()),
       this.button("refresh", t("terminal.rerun"), () => void this.rerun()),
-      this.button("alert", t("terminal.explainError"), () => this.deps.explainError?.()),
+      (() => {
+        const b = this.button("alert", t("terminal.explainError"), () => this.deps.explainError?.());
+        b.classList.add("err-btn");
+        return b;
+      })(),
       h("span", { class: "panel-sep" }),
       plus,
       pick,

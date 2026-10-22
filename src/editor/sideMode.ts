@@ -19,8 +19,11 @@ export function trackView(view: EditorView): () => void {
   return () => views.delete(view);
 }
 
+/** 表示に関わるオン・オフを変えたら、エディタを描き直す */
+const REDRAW = new Set(["editor.sideView", "editor.buildLens", "editor.langTag", "files.langDirective", "editor.valueHover"]);
+
 bus.on("settings:changed", ({ key }) => {
-  if (key !== "editor.sideView") return;
+  if (!REDRAW.has(key)) return;
   const mode = sideMode();
   for (const v of views) v.dispatch({ effects: sideModeChanged.of(mode) });
 });

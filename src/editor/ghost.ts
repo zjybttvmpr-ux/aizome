@@ -238,10 +238,10 @@ async function requestCompletion(view: EditorView) {
   const startDoc = doc;
   const show = (raw: string, finished = false) => {
     if (view.state.doc !== startDoc || view.state.selection.main.head !== pos) return;
-    let text = cleanCompletion(raw, { lineSuffix, suffix, prefix, multiline: plan.multiline, maxLines: plan.maxLines, proseOk, language: languageOf(view.state.facet(docFilename)) });
+    let text = cleanCompletion(raw, { lineSuffix, suffix, prefix, multiline: plan.multiline, maxLines: plan.maxLines, proseOk, language: languageOf(view.state.facet(docFilename)), languageFilter: settings.get("ai.languageFilter") });
     text = cutAtDedent(text, plan.stopIndent, plan.allowClosing);
     // 書き終わってから、文法が崩れている行より後ろは捨てる（流れてくる途中では調べない）
-    if (finished && text.includes("\n")) text = trimToValidSyntax(view.state, pos, text);
+    if (finished && text.includes("\n") && settings.get("ai.syntaxTrim")) text = trimToValidSyntax(view.state, pos, text);
     // 1文字だけ、空白だけの候補は出さない
     if (text.trim().length < 2) text = "";
     const key = contextKey(prefix, text);

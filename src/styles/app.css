@@ -3117,3 +3117,12 @@ html.has-bg .settings-page {
   font-size: 10.5px;
   color: var(--text-faint);
 }
+
+/* 機能のオン・オフで隠すもの */
+html.hide-trace-btn .run-btn.secondary,
+html.hide-top-tools .top-tool,
+html.hide-dict-btn .activity-dict,
+html.hide-err-btn .err-btn,
+html.hide-side-switch .side-switch {
+  display: none !important;
+}

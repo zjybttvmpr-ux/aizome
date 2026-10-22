@@ -392,6 +392,7 @@ export class App {
     addActivity("explorer", "files", t("view.explorer"));
     addActivity("search", "search", t("view.search"));
     addActivity("dict", "book", t("view.dict"));
+    this.activityButtons.get("dict")?.classList.add("activity-dict");
     addActivity("ai", "spark", t("view.ai"));
     addActivity("extensions", "puzzle", t("view.extensions"));
     activity.append(h("div", { class: "activity-spacer" }));
@@ -678,10 +679,10 @@ export class App {
    */
   private effectiveName(doc: Doc): string {
     const head = this.editor.peek(doc.id, 4000);
-    const directive = parseDirective(head.split("\n", 1)[0] ?? "");
+    const directive = this.directiveOf(head.split("\n", 1)[0] ?? "");
     const base = doc.path ? doc.name : `untitled${settings.get("files.newFileLanguage") || ".py"}`;
     if (directive) return stripExt(base) + directive.ext;
-    if (!doc.path) {
+    if (!doc.path && settings.get("files.guessLanguage")) {
       const guessed = guessLanguage(head);
       if (guessed) return "untitled" + guessed;
       // 推測できないときは、今の扱いを続ける（入力のたびに言語が変わらないように）
@@ -872,7 +873,7 @@ export class App {
     let text = this.editor.getText(doc.id);
     const original = text;
     const firstLine = text.split("\n", 1)[0] ?? "";
-    const directive = opts.keepDirective ? null : parseDirective(firstLine);
+    const directive = opts.keepDirective || !settings.get("files.stripDirective") ? null : this.directiveOf(firstLine);
     if (directive) text = text.slice(firstLine.length).replace(/^\r?\n/, "");
     if (settings.get("editor.trimTrailingWhitespace")) text = text.replace(/[ \t]+$/gm, "");
     if (settings.get("editor.insertFinalNewline") && text.length && !text.endsWith("\n")) text += "\n";
@@ -1002,14 +1003,31 @@ export class App {
    * - それ以外（## C++ ## の指定・拡張子が違う）→ 同じフォルダに一時的なコピーを作って実行し、終わったら消す
    * - 保存前のファイル → 開いているフォルダ（なければ ~/.aizome/run）で実行
    */
-  private async prepareRunTarget(doc: Doc): Promise<{ path: string; cwd: string; overrides?: Record<string, string>; cleanup?: string } | null> {
+  private async prepareRunTarget(doc: Doc): Promise<{ path: string; cwd: string | null; overrides: Record<string, string>; cleanup?: string } | null> {
+    const t0 = await this.prepareRunFile(doc);
+    if (!t0) return null;
+    // 実行する場所（設定）：ファイルの場所／開いているフォルダ／移動しない（ターミナルの今の場所）
+    const mode = settings.get("run.cwd");
+    const cwd = mode === "terminal" ? null : mode === "workspace" ? (this.root ?? t0.dir) : t0.dir;
+    const stem = stripExt(basename(t0.path)).replace(/\.aizome-run$/, "");
+    return {
+      path: t0.path,
+      cwd,
+      // 場所を移動しないときは Set-Location "." になる。ファイルはいつもフルパスで渡す
+      overrides: { fileDir: cwd ?? ".", fileBase: t0.path, file: t0.path, fileNoExt: join(cwd ?? t0.dir, stem), fileBaseNoExt: stem },
+      cleanup: t0.cleanup,
+    };
+  }
+
+  /** 実行するファイルそのもの（または一時的なコピー）と、そのファイルの「自然な」場所 */
+  private async prepareRunFile(doc: Doc): Promise<{ path: string; dir: string; cleanup?: string } | null> {
     const first = this.editor.getText(doc.id).split("\n", 1)[0] ?? "";
-    const directive = parseDirective(first);
+    const directive = this.directiveOf(first);
     // 保存してあるファイルは、変更を保存してから
     if (doc.path && doc.dirty && !(await this.save(doc.id, false, { keepDirective: true }))) return null;
     const hashComment = [".py", ".pyw", ".rb", ".sh", ".bash", ".ps1"];
     if (doc.path && (!directive || (directive.ext === extname(doc.path).toLowerCase() && hashComment.includes(directive.ext)))) {
-      return { path: doc.path, cwd: dirname(doc.path) };
+      return { path: doc.path, dir: dirname(doc.path) };
     }
     const ext = directive?.ext ?? extname(this.effectiveName(doc));
     if (!ext || ext === ".txt" || ext === ".md") {
@@ -1045,13 +1063,12 @@ export class App {
       }
     }
     this.runCopies.set(copy, doc.id);
-    const cwd = doc.path ? dirname(doc.path) : (this.root ?? dir);
-    return {
-      path: copy,
-      cwd,
-      overrides: { fileDir: cwd, fileBase: copy, file: copy, fileNoExt: join(cwd, stem), fileBaseNoExt: stem },
-      cleanup: temporary ? copy : undefined,
-    };
+    return { path: copy, dir: doc.path ? dirname(doc.path) : (this.root ?? dir), cleanup: temporary ? copy : undefined };
+  }
+
+  /** 1 行目の「## py ##」（設定でオフなら使わない） */
+  private directiveOf(firstLine: string) {
+    return settings.get("files.langDirective") ? parseDirective(firstLine) : null;
   }
 
   /** 実行が終わったあとに一時的なコピーを消すコマンド */
@@ -1098,17 +1115,19 @@ export class App {
     const win = this.sys.os === "windows";
     const q = (p: string) => (win ? `"${p.replace(/[`$"]/g, (ch) => "`" + ch)}"` : `"${p.replace(/(["$`\\])/g, "\\$1")}"`);
     let cmd = win
-      ? `Set-Location ${q(target.cwd)}; python ${q(tracer)} ${q(target.path)} ${q(out)}`
-      : `cd ${q(target.cwd)} && python3 ${q(tracer)} ${q(target.path)} ${q(out)}`;
-    const resolved = await this.resolvePython(cmd);
-    if (resolved === null) return;
-    cmd = resolved;
+      ? `${target.cwd ? `Set-Location ${q(target.cwd)}; ` : ""}python ${q(tracer)} ${q(target.path)} ${q(out)}`
+      : `${target.cwd ? `cd ${q(target.cwd)} && ` : ""}python3 ${q(tracer)} ${q(target.path)} ${q(out)}`;
+    if (settings.get("run.findPython")) {
+      const resolved = await this.resolvePython(cmd);
+      if (resolved === null) return;
+      cmd = resolved;
+    }
     if (win) cmd += `; $aizomeCode = $LASTEXITCODE${this.cleanupCommand(target.cleanup)}; Write-Host ""; Write-Host "--- ${t("trace.finished", { code: "$aizomeCode" })} ---" -ForegroundColor DarkGray`;
     else cmd += this.cleanupCommand(target.cleanup);
-    this.lastRunDir = target.cwd;
+    this.lastRunDir = target.cwd ?? target.overrides.file.replace(/[\\/][^\\/]*$/, "");
     this.editor.showValues(doc.id, null);
     const startText = this.editor.getText(doc.id);
-    await this.terminal.run(cmd, target.cwd);
+    await this.terminal.run(cmd, target.cwd ?? undefined);
     toast(t("trace.running"), "info", 4000);
     // 終わると記録のファイルができるので、それを待って読む
     window.clearInterval(this.tracePoll);
@@ -1145,19 +1164,19 @@ export class App {
       return;
     }
     let cmd = expandCommand(config, path, this.root ?? "", this.sys.os, overrides);
-    if (config.id === "python") {
+    if (config.id === "python" && settings.get("run.findPython")) {
       const resolved = await this.resolvePython(cmd);
       if (resolved === null) return;
       cmd = resolved;
     }
-    if (this.sys.os === "windows") {
+    if (this.sys.os === "windows" && settings.get("run.showFinished")) {
       // 終わったことと終了コードがわかるように（何も出力しないプログラムでも安心できる）
       cmd += `; $aizomeCode = $LASTEXITCODE${this.cleanupCommand(cleanup)}; Write-Host ""; Write-Host "--- ${t("run.finished", { code: "$aizomeCode" })} ---" -ForegroundColor DarkGray`;
     } else {
       cmd += this.cleanupCommand(cleanup);
     }
-    const cwd = overrides?.fileDir ?? dirname(path);
-    this.lastRunDir = cwd;
+    const cwd = overrides?.fileDir && overrides.fileDir !== "." ? overrides.fileDir : overrides ? undefined : dirname(path);
+    this.lastRunDir = cwd ?? dirname(path);
     await this.terminal.run(cmd, cwd);
   }
 
@@ -1307,7 +1326,7 @@ export class App {
 
     if (doc) {
       const pos = this.editor.cursor();
-      const sel = this.editor.getSelection();
+      const sel = settings.get("ui.selectionCount") ? this.editor.getSelection() : "";
       if (sel) {
         const c = countChars(sel);
         this.statusRight.append(item(t("status.selection", { n: c.chars.toLocaleString(), lines: String(c.lines) }), t("status.selectionTitle"), () => void openSlashPalette("/count").catch(() => {})));
@@ -1582,7 +1601,22 @@ export class App {
     });
   }
 
+  /** 画面のボタンなどの表示・非表示（機能のオン・オフ） */
+  private applyUiToggles() {
+    const root = document.documentElement.classList;
+    root.toggle("hide-trace-btn", !settings.get("ui.traceButton"));
+    root.toggle("hide-top-tools", !settings.get("ui.topTools"));
+    root.toggle("hide-dict-btn", !settings.get("ui.dictButton"));
+    root.toggle("hide-err-btn", !settings.get("ui.errorButton"));
+    root.toggle("hide-side-switch", !settings.get("ui.sideSwitch"));
+  }
+
   private watchSideMode() {
+    this.applyUiToggles();
+    bus.on("settings:changed", ({ key }) => {
+      if (key.startsWith("ui.")) this.applyUiToggles();
+      if (key === "ui.selectionCount") this.renderStatus();
+    });
     bus.on("settings:changed", ({ key }) => {
       if (key !== "editor.sideView") return;
       this.renderBreadcrumbs();
