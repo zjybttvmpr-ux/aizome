@@ -21,6 +21,7 @@ import { foldAll, unfoldAll } from "@codemirror/language";
 import { languages } from "@codemirror/language-data";
 import { editorTheme, syntaxColors } from "./theme";
 import { ghostText, triggerCompletion } from "./ghost";
+import { buildLens } from "./buildLens";
 import { settings } from "../core/settings";
 import { filenameForLanguage } from "../core/languages";
 import type { EditorAction, EditorHost } from "./types";
@@ -84,6 +85,7 @@ class CodeMirrorHost implements EditorHost {
       editorTheme,
       syntaxColors,
       ghostText(),
+      buildLens(),
       languageSlot.of([]),
       configSlot.of(configExtensions()),
     ];

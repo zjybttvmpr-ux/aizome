@@ -26,6 +26,8 @@ import { aiRewrite } from "./ui/aiRewrite";
 import { renderMarkdown } from "./ui/markdown";
 import { initAppearance, zoomBy } from "./ui/appearance";
 import { menu, type MenuItem } from "./ui/menu";
+import { buildFromJapanese } from "./ui/jpBuildDialog";
+import { sampleTemplate } from "./ai/jpBuild";
 
 interface Doc {
   id: string;
@@ -692,15 +694,53 @@ export class App {
     if (doc.dirty || !doc.path) {
       if (!(await this.save(doc.id))) return;
     }
-    const path = doc.path!;
+    await this.runPath(doc.path!);
+  }
+
+  private async runPath(path: string) {
     const config = findRunConfig(path);
     if (!config) {
-      toast(t("run.noConfig", { name: doc.name }), "warn", 6000);
+      toast(t("run.noConfig", { name: basename(path) }), "warn", 6000);
       return;
     }
     const cmd = expandCommand(config, path, this.root ?? "", this.sys.os);
     this.lastRunDir = dirname(path);
     await this.terminal.run(cmd, dirname(path));
+  }
+
+  /** 新しいファイルとして書き込んで開く（同じ名前があれば確認） */
+  private async saveAndOpen(path: string, text: string): Promise<boolean> {
+    if (await fs.exists(path).catch(() => false)) {
+      const ok = await choose(t("build.overwriteTitle", { name: basename(path) }), t("build.overwriteMessage"), [
+        { label: t("common.cancel"), value: false, kind: "plain" },
+        { label: t("build.overwrite"), value: true, kind: "danger" },
+      ], false);
+      if (!ok) return false;
+    }
+    try {
+      await fs.writeFile(path, text);
+    } catch (err) {
+      toast(t("file.saveFailed", { name: basename(path), err: String(err) }), "error");
+      return false;
+    }
+    const open = this.docs.find((d) => d.path === path);
+    if (open) {
+      this.editor.setText(open.id, text);
+      open.dirty = false;
+    }
+    if (this.root && isInside(this.root, path)) await this.tree.refresh().then(() => this.reindex());
+    await this.openFile(path);
+    toast(t("build.saved", { name: basename(path) }), "success");
+    return true;
+  }
+
+  private insertBuildTemplate() {
+    if (!this.activeDoc()) {
+      this.newUntitled();
+      requestAnimationFrame(() => this.editor.insertText(sampleTemplate()));
+    } else {
+      this.editor.insertText(sampleTemplate());
+    }
   }
 
   // ───────────── タブ
@@ -933,6 +973,9 @@ export class App {
         label: t("menu.ai"),
         items: () => [
           c("view.ai"),
+          c("ai.build"),
+          c("ai.buildTemplate"),
+          sep,
           c("ai.rewrite"),
           c("ai.explain"),
           c("ai.comment"),
@@ -1116,6 +1159,26 @@ export class App {
     edit("edit.foldAll", "cmd.foldAll", "foldAll");
     edit("edit.unfoldAll", "cmd.unfoldAll", "unfoldAll");
     reg("file.print", "cmd.print", () => this.printActive(), "Mod-Alt-P");
+    // 日本語から組み立てる（行番号を渡すとそのブロック、なければカーソル位置のブロック）
+    commands.register({
+      id: "ai.build",
+      title: () => t("cmd.aiBuild"),
+      key: "Mod-Shift-Enter",
+      source: "core",
+      run: (line) =>
+        buildFromJapanese(
+          {
+            editor: this.editor,
+            activeDoc: () => this.activeDoc(),
+            root: () => this.root,
+            saveAndOpen: (p, text) => this.saveAndOpen(p, text),
+            run: (p) => this.runPath(p),
+            insertTemplate: () => this.insertBuildTemplate(),
+          },
+          typeof line === "number" ? line : undefined,
+        ),
+    });
+    reg("ai.buildTemplate", "cmd.aiBuildTemplate", () => this.insertBuildTemplate());
     reg("app.quit", "cmd.quit", () => appWindow.close(), "Mod-Q", true);
     reg("ai.settings", "cmd.aiSettings", () => this.showView("settings"));
     reg("help.shortcuts", "help.shortcuts", () => this.showShortcuts(), "Mod-K");

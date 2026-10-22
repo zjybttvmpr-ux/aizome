@@ -38,6 +38,7 @@ export interface Settings {
   "editor.insertFinalNewline": boolean;
   "editor.restoreTabs": boolean;
   "editor.lineNumbers": boolean;
+  "build.keepComments": boolean;
 }
 
 export const defaults: Settings = {
@@ -78,6 +79,7 @@ export const defaults: Settings = {
   "editor.insertFinalNewline": true,
   "editor.restoreTabs": true,
   "editor.lineNumbers": true,
+  "build.keepComments": true,
 };
 
 const STORAGE_KEY = "aizome.settings.v1";

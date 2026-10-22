@@ -2311,3 +2311,66 @@ html.has-bg .select {
     white-space: pre-wrap;
   }
 }
+
+/* ───────── 日本語から組み立てる */
+
+.cm-build-mark {
+  background: var(--accent-soft);
+}
+
+.cm-build-btn {
+  margin-left: 14px;
+  padding: 0 9px;
+  height: 20px;
+  border: 1px solid var(--accent-line);
+  border-radius: 10px;
+  background: var(--accent);
+  color: var(--accent-contrast);
+  font: 600 11.5px/18px var(--font-ui);
+  vertical-align: 1px;
+  cursor: pointer;
+}
+
+.cm-build-btn:hover {
+  filter: brightness(1.08);
+}
+
+.build-spec {
+  margin: 4px 0 0;
+  color: var(--text-muted);
+  font-size: 12.5px;
+}
+
+.build-spec summary {
+  cursor: pointer;
+}
+
+.build-spec pre {
+  margin: 6px 0 0;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: var(--panel);
+  white-space: pre-wrap;
+  font: 12.5px/1.6 var(--font-ui);
+}
+
+.build-out {
+  min-height: 160px;
+}
+
+.build-options {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 10px;
+}
+
+.build-status {
+  color: var(--text-faint);
+  font-size: 12px;
+}
+
+.build-actions {
+  flex-wrap: wrap;
+}
