@@ -240,6 +240,11 @@ export const runtimes = {
     invoke<{ command: string | null; storeStub: boolean; source: string }>("find_python", { preferred: settings.get("run.pythonPath") || null }),
 };
 
+export const clipboardWatch = {
+  /** クリップボードの文字が変わったとき（アプリの外でのコピーも） */
+  onChange: (cb: (text: string) => void) => listen<string>("clipboard:changed", (e) => cb(e.payload)),
+};
+
 export const sys = {
   info: () => invoke<SysInfo>("sys_info"),
   print: () => invoke<void>("print_page"),

@@ -16,10 +16,22 @@ export interface FileTreeDeps {
   extraMenu?: (path: string, isDir: boolean) => { label: string; run: () => void }[];
 }
 
-interface MenuItem {
+export interface MenuItem {
   label: string;
-  run: () => void;
+  run?: () => void;
   danger?: boolean;
+  /** 押せない見出し */
+  note?: boolean;
+  /** 区切り線（label は使わない） */
+  sep?: boolean;
+  /** 右に薄く出す（ショートカットなど） */
+  hint?: string;
+  /** マウスを乗せたときの説明 */
+  title?: string;
+  /** 等幅の文字で出す（コピー履歴など） */
+  code?: boolean;
+  /** メニューが開いているときに押すと選べるキー（1〜9 など） */
+  key?: string;
 }
 
 export function contextMenu(x: number, y: number, items: MenuItem[]) {
@@ -28,7 +40,21 @@ export function contextMenu(x: number, y: number, items: MenuItem[]) {
     "div",
     { class: "context-menu", role: "menu" },
     ...items.map((it) =>
-      h("button", { class: "context-item" + (it.danger ? " danger" : ""), role: "menuitem", onclick: () => (menu.remove(), it.run()) }, it.label),
+      it.sep
+        ? h("div", { class: "context-sep", role: "separator" })
+        : it.note
+          ? h("div", { class: "context-note" }, it.label)
+          : h(
+              "button",
+              {
+                class: "context-item" + (it.danger ? " danger" : "") + (it.code ? " code" : ""),
+                role: "menuitem",
+                title: it.title ?? "",
+                onclick: () => (menu.remove(), it.run?.()),
+              },
+              h("span", { class: "context-label" }, it.label),
+              it.hint ? h("span", { class: "context-hint" }, it.hint) : null,
+            ),
     ),
   );
   menu.style.left = `${x}px`;
@@ -44,6 +70,20 @@ export function contextMenu(x: number, y: number, items: MenuItem[]) {
     }
   };
   setTimeout(() => document.addEventListener("mousedown", off, true));
+  menu.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") {
+      e.preventDefault();
+      e.stopPropagation();
+      menu.remove();
+      return;
+    }
+    const hit = items.find((it) => it.key && it.key === e.key && it.run);
+    if (hit) {
+      e.preventDefault();
+      menu.remove();
+      hit.run!();
+    }
+  });
   (menu.querySelector("button") as HTMLElement | null)?.focus();
 }
 

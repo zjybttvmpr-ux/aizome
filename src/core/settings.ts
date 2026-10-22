@@ -4,6 +4,12 @@ export interface Settings {
   "ui.language": "ja" | "en";
   "ui.theme": string;
   "ui.sidebarWidth": number;
+  /** 左のエクスプローラーを細くしすぎたら自動で折りたたむ */
+  "ui.sidebarAutoCollapse": boolean;
+  /** 左右に並べたときの左の幅（0〜1） */
+  "ui.splitRatio": number;
+  /** コピー履歴（最近の 10 個） */
+  "clip.history": boolean;
   "ui.panelHeight": number;
   "editor.fontSize": number;
   "editor.tabSize": number;
@@ -127,6 +133,9 @@ export const defaults: Settings = {
   "ui.language": "ja",
   "ui.theme": "ai",
   "ui.sidebarWidth": 260,
+  "ui.sidebarAutoCollapse": true,
+  "ui.splitRatio": 0.5,
+  "clip.history": true,
   "ui.panelHeight": 240,
   "editor.fontSize": 14,
   "editor.tabSize": 4,

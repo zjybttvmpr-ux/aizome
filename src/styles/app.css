@@ -145,8 +145,8 @@ kbd {
   border: 0;
 }
 
-.app.sidebar-hidden .resizer-x {
-  pointer-events: none;
+.app.sidebar-hidden .resizer-x::after {
+  inset: 0 -4px 0 0;
 }
 
 /* ───────── 上部バー */
@@ -536,6 +536,7 @@ kbd {
 .resizer-x {
   width: 0;
   cursor: col-resize;
+  z-index: 20;
 }
 
 .resizer-x::after {
@@ -3753,4 +3754,83 @@ html.hide-side-switch .side-switch {
   background-image: none;
   text-decoration: underline wavy color-mix(in srgb, var(--accent) 70%, transparent);
   text-underline-offset: 3px;
+}
+
+/* 右クリックメニューの見出し・区切り・コピー履歴 */
+.context-item {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.context-label {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.context-item.code .context-label {
+  font-family: var(--font-code);
+  font-size: 12px;
+}
+.context-hint {
+  font-size: 11px;
+  color: var(--text-faint);
+}
+.context-note {
+  padding: 6px 10px 2px;
+  font-size: 11px;
+  color: var(--text-faint);
+}
+.context-sep {
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--border);
+}
+.context-menu {
+  max-width: 420px;
+}
+
+/* 左右に並べたときの境目（ドラッグで幅を変える） */
+.split-resizer {
+  flex: none;
+  width: 5px;
+  margin: 0 -2px;
+  z-index: 6;
+  cursor: col-resize;
+  background: transparent;
+  position: relative;
+}
+.split-resizer::after {
+  content: "";
+  position: absolute;
+  inset: 0 2px;
+  background: var(--border);
+}
+.split-resizer:hover::after,
+.split-resizer.dragging::after {
+  background: var(--accent);
+}
+.editor-mount:not(.split) .split-resizer {
+  display: none;
+}
+.editor-mount.split .editor-pane + .split-resizer + .editor-pane {
+  border-left: 0;
+}
+body.resizing-x,
+body.resizing-x * {
+  cursor: col-resize !important;
+  user-select: none !important;
+}
+
+/* 境目のつかめる幅（見た目の線より広く） */
+.resizer::before {
+  content: "";
+  position: absolute;
+  z-index: 1;
+}
+.resizer-x::before {
+  inset: 0 -4px;
+}
+.resizer-y::before {
+  inset: -4px 0;
 }

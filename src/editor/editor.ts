@@ -98,8 +98,51 @@ class CodeMirrorHost implements EditorHost {
   mount(parent: HTMLElement) {
     this.root = parent;
     for (let i = 0; i < 2; i++) this.panes.push(this.makePane(i));
-    parent.append(...this.panes.map((p) => p.el));
+    const bar = document.createElement("div");
+    bar.className = "split-resizer";
+    bar.setAttribute("role", "separator");
+    bar.setAttribute("aria-orientation", "vertical");
+    bar.title = "ドラッグで幅を変える／ダブルクリックで半分ずつ";
+    this.dragSplit(bar);
+    parent.append(this.panes[0].el, bar, this.panes[1].el);
+    this.applyRatio(settings.get("ui.splitRatio"));
     this.layout();
+  }
+
+  /** 左右の幅の割合（左がわ） */
+  private applyRatio(r: number) {
+    const ratio = Math.min(0.85, Math.max(0.15, r || 0.5));
+    this.panes[0].el.style.flex = `${ratio} 1 0`;
+    this.panes[1].el.style.flex = `${1 - ratio} 1 0`;
+  }
+
+  private dragSplit(bar: HTMLElement) {
+    bar.addEventListener("dblclick", () => {
+      this.applyRatio(0.5);
+      settings.set("ui.splitRatio", 0.5);
+    });
+    bar.addEventListener("pointerdown", (e) => {
+      if (!this.root) return;
+      e.preventDefault();
+      bar.setPointerCapture(e.pointerId);
+      bar.classList.add("dragging");
+      document.body.classList.add("resizing-x");
+      const rect = this.root.getBoundingClientRect();
+      let ratio = settings.get("ui.splitRatio");
+      const move = (ev: PointerEvent) => {
+        ratio = Math.min(0.85, Math.max(0.15, (ev.clientX - rect.left) / Math.max(1, rect.width)));
+        this.applyRatio(ratio);
+      };
+      const up = () => {
+        bar.classList.remove("dragging");
+        document.body.classList.remove("resizing-x");
+        bar.removeEventListener("pointermove", move);
+        bar.removeEventListener("pointerup", up);
+        settings.set("ui.splitRatio", Math.round(ratio * 1000) / 1000);
+      };
+      bar.addEventListener("pointermove", move);
+      bar.addEventListener("pointerup", up);
+    });
   }
 
   private makePane(idx: number): Pane {

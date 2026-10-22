@@ -1,4 +1,5 @@
 mod ai;
+mod clipwatch;
 mod extensions;
 mod fsops;
 mod git;
@@ -86,6 +87,8 @@ pub fn run() {
             os_integration::deliver(app.handle(), paths);
             // 右クリックメニューと「プログラムから開く」に登録（Windows・初回のみ）
             os_integration::auto_register(app.handle());
+            // コピー履歴のためにクリップボードを見張る
+            clipwatch::start(app.handle().clone());
             Ok(())
         })
         .manage(pty::PtyState::default())

@@ -200,6 +200,7 @@ export function registerBuiltinSlash(d: SlashDeps) {
 
     // ───── 実行
     cmd("auto", ["自動判定", "じどうはんてい", "予想", "よそう", "自動", "jidou", "推測"], "view.sideAuto", G.ai, "spark", "実行せずに AI が変数の中身とエラーの可能性を予想（変数にマウスを乗せると表示）"),
+    cmd("clips", ["コピー履歴", "こぴーりれき", "履歴", "りれき", "クリップボード", "clipboard", "kopi"], "edit.pasteHistory", G.insert, "clock", "最近コピーした 10 個から選んで貼り付ける（あいぞめの外でコピーしたものも）"),
     cmd("split", ["左右", "左右に並べる", "さゆう", "並べる", "ならべる", "分割", "ぶんかつ", "右に並べる"], "view.splitRight", G.view, "sidebar", "今のファイルを右に並べる（タブの右クリックでも）"),
     cmd("unsplit", ["分割をやめる", "元に戻す", "並べるのをやめる", "ひとつに"], "view.unsplit", G.view, "sidebar", "左右に並べるのをやめる"),
     cmd("side", ["表示切替", "表示切り替え", "ひょうじきりかえ", "切り替え", "横の表示"], "view.sideNext", G.view, "sidebar", "行の右の表示：説明 → 値 → 自動判定 → なし"),

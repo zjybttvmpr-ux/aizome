@@ -35,7 +35,8 @@ import { menuDrawer } from "./ui/menuDrawer";
 import { createSaveHistory } from "./ui/saveHistory";
 import { createFileGroups } from "./ui/fileGroups";
 import { exportSettings, importSettings } from "./ui/settingsTransfer";
-import { contextMenu } from "./ui/fileTree";
+import { contextMenu, type MenuItem as CtxItem } from "./ui/fileTree";
+import { clipHistory, clipLabel, startClipWatch } from "./core/clipHistory";
 import { buildFromJapanese } from "./ui/jpBuildDialog";
 import { sampleTemplate } from "./ai/jpBuild";
 import { explainError } from "./ai/errorExplain";
@@ -481,6 +482,11 @@ export class App {
     this.mountPoint.append(this.el);
 
     this.editor.mount(this.editorMount);
+    startClipWatch();
+    this.editorMount.addEventListener("contextmenu", (e) => {
+      e.preventDefault();
+      this.editorMenu(e.clientX, e.clientY);
+    });
     this.editor.onFocusDoc((id) => {
       if (id !== this.activeId) this.activate(id);
     });
@@ -545,12 +551,23 @@ export class App {
       handle.setPointerCapture(e.pointerId);
       handle.classList.add("dragging");
       const startPos = axis === "x" ? e.clientX : e.clientY;
-      const start = axis === "x" ? settings.get("ui.sidebarWidth") : settings.get("ui.panelHeight");
-      let value = start;
+      const hiddenAtStart = axis === "x" && this.el.classList.contains("sidebar-hidden");
+      const start = axis === "x" ? (hiddenAtStart ? 0 : settings.get("ui.sidebarWidth")) : settings.get("ui.panelHeight");
+      let value = axis === "x" ? settings.get("ui.sidebarWidth") : start;
+      let collapsed = hiddenAtStart;
+      if (axis === "x") document.body.classList.add("resizing-x");
       const move = (ev: PointerEvent) => {
         const delta = (axis === "x" ? ev.clientX : ev.clientY) - startPos;
         if (axis === "x") {
-          value = Math.round(Math.min(560, Math.max(180, start + delta)));
+          // 細くしすぎたら自動で折りたたむ（もう一度引っぱると開く）
+          const raw = start + delta;
+          collapsed = raw < 120 && settings.get("ui.sidebarAutoCollapse");
+          if (collapsed) {
+            this.collapseSidebar(true);
+            return;
+          }
+          if (this.el.classList.contains("sidebar-hidden")) this.collapseSidebar(false);
+          value = Math.round(Math.min(560, Math.max(180, raw)));
           this.el.style.setProperty("--side-w", `${value}px`);
         } else {
           value = Math.round(Math.min(innerHeight - 200, Math.max(120, start - delta)));
@@ -559,9 +576,10 @@ export class App {
       };
       const up = () => {
         handle.classList.remove("dragging");
+        document.body.classList.remove("resizing-x");
         handle.removeEventListener("pointermove", move);
         handle.removeEventListener("pointerup", up);
-        settings.set(axis === "x" ? "ui.sidebarWidth" : "ui.panelHeight", value);
+        if (axis === "y" || !collapsed) settings.set(axis === "x" ? "ui.sidebarWidth" : "ui.panelHeight", value);
       };
       handle.addEventListener("pointermove", move);
       handle.addEventListener("pointerup", up);
@@ -587,6 +605,15 @@ export class App {
     for (const [name, b] of this.activityButtons) b.classList.toggle("active", name === view);
     this.sidebarTitle.textContent = t(`view.${view}`);
     clear(this.sidebarActions);
+    this.sidebarActions.append(
+      h("button", {
+        class: "icon-btn sidebar-collapse",
+        title: t("side.collapse", { key: formatKey("Mod-B") }),
+        "aria-label": t("side.collapse", { key: formatKey("Mod-B") }),
+        html: icon("sidebar", 15),
+        onclick: () => this.collapseSidebar(true),
+      }),
+    );
     if (view === "explorer" && this.root) {
       const b = (name: string, label: string, fn: () => void) =>
         h("button", { class: "icon-btn", title: label, "aria-label": label, html: icon(name, 15), onclick: fn });
@@ -597,6 +624,13 @@ export class App {
         b("folderOpen", t("cmd.openFolder"), () => this.openFolder()),
       );
     }
+  }
+
+  /** 左のエクスプローラーなどを折りたたむ／開く */
+  private collapseSidebar(on: boolean) {
+    this.el.classList.toggle("sidebar-hidden", on);
+    for (const [name, b] of this.activityButtons) b.classList.toggle("active", !on && name === this.currentView);
+    if (!on) this.el.style.setProperty("--side-w", `${settings.get("ui.sidebarWidth")}px`);
   }
 
   private toggleView(view: ViewName) {
@@ -1502,6 +1536,57 @@ export class App {
 
   // ───────────── タブ
 
+  /** エディタの右クリック：切り取り・コピー・貼り付けと、コピー履歴 */
+  private editorMenu(x: number, y: number) {
+    const act = (a: "cut" | "copy" | "paste" | "selectAll") => () => void this.editor.run(a);
+    const items: CtxItem[] = [
+      { label: t("cmd.cut"), hint: formatKey("Mod-X"), run: act("cut") },
+      { label: t("cmd.copy"), hint: formatKey("Mod-C"), run: act("copy") },
+      { label: t("cmd.paste"), hint: formatKey("Mod-V"), run: act("paste") },
+      { label: t("cmd.selectAll"), hint: formatKey("Mod-A"), run: act("selectAll") },
+    ];
+    const clips = clipHistory();
+    if (settings.get("clip.history")) {
+      items.push({ label: "", sep: true }, { label: t("clip.title", { key: formatKey("Mod-Shift-H") }), note: true });
+      if (!clips.length) items.push({ label: t("clip.empty"), note: true });
+      clips.forEach((text, i) =>
+        items.push({
+          label: clipLabel(text),
+          code: true,
+          hint: i < 9 ? String(i + 1) : "0",
+          key: i < 9 ? String(i + 1) : "0",
+          title: text.length > 600 ? text.slice(0, 600) + "…" : text,
+          run: () => this.pasteClip(text),
+        }),
+      );
+    }
+    if (this.activeDoc()) {
+      items.push({ label: "", sep: true });
+      items.push({ label: t("cmd.renameSymbol"), hint: "F2", run: () => this.renameSymbol() });
+    }
+    contextMenu(x, y, items);
+  }
+
+  private pasteClip(text: string) {
+    if (!this.activeDoc()) return;
+    this.editor.replaceSelection(text);
+    this.editor.focus();
+  }
+
+  /** Ctrl+Shift+V：コピー履歴から選んで貼り付ける */
+  private async pasteFromHistory() {
+    const clips = clipHistory();
+    if (!clips.length) {
+      toast(settings.get("clip.history") ? t("clip.empty") : t("clip.off"), "info");
+      return;
+    }
+    const pick = await quickPick(
+      clips.map((text, i) => ({ label: clipLabel(text, 70), detail: i === 0 ? t("clip.latest") : t("clip.nth", { n: String(i + 1) }), value: text })),
+      t("clip.pick"),
+    );
+    if (pick !== undefined) this.pasteClip(pick);
+  }
+
   /** タブの右クリック：左右に並べる・元に戻す */
   private tabMenu(id: string, x: number, y: number) {
     const split = this.editor.isSplit();
@@ -1728,6 +1813,7 @@ export class App {
           c("edit.cut"),
           c("edit.copy"),
           c("edit.paste"),
+          c("edit.pasteHistory"),
           c("edit.selectAll"),
           sep,
           c("edit.find"),
@@ -1981,7 +2067,7 @@ export class App {
     reg("file.close", "cmd.closeTab", () => this.closeDoc(), "Mod-W");
     reg("file.quickOpen", "cmd.quickOpen", () => this.quickOpen(), "Mod-P");
     reg("view.commandPalette", "cmd.commandPalette", () => openCommandPalette(), "Mod-Shift-P", true);
-    reg("view.toggleSidebar", "cmd.toggleSidebar", () => this.el.classList.toggle("sidebar-hidden"), "Mod-B");
+    reg("view.toggleSidebar", "cmd.toggleSidebar", () => this.collapseSidebar(!this.el.classList.contains("sidebar-hidden")), "Mod-B");
     reg("view.explorer", "cmd.showExplorer", () => this.showView("explorer"), "Mod-Shift-E");
     reg("view.extensions", "cmd.showExtensions", () => this.showView("extensions"), "Mod-Shift-X");
     reg("view.settings", "cmd.showSettings", () => settingsPage.toggle(), "Mod-,", true);
@@ -2124,6 +2210,7 @@ export class App {
     reg("view.splitLeft", "cmd.splitLeft", () => this.splitTab(this.activeId, "left"));
     reg("view.splitBack", "cmd.splitBack", () => this.splitTab(this.activeId, "back"));
     reg("view.unsplit", "cmd.unsplit", () => this.unsplit());
+    reg("edit.pasteHistory", "cmd.pasteHistory", () => this.pasteFromHistory(), "Mod-Shift-H");
     reg("settings.export", "cmd.settingsExport", () => exportSettings());
     reg("settings.import", "cmd.settingsImport", () => importSettings());
     reg("edit.renameSymbol", "cmd.renameSymbol", () => this.renameSymbol(), "F2");

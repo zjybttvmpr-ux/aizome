@@ -305,6 +305,8 @@ function sections(): Section[] {
         row(t("feat.editor_valueHover"), toggle("editor.valueHover"), undefined, true),
         row(t("feat.gotoDefinition"), toggle("editor.gotoDefinition"), t("feat.gotoDefinition.help"), true),
         row(t("feat.indentFollow"), toggle("editor.indentFollow"), t("feat.indentFollow.help"), true),
+        row(t("feat.clipHistory"), toggle("clip.history"), t("feat.clipHistory.help"), true),
+        row(t("feat.sideAuto"), toggle("ui.sidebarAutoCollapse"), t("feat.sideAuto.help"), true),
         row(t("feat.liveCheck"), toggle("editor.liveCheck"), t("feat.liveCheck.help"), true),
         row(t("feat.importHelp"), toggle("editor.importHelp"), t("feat.importHelp.help"), true),
         row(t("feat.hoverDelay"), range("editor.hoverDelay", 0, 1500, 50, (v) => t("feat.hoverDelay.value", { s: (v / 1000).toFixed(2) })), t("feat.hoverDelay.help")),

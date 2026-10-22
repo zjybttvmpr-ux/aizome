@@ -721,6 +721,18 @@ const ja: Dict = {
   "split.inLeft": "左がわに出ています",
   "split.badgeRight": "右",
   "split.badgeLeft": "左",
+  "side.collapse": "折りたたむ（{key}）",
+  "feat.sideAuto": "細くしすぎたら自動で折りたたむ",
+  "feat.sideAuto.help": "左のエクスプローラーの境目をドラッグして細くしすぎると、自動で折りたたみます。境目をもう一度右へ引っぱると開きます。",
+  "feat.clipHistory": "コピー履歴",
+  "feat.clipHistory.help": "最近コピーした 10 個を覚えておき、エディタの右クリックや Ctrl+Shift+H から選んで貼り付けられます。あいぞめの外（ブラウザなど）でコピーしたものも入ります。",
+  "clip.title": "コピー履歴（{key}）",
+  "clip.empty": "まだありません（コピーするとここに増えます）",
+  "clip.off": "コピー履歴は設定で止まっています",
+  "clip.latest": "いちばん新しい",
+  "clip.nth": "{n} 個前",
+  "clip.pick": "貼り付けるものを選んでください",
+  "cmd.pasteHistory": "コピー履歴から貼り付ける",
 };
 
 const en: Dict = {
@@ -1423,6 +1435,18 @@ const en: Dict = {
   "split.inLeft": "Shown on the left",
   "split.badgeRight": "R",
   "split.badgeLeft": "L",
+  "side.collapse": "Collapse ({key})",
+  "feat.sideAuto": "Auto-collapse when made too narrow",
+  "feat.sideAuto.help": "Dragging the sidebar edge too far left collapses it. Drag the edge right again to reopen.",
+  "feat.clipHistory": "Clipboard history",
+  "feat.clipHistory.help": "Remembers the last 10 copies (including outside Aizome). Paste one from the editor's right-click menu or Ctrl+Shift+H.",
+  "clip.title": "Clipboard history ({key})",
+  "clip.empty": "Nothing yet (copied text appears here)",
+  "clip.off": "Clipboard history is turned off in settings",
+  "clip.latest": "Latest",
+  "clip.nth": "{n} ago",
+  "clip.pick": "Choose what to paste",
+  "cmd.pasteHistory": "Paste from clipboard history",
 };
 
 const dicts: Record<string, Dict> = { ja, en };
