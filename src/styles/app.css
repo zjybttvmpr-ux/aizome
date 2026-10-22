@@ -2640,3 +2640,57 @@ html.has-bg .settings-page {
     grid-template-columns: 1fr;
   }
 }
+
+/* ───────── アップデート */
+
+.update-item {
+  color: var(--accent) !important;
+  font-weight: 600;
+}
+
+.update-notes {
+  max-height: 34vh;
+  overflow: auto;
+  margin: 10px 0 0;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  font-size: 13px;
+  line-height: 1.65;
+}
+
+.update-notes > :first-child {
+  margin-top: 0;
+}
+
+.update-progress {
+  margin-top: 14px;
+}
+
+.update-bar {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--surface-hover);
+  overflow: hidden;
+}
+
+.update-bar-fill {
+  width: 0;
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.2s ease;
+}
+
+.update-progress-text {
+  display: block;
+  margin-top: 6px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+  filter: none;
+}

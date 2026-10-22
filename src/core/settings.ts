@@ -39,6 +39,8 @@ export interface Settings {
   "editor.restoreTabs": boolean;
   "editor.lineNumbers": boolean;
   "build.keepComments": boolean;
+  "update.autoCheck": boolean;
+  "update.skipVersion": string;
 }
 
 export const defaults: Settings = {
@@ -80,6 +82,8 @@ export const defaults: Settings = {
   "editor.restoreTabs": true,
   "editor.lineNumbers": true,
   "build.keepComments": true,
+  "update.autoCheck": true,
+  "update.skipVersion": "",
 };
 
 const STORAGE_KEY = "aizome.settings.v1";

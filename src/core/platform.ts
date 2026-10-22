@@ -179,6 +179,23 @@ export const ext = {
   uninstall: (id: string) => invoke<void>("ext_uninstall", { id }),
 };
 
+export interface UpdateInfo {
+  current: string;
+  latest: string | null;
+  available: boolean;
+  manualOnly: boolean;
+  notes: string | null;
+  downloadUrl: string | null;
+  pageUrl: string;
+}
+
+export const updater = {
+  check: () => invoke<UpdateInfo>("update_check"),
+  install: (url: string) => invoke<void>("update_install", { url }),
+  onProgress: (cb: (p: { received: number; total: number }) => void) =>
+    listen<{ received: number; total: number }>("update:progress", (e) => cb(e.payload)),
+};
+
 export const sys = {
   info: () => invoke<SysInfo>("sys_info"),
   print: () => invoke<void>("print_page"),

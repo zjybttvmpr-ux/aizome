@@ -14,6 +14,8 @@ import { FileTree } from "./ui/fileTree";
 import { createExtensionsView } from "./ui/extensionsView";
 import { settingsPage } from "./ui/settingsPage";
 import { describeAiError, ensureLocalAi } from "./ai/localAi";
+import { checkForUpdates, openUpdateDialog, startUpdateChecks, type UpdateDeps } from "./ui/updates";
+import type { UpdateInfo } from "./core/platform";
 import { applyTheme, listThemes } from "./ui/themes";
 import { choose, inputBox } from "./ui/dialog";
 import { toast } from "./ui/toast";
@@ -76,6 +78,14 @@ export class App {
   private gitBranch: string | null = null;
   private gitChanges = 0;
   private restoring = false;
+  private update: UpdateInfo | null = null;
+  private updateDeps: UpdateDeps = {
+    confirmQuit: () => this.confirmQuit(),
+    onAvailable: (info) => {
+      this.update = info;
+      this.renderStatus();
+    },
+  };
   private searchView: SearchView;
   private chatView: AiChatView;
 
@@ -144,6 +154,9 @@ export class App {
         void ensureLocalAi({ quiet: true });
       }
     });
+
+    // 新しい版がないか、ときどき調べる
+    startUpdateChecks(this.updateDeps);
 
     // 閉じる前に未保存の確認
     appWindow.onCloseRequested(() => this.confirmQuit()).catch(() => {});
@@ -818,6 +831,12 @@ export class App {
         h("button", { class: "status-item git-item", title: t("status.gitTitle"), onclick: () => void this.refreshGit() }, h("span", { class: "git-icon", "aria-hidden": "true" }), label),
       );
     }
+    if (this.update) {
+      const info = this.update;
+      this.statusLeft.append(
+        h("button", { class: "status-item update-item", title: t("update.title", { version: info.latest ?? "" }), onclick: () => void openUpdateDialog(this.updateDeps, info) }, t("update.status", { version: info.latest ?? "" })),
+      );
+    }
     if (doc?.dirty) this.statusLeft.append(h("span", { class: "status-item dirty-note" }, t("status.unsaved")));
     for (const [, v] of this.statusItems) this.statusLeft.append(item(v.text, v.tooltip));
 
@@ -1004,7 +1023,7 @@ export class App {
       {
         type: "submenu",
         label: t("menu.help"),
-        items: () => [c("help.shortcuts"), c("view.commandPalette"), sep, c("ext.reload"), c("git.refresh"), sep, c("help.about")],
+        items: () => [c("help.shortcuts"), c("view.commandPalette"), sep, c("ext.reload"), c("git.refresh"), sep, c("app.checkUpdates"), c("help.about")],
       },
     ];
   }
@@ -1199,6 +1218,7 @@ export class App {
     reg("ai.detect", "cmd.aiDetect", () => ensureLocalAi());
     reg("help.shortcuts", "help.shortcuts", () => this.showShortcuts(), "Mod-K");
     reg("help.about", "help.about", () => this.showAbout());
+    reg("app.checkUpdates", "cmd.checkUpdates", () => checkForUpdates(this.updateDeps, true));
     reg("view.menu", "menu.open", () => this.menuButton.click(), "Alt-F", true);
     reg("theme.select", "cmd.selectTheme", async () => {
       const id = await quickPick(

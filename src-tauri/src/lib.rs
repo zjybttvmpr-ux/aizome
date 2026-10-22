@@ -5,6 +5,7 @@ mod git;
 mod local_ai;
 mod pty;
 mod search;
+mod updater;
 
 use serde::Serialize;
 use tauri::Manager;
@@ -83,6 +84,8 @@ pub fn run() {
             local_ai::ai_autodetect,
             local_ai::ai_use_models_dir,
             local_ai::ai_import_gguf,
+            updater::update_check,
+            updater::update_install,
             extensions::ext_dir,
             extensions::ext_list,
             extensions::ext_install,

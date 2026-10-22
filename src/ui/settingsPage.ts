@@ -331,7 +331,8 @@ function sections(): Section[] {
         const version = h("span", {}, "…");
         sys.appInfo().then((i) => (version.textContent = i.version)).catch(() => (version.textContent = "—"));
         return [
-          row(t("set.version"), version),
+          row(t("set.version"), h("div", { class: "field-row" }, version, button(t("cmd.checkUpdates"), () => commands.execute("app.checkUpdates"), "primary"))),
+          row(t("set.autoUpdate"), toggle("update.autoCheck"), t("set.autoUpdateHelp"), true),
           row(t("help.shortcuts"), button(t("set.showShortcuts"), () => commands.execute("help.shortcuts"))),
           row(t("set.downloadPage"), h("code", { class: "set-code" }, "https://zjybttvmpr-ux.github.io/aizome/"), t("set.downloadHelp")),
           row(t("set.reset"), button(t("set.resetButton"), async () => {
