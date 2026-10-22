@@ -24,6 +24,7 @@ import { docFilename, ghostText, triggerCompletion } from "./ghost";
 import { buildLens } from "./buildLens";
 import { lineExplanations } from "./explain";
 import { smartCompletion } from "./smartComplete";
+import { zenkakuMarks } from "./zenkaku";
 import { settings } from "../core/settings";
 import { filenameForLanguage } from "../core/languages";
 import type { EditorAction, EditorHost } from "./types";
@@ -92,6 +93,7 @@ class CodeMirrorHost implements EditorHost {
       buildLens(),
       lineExplanations(),
       smartCompletion(),
+      zenkakuMarks(),
       languageSlot.of([]),
       configSlot.of(configExtensions()),
     ];
@@ -195,6 +197,21 @@ class CodeMirrorHost implements EditorHost {
       const entry = this.docs.get(id);
       if (entry) entry.state = entry.state.update(apply(entry.state)).state;
     }
+  }
+
+  applyText(text: string) {
+    if (!this.view || !this.activeId) return;
+    const old = this.view.state.doc.toString();
+    if (old === text) return;
+    let start = 0;
+    while (start < old.length && start < text.length && old[start] === text[start]) start++;
+    let endOld = old.length;
+    let endNew = text.length;
+    while (endOld > start && endNew > start && old[endOld - 1] === text[endNew - 1]) {
+      endOld--;
+      endNew--;
+    }
+    this.view.dispatch({ changes: { from: start, to: endOld, insert: text.slice(start, endNew) }, userEvent: "input.replace" });
   }
 
   getSelection() {

@@ -7,7 +7,7 @@ const ja: Dict = {
   "common.cancel": "キャンセル",
   "common.ok": "OK",
 
-  "top.search": "ファイルやコマンドを検索",
+  "top.search": "ファイル・コマンドを検索　/ で便利機能",
   "top.run": "実行",
   "activity.label": "表示の切り替え",
 
@@ -44,7 +44,7 @@ const ja: Dict = {
   "theme.light": "ライト",
 
   "palette.commands": "コマンドを入力",
-  "palette.files": "ファイル名で探す（> でコマンド）",
+  "palette.files": "ファイル名で探す（/ で便利機能、/help で使い方、> でコマンド）",
   "palette.empty": "一致するものがありません",
 
   "tabs.close": "閉じる",
@@ -446,12 +446,26 @@ const ja: Dict = {
   "set.listKeyHelp": "一覧が出ているときに Tab を押すと、選んでいる項目をそのまま入力します。一覧が出ていても AI の候補を確定したいときは Alt+Enter。",
   "complete.hintTab": "Tab で入力　↑↓ で選ぶ　Alt+Enter で AI の候補　Esc で閉じる",
   "complete.hintEnter": "Enter で入力　↑↓ で選ぶ　Esc で閉じる",
+  "slash.placeholder": "便利機能を探す（例：/日付、/計算 1+2、/エラー、/help）",
+  "slash.hintAll": "/ 便利機能の一覧",
+  "slash.hintAllDetail": "/ を打つと、保存・日付・計算・エラー解説などをすぐ呼び出せます",
+  "slash.hintHelp": "使い方とヘルプ",
+  "cmd.help": "使い方とヘルプ",
+  "cmd.slash": "/ 便利機能の一覧",
+  "cmd.explainError": "エラーを日本語で解説",
+  "terminal.explainError": "エラーを日本語で解説",
+  "zenkaku.title": "全角の「{c}」です。半角の「{han}」のつもりなら、/半角 でまとめて直せます",
+  "zenkaku.spaceTitle": "全角スペースです。コードの中ではエラーになります（/半角 で直せます）",
+  "set.zenkaku": "全角スペース・全角記号に印を付ける",
+  "set.zenkakuHelp": "コードの中（文字列とコメント以外）の全角の（）：＝ や全角スペースに赤い印を付けます。文章のファイルでは全角スペースだけ薄く示します。",
+  "status.selection": "{n} 文字選択（{lines} 行）",
+  "status.selectionTitle": "クリックで詳しい文字数",
 };
 
 const en: Dict = {
   "common.cancel": "Cancel",
   "common.ok": "OK",
-  "top.search": "Search files and commands",
+  "top.search": "Search files and commands   / for tools",
   "top.run": "Run",
   "activity.label": "Switch view",
   "view.explorer": "Explorer",
@@ -482,7 +496,7 @@ const en: Dict = {
   "theme.dark": "Dark",
   "theme.light": "Light",
   "palette.commands": "Type a command",
-  "palette.files": "Find a file by name (> for commands)",
+  "palette.files": "Find a file by name (/ for tools, /help for help, > for commands)",
   "palette.empty": "No matches",
   "tabs.close": "Close",
   "tree.newFile": "New file",
@@ -873,6 +887,20 @@ const en: Dict = {
   "set.listKeyHelp": "While the list is open, Tab inserts the selected item. Use Alt+Enter to accept the AI suggestion even when the list is open.",
   "complete.hintTab": "Tab insert  ↑↓ select  Alt+Enter AI suggestion  Esc close",
   "complete.hintEnter": "Enter insert  ↑↓ select  Esc close",
+  "slash.placeholder": "Find a tool (e.g. /date, /calc 1+2, /error, /help)",
+  "slash.hintAll": "/ Quick tools",
+  "slash.hintAllDetail": "Type / to call save, date, calculator, error explanation and more",
+  "slash.hintHelp": "Help and how to use",
+  "cmd.help": "Help and how to use",
+  "cmd.slash": "/ Quick tools",
+  "cmd.explainError": "Explain the error",
+  "terminal.explainError": "Explain the error",
+  "zenkaku.title": "Full-width \"{c}\". If you meant \"{han}\", use /hankaku to fix them all",
+  "zenkaku.spaceTitle": "Full-width space. It causes errors in code (fix with /hankaku)",
+  "set.zenkaku": "Mark full-width spaces and symbols",
+  "set.zenkakuHelp": "Marks full-width （）：＝ and spaces in code (outside strings and comments). In prose files, only full-width spaces are shown faintly.",
+  "status.selection": "{n} chars selected ({lines} lines)",
+  "status.selectionTitle": "Click for details",
 };
 
 const dicts: Record<string, Dict> = { ja, en };

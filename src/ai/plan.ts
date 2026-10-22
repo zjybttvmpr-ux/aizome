@@ -108,6 +108,12 @@ const NAMED: Record<string, [string, string, string]> = {
   ".bashrc": ["Bash", "#", ""], ".zshrc": ["Zsh", "#", ""], ".gitignore": ["gitignore", "#", ""], ".env": ["dotenv", "#", ""],
 };
 
+/** ファイル名に合ったコメントの書き方 [始まり, 終わり]（コメントを書けない形式なら null） */
+export function commentSyntax(filename: string): [string, string] | null {
+  const info = langInfo(filename);
+  return info ? [info[1], info[2]] : null;
+}
+
 /** ファイル名から言語名を調べる（わからなければ空） */
 export function languageOf(filename: string): string {
   return langInfo(filename)?.[0] ?? "";

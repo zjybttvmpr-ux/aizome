@@ -10,6 +10,8 @@ export interface TermView {
   fit(): void;
   focus(): void;
   clear(): void;
+  /** 画面に出ている文字の最後の何行か（エラーの説明などに使う） */
+  recentText(maxLines?: number): string;
   applyTheme(): void;
   setFontSize(px: number): void;
   dispose(): void;

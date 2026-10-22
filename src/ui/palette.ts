@@ -4,6 +4,7 @@ import { t } from "../core/i18n";
 import { commands, formatKey } from "../core/commands";
 import { basename, relative } from "../core/paths";
 import { icon } from "./icons";
+import { openSlashPalette } from "./slash";
 
 export interface PickItem<T = unknown> {
   label: string;
@@ -157,11 +158,28 @@ export function openCommandPalette(initial = "") {
     return rank(query, items, (i) => `${i.label} ${i.value.replace(/[._]/g, " ")}`);
   };
   return palette
-    .open<string>({ placeholder: t("palette.commands"), items: run }, initial || ">")
+    .open<string>(
+      {
+        placeholder: t("palette.commands"),
+        items: run,
+        onQueryPrefix: (q) => {
+          if (/^[/／]/.test(q)) {
+            palette.close();
+            void openSlashPalette(q, (back) => void openCommandPalette(back || ">"));
+            return true;
+          }
+          return false;
+        },
+      },
+      initial || ">",
+    )
     .then((id) => (id ? commands.execute(id) : undefined));
 }
 
-export function openQuickOpen(files: () => string[], root: string, openFile: (p: string) => void) {
+const SLASH_HINT = "\u0000slash";
+const HELP_HINT = "\u0000help";
+
+export function openQuickOpen(files: () => string[], root: string, openFile: (p: string) => void, initial = ""): Promise<unknown> {
   return palette
     .open<string>(
       {
@@ -172,15 +190,32 @@ export function openQuickOpen(files: () => string[], root: string, openFile: (p:
             void openCommandPalette(q);
             return true;
           }
+          if (/^[/／]/.test(q)) {
+            palette.close();
+            void openSlashPalette(q, (back) => void openQuickOpen(files, root, openFile, back));
+            return true;
+          }
           return false;
         },
         items: (q) => {
           const all = files().map((p) => ({ label: basename(p), detail: relative(root, p), icon: "file", value: p }));
-          return rank(q, all, (i) => i.detail ?? i.label).slice(0, 200);
+          const found = rank(q, all, (i) => i.detail ?? i.label).slice(0, 200);
+          if (q) return found;
+          // 何も打っていないときは、便利機能とヘルプへの入り口を先頭に
+          return [
+            { label: t("slash.hintAll"), detail: t("slash.hintAllDetail"), icon: "wand", value: SLASH_HINT },
+            { label: t("slash.hintHelp"), detail: "/help", icon: "help", value: HELP_HINT },
+            ...found,
+          ];
         },
       },
+      initial,
     )
-    .then((p) => p && openFile(p));
+    .then((p) => {
+      if (p === SLASH_HINT) return openSlashPalette("/", (back) => void openQuickOpen(files, root, openFile, back));
+      if (p === HELP_HINT) return commands.execute("help.open");
+      if (p) openFile(p);
+    });
 }
 
 export function quickPick<T>(items: PickItem<T>[], placeholder: string): Promise<T | undefined> {

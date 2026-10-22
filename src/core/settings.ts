@@ -44,6 +44,7 @@ export interface Settings {
   "editor.explain": "off" | "rules" | "ai";
   "editor.suggestList": "smart" | "off";
   "editor.listKey": "tab" | "enter";
+  "editor.zenkaku": boolean;
   "update.skipVersion": string;
 }
 
@@ -91,6 +92,7 @@ export const defaults: Settings = {
   "editor.explain": "ai",
   "editor.suggestList": "smart",
   "editor.listKey": "tab",
+  "editor.zenkaku": true,
   "update.skipVersion": "",
 };
 

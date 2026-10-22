@@ -297,6 +297,7 @@ function sections(): Section[] {
           ]),
           t("set.listKeyHelp"),
         ),
+        row(t("set.zenkaku"), toggle("editor.zenkaku"), t("set.zenkakuHelp"), true),
         row(
           t("set.explain"),
           select("editor.explain", [

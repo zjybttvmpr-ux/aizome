@@ -19,6 +19,8 @@ interface Session {
 
 export interface TerminalDeps {
   cwd: () => string | undefined;
+  /** 「エラーを日本語で」ボタン */
+  explainError?: () => void;
   openLocation: (path: string, line: number, col: number) => void;
   onVisibilityChange: (visible: boolean) => void;
 }
@@ -46,6 +48,7 @@ export class TerminalPanel {
       { class: "panel-actions" },
       this.button("stop", t("terminal.interrupt"), () => this.interrupt()),
       this.button("refresh", t("terminal.rerun"), () => void this.rerun()),
+      this.button("alert", t("terminal.explainError"), () => this.deps.explainError?.()),
       h("span", { class: "panel-sep" }),
       plus,
       pick,
@@ -267,6 +270,12 @@ export class TerminalPanel {
       this.select(s);
     }
     if (s.ptyId !== null && s.alive) await pty.write(s.ptyId, command + "\r");
+  }
+
+  /** 実行用ターミナル（なければ表示中のもの）の最近の出力 */
+  recentOutput(maxLines = 300): string {
+    const s = this.sessions.find((x) => x.runner) ?? this.active;
+    return s ? s.view.recentText(maxLines) : "";
   }
 
   /** アクティブなターミナルに文字列を送る（拡張機能用） */

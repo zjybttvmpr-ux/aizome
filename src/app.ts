@@ -31,6 +31,11 @@ import { initAppearance, zoomBy } from "./ui/appearance";
 import { menu, type MenuItem } from "./ui/menu";
 import { buildFromJapanese } from "./ui/jpBuildDialog";
 import { sampleTemplate } from "./ai/jpBuild";
+import { explainError } from "./ai/errorExplain";
+import { helpPage } from "./ui/helpPage";
+import { listSlash, openSlashPalette } from "./ui/slash";
+import { registerBuiltinSlash, showErrorExplanation } from "./ui/slashCommands";
+import { countChars } from "./core/jpText";
 
 interface Doc {
   id: string;
@@ -104,6 +109,7 @@ export class App {
       cwd: () => this.root ?? undefined,
       openLocation: (p, l, c) => void this.openLocation(p, l, c),
       onVisibilityChange: (v) => this.el.classList.toggle("panel-open", v),
+      explainError: () => void this.explainLastError(),
     });
     this.extensions = new ExtensionHost({
       editor: this.editor,
@@ -124,6 +130,7 @@ export class App {
   async start() {
     this.build();
     this.registerCommands();
+    this.registerSlashCommands();
     installKeybindings();
     this.bindEvents();
 
@@ -332,6 +339,8 @@ export class App {
       h(
         "div",
         { class: "top-actions" },
+        button("wand", t("cmd.slash"), () => void openSlashPalette("/", () => this.quickOpen()), "top-tool"),
+        button("help", `${t("cmd.help")} (F1)`, () => helpPage.open(), "top-tool"),
         this.aiPill,
         h(
           "button",
@@ -559,11 +568,8 @@ export class App {
   }
 
   private quickOpen() {
-    if (!this.root) {
-      void openCommandPalette();
-      return;
-    }
-    void openQuickOpen(() => this.fileIndex, this.root, (p) => void this.openFile(p));
+    // フォルダを開いていなくても、/ の便利機能とヘルプは使える
+    void openQuickOpen(() => (this.root ? this.fileIndex : []), this.root ?? "", (p) => void this.openFile(p));
   }
 
   private activeDoc(): Doc | undefined {
@@ -943,6 +949,11 @@ export class App {
 
     if (doc) {
       const pos = this.editor.cursor();
+      const sel = this.editor.getSelection();
+      if (sel) {
+        const c = countChars(sel);
+        this.statusRight.append(item(t("status.selection", { n: c.chars.toLocaleString(), lines: String(c.lines) }), t("status.selectionTitle"), () => void openSlashPalette("/count").catch(() => {})));
+      }
       this.statusRight.append(
         item(t("status.position", { line: String(pos.line), col: String(pos.col) }), undefined, () => void this.goToLine()),
         item(t("status.spaces", { n: String(settings.get("editor.tabSize")) })),
@@ -1125,7 +1136,7 @@ export class App {
       {
         type: "submenu",
         label: t("menu.help"),
-        items: () => [c("help.shortcuts"), c("view.commandPalette"), sep, c("ext.reload"), c("git.refresh"), sep, c("app.checkUpdates"), c("help.about")],
+        items: () => [c("help.open"), c("help.slash"), c("help.shortcuts"), c("view.commandPalette"), sep, c("ext.reload"), c("git.refresh"), sep, c("app.checkUpdates"), c("help.about")],
       },
     ];
   }
@@ -1194,6 +1205,49 @@ export class App {
 
   // ───────────── コマンド
 
+  /** ターミナルに出た最後のエラーを日本語で説明する */
+  private async explainLastError() {
+    const recent = this.terminal.recentOutput(400);
+    await showErrorExplanation(explainError(recent, this.sys.os), {
+      recent,
+      goTo: (file, line) => void this.openLocation(file, line, 1),
+      run: (cmd) => void this.terminal.run(cmd),
+      askAi: (q) => {
+        this.showView("ai");
+        this.chatView.ask(q);
+      },
+    });
+  }
+
+  private registerSlashCommands() {
+    registerBuiltinSlash({
+      editor: this.editor,
+      os: () => this.sys.os,
+      activeName: () => this.activeDoc()?.path ?? this.activeDoc()?.name ?? null,
+      hasDoc: () => !!this.activeDoc(),
+      showView: (v) => this.showView(v),
+      searchFor: (text) => {
+        this.showView("search");
+        this.searchView.focus(text || undefined);
+      },
+      askAi: (q) => {
+        this.showView("ai");
+        this.chatView.ask(q);
+      },
+      runInTerminal: (cmd) => void this.terminal.run(cmd),
+      explainError: () => void this.explainLastError(),
+      openSettings: (section) => settingsPage.open(section),
+      openHelp: (section) => helpPage.open(section),
+    });
+    // ヘルプの中の「/〜」をクリックしたとき
+    helpPage.runSlash = (name) => {
+      const c = listSlash().find((x) => x.name === name);
+      if (!c) return;
+      if (c.argHint || c.expand) void openSlashPalette(`/${c.name}${c.argHint ? " " : ""}`);
+      else void c.run?.("");
+    };
+  }
+
   private registerCommands() {
     const reg = (id: string, titleKey: string, run: () => unknown, key?: string, inTerminal = false) =>
       commands.register({ id, title: () => t(titleKey), key, inTerminal, source: "core", run });
@@ -1205,7 +1259,6 @@ export class App {
     reg("file.close", "cmd.closeTab", () => this.closeDoc(), "Mod-W");
     reg("file.quickOpen", "cmd.quickOpen", () => this.quickOpen(), "Mod-P");
     reg("view.commandPalette", "cmd.commandPalette", () => openCommandPalette(), "Mod-Shift-P", true);
-    commands.register({ id: "view.commandPaletteF1", title: () => t("cmd.commandPalette"), key: "F1", inTerminal: true, hidden: true, run: () => openCommandPalette() });
     reg("view.toggleSidebar", "cmd.toggleSidebar", () => this.el.classList.toggle("sidebar-hidden"), "Mod-B");
     reg("view.explorer", "cmd.showExplorer", () => this.showView("explorer"), "Mod-Shift-E");
     reg("view.extensions", "cmd.showExtensions", () => this.showView("extensions"), "Mod-Shift-X");
@@ -1323,6 +1376,9 @@ export class App {
     reg("app.quit", "cmd.quit", () => appWindow.close(), "Mod-Q", true);
     reg("ai.settings", "cmd.aiSettings", () => settingsPage.open("ai"));
     reg("ai.detect", "cmd.aiDetect", () => ensureLocalAi());
+    reg("help.open", "cmd.help", () => helpPage.open(), "F1", true);
+    reg("help.slash", "cmd.slash", () => openSlashPalette("/"));
+    reg("terminal.explainError", "cmd.explainError", () => this.explainLastError());
     reg("help.shortcuts", "help.shortcuts", () => this.showShortcuts(), "Mod-K");
     reg("help.about", "help.about", () => this.showAbout());
     reg("app.checkUpdates", "cmd.checkUpdates", () => checkForUpdates(this.updateDeps, true));

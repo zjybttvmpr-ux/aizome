@@ -30,6 +30,8 @@ export interface EditorHost {
   getText(id?: string): string;
   /** 中身をまるごと置き換える（カーソル位置はできるだけ保つ） */
   setText(id: string, text: string): void;
+  /** 表示中のファイルの中身を書き換える（変わった部分だけ置き換えるので、カーソルや元に戻すが自然） */
+  applyText(text: string): void;
   getSelection(): string;
   replaceSelection(text: string): void;
   insertText(text: string): void;

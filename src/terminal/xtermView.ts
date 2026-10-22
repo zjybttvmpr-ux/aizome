@@ -113,6 +113,19 @@ export function createTermView(opts: { fontSize: number }): TermView {
     },
     focus: () => term.focus(),
     clear: () => term.clear(),
+    recentText: (maxLines = 300) => {
+      const buf = term.buffer.active;
+      const end = buf.baseY + buf.cursorY;
+      const out: string[] = [];
+      for (let i = Math.max(0, end - maxLines); i <= end; i++) {
+        const line = buf.getLine(i);
+        if (!line) continue;
+        // 折り返された行はつなげる
+        if (line.isWrapped && out.length) out[out.length - 1] += line.translateToString(true);
+        else out.push(line.translateToString(true));
+      }
+      return out.join("\n");
+    },
     applyTheme: () => {
       term.options.theme = themeFromCss();
     },
