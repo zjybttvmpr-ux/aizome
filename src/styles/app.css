@@ -3918,3 +3918,15 @@ body.resizing-x * {
 .app.zen .menubar {
   display: none;
 }
+
+/* 上の ↺ ↻ */
+.history-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+.top-sep {
+  width: 1px;
+  height: 18px;
+  margin: 0 4px;
+  background: var(--border);
+}

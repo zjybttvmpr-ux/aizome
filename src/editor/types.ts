@@ -36,6 +36,8 @@ export interface EditorHost {
   applyText(text: string): void;
   /** 書き出し・印刷用：行ごとに、色の種類（k・s・c・n・f・t・v・m、なしは ""）つきの文字 */
   highlightLines(id: string): { text: string; cls: string }[][];
+  /** 今のファイルで、元に戻せる回数・やり直せる回数 */
+  historyDepth(): { undo: number; redo: number };
   getSelection(): string;
   replaceSelection(text: string): void;
   insertText(text: string): void;

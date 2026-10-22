@@ -101,6 +101,8 @@ export class App {
   private el!: HTMLElement;
   private tabsEl!: HTMLElement;
   private editorMount!: HTMLElement;
+  private undoBtn!: HTMLButtonElement;
+  private redoBtn!: HTMLButtonElement;
   private welcomeEl!: HTMLElement;
   private sidebarEl!: HTMLElement;
   private sidebarTitle!: HTMLElement;
@@ -447,6 +449,10 @@ export class App {
       if (key === "ui.language") renderBar();
     });
 
+    this.undoBtn = h("button", { class: "icon-btn top-tool history-btn", type: "button", html: icon("undo", 17), onclick: () => void this.historyStep("undo") }) as HTMLButtonElement;
+    this.redoBtn = h("button", { class: "icon-btn top-tool history-btn", type: "button", html: icon("redo", 17), onclick: () => void this.historyStep("redo") }) as HTMLButtonElement;
+    this.renderHistoryButtons();
+
     const topbar = h(
       "header",
       { class: "topbar" },
@@ -462,6 +468,9 @@ export class App {
       h(
         "div",
         { class: "top-actions" },
+        this.undoBtn,
+        this.redoBtn,
+        h("span", { class: "top-sep", "aria-hidden": "true" }),
         button("wand", t("cmd.slash"), () => void openSlashPalette("/", () => this.quickOpen()), "top-tool"),
         button("help", `${t("cmd.help")} (F1)`, () => helpPage.open(), "top-tool"),
         this.aiPill,
@@ -922,6 +931,7 @@ export class App {
   private activate(id: string) {
     this.activeId = id;
     this.editor.activate(id);
+    this.renderHistoryButtons();
     this.groups?.render();
     void this.history?.refresh();
     const doc = this.activeDoc();
@@ -1790,6 +1800,26 @@ export class App {
 
   // ───────────── タブ
 
+  /** 上の ↺ ↻：今のファイルを元に戻す／やり直す（Ctrl+Z・Ctrl+Y と同じ記録を使う） */
+  private async historyStep(kind: "undo" | "redo") {
+    if (!this.activeDoc()) return;
+    await this.editor.run(kind);
+    this.renderHistoryButtons();
+  }
+
+  private renderHistoryButtons() {
+    if (!this.undoBtn) return;
+    const d = this.activeDoc() ? this.editor.historyDepth() : { undo: 0, redo: 0 };
+    const set = (b: HTMLButtonElement, n: number, label: string, keys: string) => {
+      b.disabled = n === 0;
+      const text = `${label} (${keys})${n ? `　${t("history.steps", { n: String(n) })}` : ""}`;
+      b.title = text;
+      b.setAttribute("aria-label", text);
+    };
+    set(this.undoBtn, d.undo, t("cmd.undo"), formatKey("Mod-Z"));
+    set(this.redoBtn, d.redo, t("cmd.redo"), `${formatKey("Mod-Y")} / ${formatKey("Mod-Shift-Z")}`);
+  }
+
   /** エディタの右クリック：切り取り・コピー・貼り付けと、コピー履歴 */
   private editorMenu(x: number, y: number) {
     const act = (a: "cut" | "copy" | "paste" | "selectAll") => () => void this.editor.run(a);
@@ -2563,6 +2593,7 @@ export class App {
       requestAnimationFrame(() => {
         pending = false;
         this.renderStatus();
+        this.renderHistoryButtons();
         this.followStepCursor();
       });
     });

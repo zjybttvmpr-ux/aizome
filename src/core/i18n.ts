@@ -772,6 +772,7 @@ const ja: Dict = {
   "feat.checkTools": "実行の前にコンパイラを確かめる",
   "feat.checkTools.help": "Go・C/C++・Rust・C#・Java などを実行するとき、必要な道具（go・gcc・dotnet など）が入っているか確かめ、なければ入れ方を案内します。入れた直後で PATH に入っていなくても見つけて使います。",
   "drawer.more": "編集・表示・実行などは、上の「Aizome」の右に並んでいます（ここで検索すると全部探せます）",
+  "history.steps": "あと {n} 回",
 };
 
 const en: Dict = {
@@ -1525,6 +1526,7 @@ const en: Dict = {
   "feat.checkTools": "Check compilers before running",
   "feat.checkTools.help": "Before running Go, C/C++, Rust, C#, Java and others, checks that the needed tool is installed and offers to install it. Also finds tools installed after Aizome started.",
   "drawer.more": "Edit, View, Run and more are in the menu bar next to “Aizome” (search here to find everything)",
+  "history.steps": "{n} more",
 };
 
 const dicts: Record<string, Dict> = { ja, en };

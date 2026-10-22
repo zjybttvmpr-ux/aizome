@@ -4,6 +4,9 @@ import { Compartment, EditorState, type Extension } from "@codemirror/state";
 import { EditorView, keymap } from "@codemirror/view";
 import { indentUnit, LanguageDescription } from "@codemirror/language";
 import {
+  history,
+  redoDepth,
+  undoDepth,
   copyLineDown,
   deleteLine,
   indentLess,
@@ -92,6 +95,8 @@ class CodeMirrorHost implements EditorHost {
   private cur = 0;
   private root: HTMLElement | null = null;
   private docs = new Map<string, DocEntry>();
+  /** 閉じたタブの編集の記録（同じ中身で開き直したら、元に戻すが続けて使える） */
+  private closed = new Map<string, DocEntry>();
   private docPane = new Map<string, number>();
   private changeListeners: ((id: string) => void)[] = [];
   private cursorListeners: ((p: { line: number; col: number }) => void)[] = [];
@@ -319,6 +324,8 @@ class CodeMirrorHost implements EditorHost {
     return [
       nameSlot.of(docFilename.of(filename)),
       basicSetup,
+      // 元に戻せる回数をほぼ無制限に（保存しても、あいぞめを閉じるまでは戻せる）
+      history({ minDepth: 100000, newGroupDelay: 600 }),
       keymap.of([indentWithTab]),
       editorTheme,
       syntaxColors,
@@ -362,7 +369,12 @@ class CodeMirrorHost implements EditorHost {
   }
 
   async open(id: string, text: string, filename: string) {
-    if (!this.docs.has(id)) {
+    const kept = this.closed.get(id);
+    if (!this.docs.has(id) && kept && kept.state.doc.toString() === text && kept.filename === filename) {
+      this.closed.delete(id);
+      this.docs.set(id, kept);
+      this.docPane.set(id, this.isSplit() ? this.cur : 0);
+    } else if (!this.docs.has(id)) {
       const state = EditorState.create({ doc: text, extensions: this.extensions(filename) });
       this.docs.set(id, { state, filename, language: detect(filename)?.name ?? "Plain Text", scrollTop: 0 });
       this.docPane.set(id, this.isSplit() ? this.cur : 0);
@@ -387,6 +399,13 @@ class CodeMirrorHost implements EditorHost {
     const idx = this.docPane.get(id) ?? 0;
     this.docPane.delete(id);
     this.vacate(idx, id);
+    const entry = this.docs.get(id);
+    if (entry) {
+      this.closed.delete(id);
+      this.closed.set(id, entry);
+      // 古いものから忘れる（メモリを使いすぎないように）
+      while (this.closed.size > 30) this.closed.delete(this.closed.keys().next().value!);
+    }
     this.docs.delete(id);
     // 左が空になったら、右のファイルを左へ
     if (idx === 0 && !this.idsIn(0).length && this.idsIn(1).length) this.unsplit();
@@ -484,6 +503,12 @@ class CodeMirrorHost implements EditorHost {
     });
     if (pos < doc.length) push(doc.sliceString(pos), "");
     return lines;
+  }
+
+  historyDepth() {
+    const view = this.view;
+    if (!view || !this.activeId) return { undo: 0, redo: 0 };
+    return { undo: undoDepth(view.state), redo: redoDepth(view.state) };
   }
 
   getSelection() {
