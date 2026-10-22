@@ -281,6 +281,15 @@ function sections(): Section[] {
           ]),
           t("set.suggestFontHelp"),
         ),
+        row(
+          t("set.explain"),
+          select("editor.explain", [
+            { value: "ai", label: t("set.explain.ai") },
+            { value: "rules", label: t("set.explain.rules") },
+            { value: "off", label: t("set.explain.off") },
+          ]),
+          t("set.explainHelp"),
+        ),
         row(t("settings.tabSize"), number("editor.tabSize", 1, 8)),
         row(t("settings.wordWrap"), toggle("editor.wordWrap"), undefined, true),
         row(t("settings.lineNumbers"), toggle("editor.lineNumbers"), undefined, true),

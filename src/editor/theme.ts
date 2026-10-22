@@ -52,6 +52,18 @@ export const editorTheme = EditorView.theme({
   ".cm-tooltip-autocomplete > ul": {
     fontFamily: "var(--font-suggest)",
   },
+  ".cm-explain": {
+    fontFamily: "var(--font-suggest)",
+    color: "var(--ghost)",
+    opacity: "0.75",
+    fontSize: "0.88em",
+    marginLeft: "2.5em",
+    whiteSpace: "pre",
+    pointerEvents: "none",
+    userSelect: "none",
+  },
+  ".cm-explain::before": { content: '"← "', opacity: "0.6" },
+  ".cm-explain.ai::after": { content: '" ✦"', opacity: "0.5", fontSize: "0.85em" },
   ".cm-ghost": {
     fontFamily: "var(--font-suggest)",
     color: "var(--ghost)",

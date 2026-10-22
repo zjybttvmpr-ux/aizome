@@ -166,6 +166,11 @@ function schedule(view: EditorView, delay = completer.recommendedDelay()) {
   timer = window.setTimeout(() => requestCompletion(view), delay);
 }
 
+/** AI の候補を表示している位置（なければ null） */
+export function ghostPos(state: import("@codemirror/state").EditorState): number | null {
+  return state.field(ghostField, false)?.pos ?? null;
+}
+
 export function triggerCompletion(view: EditorView) {
   schedule(view, 0);
 }

@@ -421,6 +421,14 @@ const ja: Dict = {
   "set.suggestFont.bizud": "BIZ UD ゴシック",
   "set.suggestFont.code": "コードと同じ字",
   "set.suggestFontHelp": "AI の薄い候補と、補完の一覧に使う字です。PC に入っていない字は、コードと同じ字で表示します。",
+  "set.explain": "行ごとの説明",
+  "set.explain.ai": "表示する（ルール＋AI）",
+  "set.explain.rules": "表示する（ルールのみ・AIを使わない）",
+  "set.explain.off": "表示しない",
+  "set.explainHelp": "各行の右に「この行が何をするか」を薄く表示します。よくある書き方はすぐに、ほかの行は手を止めたときに AI が説明します（✦ 印）。",
+  "cmd.toggleExplain": "行ごとの説明を表示／非表示",
+  "explain.onToast": "行ごとの説明を表示します",
+  "explain.offToast": "行ごとの説明を隠しました",
 };
 
 const en: Dict = {
@@ -823,6 +831,14 @@ const en: Dict = {
   "set.suggestFont.bizud": "BIZ UDGothic",
   "set.suggestFont.code": "Same as code",
   "set.suggestFontHelp": "Font for faint AI suggestions and the completion list. Falls back to the code font if it isn't installed.",
+  "set.explain": "Line explanations",
+  "set.explain.ai": "Show (rules + AI)",
+  "set.explain.rules": "Show (rules only, no AI)",
+  "set.explain.off": "Hide",
+  "set.explainHelp": "Shows a faint note to the right of each line describing what it does. Common patterns are instant; other lines are explained by AI when you pause (marked ✦).",
+  "cmd.toggleExplain": "Toggle line explanations",
+  "explain.onToast": "Line explanations on",
+  "explain.offToast": "Line explanations hidden",
 };
 
 const dicts: Record<string, Dict> = { ja, en };

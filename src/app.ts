@@ -1039,6 +1039,7 @@ export class App {
           c("terminal.toggle", () => this.terminal.isVisible),
           c("view.markdownPreview", () => this.previewOn),
           c("view.zen", () => this.el.classList.contains("zen")),
+          c("editor.toggleExplain", () => settings.get("editor.explain") !== "off"),
           c("view.fullscreen"),
           sep,
           c("view.zoomIn"),
@@ -1186,6 +1187,11 @@ export class App {
     reg("ai.comment", "cmd.aiComment", () => aiRewrite(this.editor, t("rewrite.presetComment")));
     reg("ai.fix", "cmd.aiFix", () => aiRewrite(this.editor, t("rewrite.presetFix")));
     reg("view.markdownPreview", "cmd.markdownPreview", () => this.togglePreview(), "Mod-Shift-V");
+    reg("editor.toggleExplain", "cmd.toggleExplain", () => {
+      const next = settings.get("editor.explain") === "off" ? "ai" : "off";
+      settings.set("editor.explain", next);
+      toast(t(next === "off" ? "explain.offToast" : "explain.onToast"), "info");
+    }, "Mod-Alt-E", true);
     reg("view.zen", "cmd.zen", () => this.toggleZen(), "Mod-Alt-Z", true);
     reg("view.fullscreen", "cmd.fullscreen", async () => appWindow.setFullscreen(!(await appWindow.isFullscreen())), "F11", true);
     reg("view.zoomIn", "cmd.zoomIn", () => zoomBy(0.1), "Mod-=", true);

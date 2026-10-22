@@ -77,24 +77,58 @@ export function cutAtDedent(text: string, stopIndent: number | null, allowClosin
   return out.join("\n");
 }
 
-const COMMENT: Record<string, [string, string]> = {
-  ".py": ["#", ""], ".pyw": ["#", ""], ".rb": ["#", ""], ".sh": ["#", ""], ".bash": ["#", ""], ".zsh": ["#", ""],
-  ".ps1": ["#", ""], ".r": ["#", ""], ".pl": ["#", ""], ".yaml": ["#", ""], ".yml": ["#", ""], ".toml": ["#", ""],
-  ".js": ["//", ""], ".mjs": ["//", ""], ".cjs": ["//", ""], ".jsx": ["//", ""], ".ts": ["//", ""], ".tsx": ["//", ""],
-  ".c": ["//", ""], ".h": ["//", ""], ".cpp": ["//", ""], ".cc": ["//", ""], ".hpp": ["//", ""], ".java": ["//", ""],
-  ".kt": ["//", ""], ".kts": ["//", ""], ".cs": ["//", ""], ".go": ["//", ""], ".rs": ["//", ""], ".swift": ["//", ""],
-  ".dart": ["//", ""], ".php": ["//", ""], ".scss": ["//", ""],
-  ".lua": ["--", ""], ".sql": ["--", ""],
-  ".css": ["/*", " */"], ".html": ["<!--", " -->"], ".htm": ["<!--", " -->"], ".vue": ["<!--", " -->"], ".xml": ["<!--", " -->"],
+/** 拡張子 → [言語名, コメントの始まり, 終わり] */
+const LANGS: Record<string, [string, string, string]> = {
+  ".py": ["Python", "#", ""], ".pyw": ["Python", "#", ""], ".ipynb": ["Python", "#", ""],
+  ".rb": ["Ruby", "#", ""], ".sh": ["Bash", "#", ""], ".bash": ["Bash", "#", ""], ".zsh": ["Zsh", "#", ""], ".fish": ["Fish", "#", ""],
+  ".ps1": ["PowerShell", "#", ""], ".r": ["R", "#", ""], ".pl": ["Perl", "#", ""], ".jl": ["Julia", "#", ""],
+  ".ex": ["Elixir", "#", ""], ".exs": ["Elixir", "#", ""], ".nim": ["Nim", "#", ""], ".cr": ["Crystal", "#", ""],
+  ".yaml": ["YAML", "#", ""], ".yml": ["YAML", "#", ""], ".toml": ["TOML", "#", ""], ".ini": ["INI", ";", ""], ".cfg": ["INI", "#", ""],
+  ".tf": ["Terraform", "#", ""], ".mk": ["Makefile", "#", ""], ".cmake": ["CMake", "#", ""], ".dockerfile": ["Dockerfile", "#", ""],
+  ".js": ["JavaScript", "//", ""], ".mjs": ["JavaScript", "//", ""], ".cjs": ["JavaScript", "//", ""], ".jsx": ["JavaScript React", "//", ""],
+  ".ts": ["TypeScript", "//", ""], ".mts": ["TypeScript", "//", ""], ".tsx": ["TypeScript React", "//", ""],
+  ".c": ["C", "//", ""], ".h": ["C/C++ header", "//", ""], ".cpp": ["C++", "//", ""], ".cc": ["C++", "//", ""], ".cxx": ["C++", "//", ""], ".hpp": ["C++", "//", ""],
+  ".m": ["Objective-C", "//", ""], ".mm": ["Objective-C++", "//", ""], ".java": ["Java", "//", ""], ".kt": ["Kotlin", "//", ""], ".kts": ["Kotlin", "//", ""],
+  ".scala": ["Scala", "//", ""], ".groovy": ["Groovy", "//", ""], ".gradle": ["Gradle", "//", ""], ".cs": ["C#", "//", ""], ".fs": ["F#", "//", ""],
+  ".go": ["Go", "//", ""], ".rs": ["Rust", "//", ""], ".swift": ["Swift", "//", ""], ".dart": ["Dart", "//", ""], ".zig": ["Zig", "//", ""],
+  ".php": ["PHP", "//", ""], ".scss": ["SCSS", "//", ""], ".less": ["Less", "//", ""], ".sol": ["Solidity", "//", ""], ".proto": ["Protocol Buffers", "//", ""],
+  ".v": ["V", "//", ""], ".d": ["D", "//", ""], ".glsl": ["GLSL", "//", ""], ".hlsl": ["HLSL", "//", ""],
+  ".lua": ["Lua", "--", ""], ".sql": ["SQL", "--", ""], ".hs": ["Haskell", "--", ""], ".elm": ["Elm", "--", ""], ".ada": ["Ada", "--", ""],
+  ".erl": ["Erlang", "%", ""], ".tex": ["LaTeX", "%", ""], ".m4": ["M4", "dnl", ""],
+  ".clj": ["Clojure", ";;", ""], ".lisp": ["Common Lisp", ";;", ""], ".el": ["Emacs Lisp", ";;", ""], ".scm": ["Scheme", ";;", ""], ".asm": ["Assembly", ";", ""],
+  ".vb": ["Visual Basic", "'", ""], ".vbs": ["VBScript", "'", ""], ".bat": ["Batch", "REM", ""], ".cmd": ["Batch", "REM", ""],
+  ".css": ["CSS", "/*", " */"], ".html": ["HTML", "<!--", " -->"], ".htm": ["HTML", "<!--", " -->"], ".vue": ["Vue", "<!--", " -->"],
+  ".svelte": ["Svelte", "<!--", " -->"], ".xml": ["XML", "<!--", " -->"], ".svg": ["SVG", "<!--", " -->"], ".md": ["Markdown", "<!--", " -->"],
 };
+
+/** 拡張子のないファイル名 */
+const NAMED: Record<string, [string, string, string]> = {
+  dockerfile: ["Dockerfile", "#", ""], makefile: ["Makefile", "#", ""], gnumakefile: ["Makefile", "#", ""], cmakelists: ["CMake", "#", ""],
+  rakefile: ["Ruby", "#", ""], gemfile: ["Ruby", "#", ""], vagrantfile: ["Ruby", "#", ""], jenkinsfile: ["Groovy", "//", ""],
+  ".bashrc": ["Bash", "#", ""], ".zshrc": ["Zsh", "#", ""], ".gitignore": ["gitignore", "#", ""], ".env": ["dotenv", "#", ""],
+};
+
+/** ファイル名から言語名を調べる（わからなければ空） */
+export function languageOf(filename: string): string {
+  return langInfo(filename)?.[0] ?? "";
+}
+
+function langInfo(filename: string): [string, string, string] | undefined {
+  const base = basename(filename).toLowerCase();
+  return LANGS[extname(filename)] ?? NAMED[base] ?? NAMED[base.replace(/\.txt$/, "")];
+}
 
 /**
  * ファイルの先頭を補うときに付ける見出し。AI に「何語のどのファイルか」を伝える。
- * 例：「# main.py」
+ * 例：「# main.py (Python)」「// main.go (Go)」「<!-- index.html (HTML) -->」
+ * JSON のようにコメントを書けない形式では付けない
  */
 export function fileHeader(filename: string): string {
   if (!filename) return "";
-  const c = COMMENT[extname(filename)];
-  if (!c) return "";
-  return `${c[0]} ${basename(filename)}${c[1]}\n`;
+  const info = langInfo(filename);
+  if (!info) return "";
+  const [name, start, end] = info;
+  const base = basename(filename);
+  const label = base.toLowerCase() === name.toLowerCase() ? base : `${base} (${name})`;
+  return `${start} ${label}${end}\n`;
 }

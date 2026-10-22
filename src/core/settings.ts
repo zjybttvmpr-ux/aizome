@@ -41,6 +41,7 @@ export interface Settings {
   "build.keepComments": boolean;
   "update.autoCheck": boolean;
   "editor.suggestFont": "kyokasho" | "code" | "bizud";
+  "editor.explain": "off" | "rules" | "ai";
   "update.skipVersion": string;
 }
 
@@ -85,6 +86,7 @@ export const defaults: Settings = {
   "build.keepComments": true,
   "update.autoCheck": true,
   "editor.suggestFont": "kyokasho",
+  "editor.explain": "ai",
   "update.skipVersion": "",
 };
 
