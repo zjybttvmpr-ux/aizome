@@ -242,7 +242,7 @@ ${k("Mod-Alt-X")}（<a href="#slash:export">/書き出し</a>）か印刷（${k(
 - import していないもの（\`sqrt\`・\`randint\`・\`np\`・C# の \`List\`・\`SceneManager\`・\`TextMeshProUGUI\`・C の \`strlen\` など）を使うと、「from math import sqrt を上に追加」のように足せます。候補の一覧にも「＋ 〜 を追加」の項目が出て、選ぶと名前と import が一緒に入ります。
 - 表は言語ごと（Python・Java・C#/Unity・C・C++・Go・Rust）に分かれていて、ほかの言語の import が混ざることはありません。
 - Python は、入っている Python にコードを（実行せずに）読ませて、字下げ・文法のまちがいを Python と同じ判定で見つけます。input() のまま計算する・引数の数のまちがい・global 忘れ・self 忘れ・抜け出せない while True など、実行するとエラーになりそうな書き方も知らせます。
-- C# / Java / C / C++ では、行の終わりの「;」忘れや `if (x = 5)` も知らせます。
+- C# / Java / C / C++ では、行の終わりの「;」忘れや \`if (x = 5)\` も知らせます。
 - 設定 → 機能のオン・オフ で、それぞれ止められます。
 
 ## 名前の一括変更
