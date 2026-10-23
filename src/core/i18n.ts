@@ -926,6 +926,9 @@ const ja: Dict = {
   "json.unexpected": "ここに「{c}」は書けません",
   "json.missingColon": "キーのあとに「:」がありません",
   "json.afterEnd": "JSON の終わりのあとに、まだ何か書いてあります",
+  "check.missingCloseHere": "ここに「{want}」が必要です（{line} 行目 {col} 文字目の「{c}」が閉じていません）",
+  "check.openedHere": "この「{c}」が閉じていません（{line} 行目に「{want}」が必要です）",
+  "check.cascade": "↑ {line} 行目のまちがいが原因で、この行もエラーに見えています（{cause}）。{line} 行目を直すと消えます",
 };
 
 const en: Dict = {
@@ -1833,6 +1836,9 @@ const en: Dict = {
   "json.unexpected": "“{c}” is not allowed here",
   "json.missingColon": "Missing “:” after the key",
   "json.afterEnd": "Extra text after the end of the JSON",
+  "check.missingCloseHere": "“{want}” is needed here (the “{c}” at line {line}, column {col} is not closed)",
+  "check.openedHere": "This “{c}” is not closed (“{want}” is needed on line {line})",
+  "check.cascade": "↑ Caused by the mistake on line {line} ({cause}). Fixing line {line} will clear this",
 };
 
 const dicts: Record<string, Dict> = { ja, en };

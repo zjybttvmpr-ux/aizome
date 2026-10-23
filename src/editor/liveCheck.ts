@@ -62,6 +62,7 @@ function problemsOf(state: EditorState, cursor: number | null, py: PyIssue[] | n
       if (cursor !== null && q.kind === "syntax" && q.severity === "error" && q.msg === "py.unterminated" && state.doc.lineAt(cursor).number === state.doc.lineAt(q.from).number) continue;
       out.push(q);
     }
+    out.push(...treeErrors(state, out, true));
   } else if (live) out.push(...treeErrors(state, out));
   return out;
 }
@@ -262,18 +263,31 @@ export function pyProblems(state: EditorState, issues: PyIssue[]): Problem[] {
 }
 
 /** 言語の文法（Lezer）が見つけたまちがい。自分で見つけたものと同じ行のものは出さない */
-function treeErrors(state: EditorState, found: Problem[]): Problem[] {
+function treeErrors(state: EditorState, found: Problem[], cascadeOnly = false): Problem[] {
   const tree = syntaxTree(state);
   if (tree.length < state.doc.length) return [];
-  const own = found.filter((p) => p.kind === "syntax");
+  const own = found.filter((p) => p.kind === "syntax" && p.severity === "error").sort((a, b) => a.from - b.from);
   const lines = new Set(own.map((p) => state.doc.lineAt(p.from).number));
-  // 自分で原因（かっこの閉じ忘れなど）を見つけたときは、その後ろの「巻き添え」のまちがいは出さない
-  const firstOwn = own.length ? Math.min(...own.map((p) => p.from)) : Infinity;
+  const firstOwn = own.length ? own[0].from : Infinity;
   const out: Problem[] = [];
+  const cascaded = new Set<number>();
   tree.iterate({
     enter: (node) => {
-      if (!node.type.isError || out.length >= 20) return;
-      if (node.from >= firstOwn) return;
+      if (!node.type.isError || out.length >= 40) return;
+      if (node.from >= firstOwn) {
+        // 原因（かっこの閉じ忘れなど）より後ろの「巻き添え」：原因の行を教える
+        const line = state.doc.lineAt(node.from);
+        if (lines.has(line.number) || cascaded.has(line.number)) return;
+        let root = own[0];
+        for (const p of own) if (p.from <= node.from) root = p;
+        cascaded.add(line.number);
+        const rootLine = state.doc.lineAt(Math.min(root.from, state.doc.length)).number;
+        const from = line.from + (/^\s*/.exec(line.text)?.[0].length ?? 0);
+        const to = Math.max(from + 1, line.to);
+        out.push({ from, to: Math.min(to, state.doc.length), kind: "syntax", severity: "info", msg: "check.cascade", args: { line: String(rootLine), cause: t(root.msg, root.args ?? {}) }, fixes: root.fixes });
+        return;
+      }
+      if (cascadeOnly) return;
       const line = state.doc.lineAt(node.from);
       if (line.number === 1 && parseDirective(line.text)) return;
       if (lines.has(line.number)) return;
@@ -320,6 +334,7 @@ function toDiagnostic(state: EditorState, p: Problem): Diagnostic {
     from: Math.min(p.from, state.doc.length),
     to: Math.min(Math.max(p.to, p.from), state.doc.length),
     severity: p.severity,
+    markClass: p.msg === "check.cascade" ? "cm-cascade" : undefined,
     message: message(p),
     source: t("check.source"),
     actions,

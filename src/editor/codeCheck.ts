@@ -127,15 +127,15 @@ export function lex(text: string, lang: CheckLang): Lexed {
     if (!open.length) return;
     const closers = open.map((s) => OPEN[s.c]).reverse().join("");
     const inner = open[open.length - 1];
-    problems.push({
-      from: inner.at,
-      to: inner.at + 1,
-      kind: "syntax",
-      severity: "error",
-      msg: "check.unclosed",
-      args: { c: inner.c, want: closers },
-      fixes: [{ label: "check.fix.addClose", args: { c: closers }, changes: [{ from: insertAt, to: insertAt, insert: closers }] }],
-    });
+    const where = (pos: number) => {
+      const ls = text.lastIndexOf("\n", pos - 1) + 1;
+      return { line: String(text.slice(0, ls).split("\n").length), col: String(pos - ls + 1) };
+    };
+    const at = where(inner.at);
+    const fixes = [{ label: "check.fix.addClose", args: { c: closers }, changes: [{ from: insertAt, to: insertAt, insert: closers }] }];
+    // 波線は「本来 ) があるべき場所」に。開いたかっこにも、薄く印をつける
+    problems.push({ from: insertAt, to: insertAt, kind: "syntax", severity: "error", msg: "check.missingCloseHere", args: { c: inner.c, want: closers, line: at.line, col: at.col }, fixes });
+    problems.push({ from: inner.at, to: inner.at + 1, kind: "syntax", severity: "info", msg: "check.openedHere", args: { c: inner.c, want: closers, line: where(insertAt).line }, fixes });
   };
   while (i < n) {
     const c = text[i];

@@ -4277,3 +4277,20 @@ html.has-bg .pane-bar {
   opacity: 0.95;
   font-weight: 600;
 }
+
+/* 「ここに ) が必要」の印（文字のあいだ）を見やすく */
+.cm-lintPoint:after {
+  left: -4px !important;
+  border-left-width: 4px !important;
+  border-right-width: 4px !important;
+  border-bottom-width: 6px !important;
+}
+.cm-lintPoint-error:after {
+  border-bottom-color: var(--danger) !important;
+}
+/* 巻き添えのまちがい（原因はほかの行）は、点線で薄く */
+.cm-lintRange.cm-cascade {
+  background-image: none;
+  text-decoration: underline dotted color-mix(in srgb, var(--text-muted) 80%, transparent);
+  text-underline-offset: 3px;
+}
