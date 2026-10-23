@@ -31,7 +31,7 @@ export const PAPER_COLORS: Record<string, string> = {
   m: "#808080",
 };
 
-const PAPER_MM: Record<ExportOptions["paper"], [number, number]> = {
+export const PAPER_MM: Record<ExportOptions["paper"], [number, number]> = {
   A4: [210, 297],
   B5: [182, 257],
   A3: [297, 420],

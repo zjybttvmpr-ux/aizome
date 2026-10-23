@@ -807,6 +807,20 @@ const ja: Dict = {
   "terminal.pairNeedTwo": "並べるには、ターミナルがもう 1 つ必要です（2 つのファイルを実行すると、ファイルごとに実行のタブができます）",
   "pane.run": "このファイルを実行",
   "pane.trace": "このファイルの値を見る",
+  "ps.title": "印刷・書き出し",
+  "ps.fmt.print": "印刷・PDF",
+  "ps.fmt.txt": "テキスト",
+  "ps.portrait": "縦",
+  "ps.landscape": "横",
+  "ps.orientation": "向き",
+  "ps.fontSizePt": "文字の大きさ（pt）",
+  "ps.zoom": "表示の大きさ",
+  "ps.zoomFit": "幅に合わせる",
+  "ps.goPrint": "印刷する…（PDF もここから）",
+  "ps.goExport": "{fmt} で書き出す…",
+  "ps.info": "全 {pages} ページ ・ {paper} ・ {lines} 行",
+  "ps.infoText": "テキスト ・ {n} 行（ページの区切りはありません）",
+  "ps.more": "プレビューは最初の {n} ページまでです（書き出すと全部入ります）",
 };
 
 const en: Dict = {
@@ -1595,6 +1609,20 @@ const en: Dict = {
   "terminal.pairNeedTwo": "Open one more terminal to compare (running two files gives each its own run tab)",
   "pane.run": "Run this file",
   "pane.trace": "Show values for this file",
+  "ps.title": "Print & Export",
+  "ps.fmt.print": "Print / PDF",
+  "ps.fmt.txt": "Text",
+  "ps.portrait": "Portrait",
+  "ps.landscape": "Landscape",
+  "ps.orientation": "Orientation",
+  "ps.fontSizePt": "Font size (pt)",
+  "ps.zoom": "Zoom",
+  "ps.zoomFit": "Fit width",
+  "ps.goPrint": "Print… (PDF too)",
+  "ps.goExport": "Export as {fmt}…",
+  "ps.info": "{pages} pages · {paper} · {lines} lines",
+  "ps.infoText": "Text · {n} lines (no pages)",
+  "ps.more": "Preview shows the first {n} pages (export includes everything)",
 };
 
 const dicts: Record<string, Dict> = { ja, en };

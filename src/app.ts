@@ -36,11 +36,12 @@ import { createSaveHistory } from "./ui/saveHistory";
 import { createFileGroups } from "./ui/fileGroups";
 import { exportSettings, importSettings } from "./ui/settingsTransfer";
 import { contextMenu, type MenuItem as CtxItem } from "./ui/fileTree";
+import { openPrintScreen } from "./ui/printScreen";
 import { OutlineView } from "./ui/outlineView";
 import { buildOutline, currentSymbol, outlineLangOf, type OutlineItem } from "./editor/outline";
 import { formatBraces, formatJson, formatPlain, formatPython } from "./editor/format";
 import { BUILD_TARGETS, RUN_TOOLS, fillBuild, isUnityScript, javaMainClass, type Toolchain } from "./run/build";
-import { askExportOptions, defaultExportOptions, exportBody, exportCss, exportDocx, exportHtmlDocument, exportText, toBase64, type ExportOptions } from "./ui/exportCode";
+import { exportBody, exportCss, exportDocx, exportHtmlDocument, exportText, toBase64, type ExportOptions } from "./ui/exportCode";
 import { clipHistory, clipLabel, startClipWatch } from "./core/clipHistory";
 import { buildFromJapanese } from "./ui/jpBuildDialog";
 import { sampleTemplate } from "./ai/jpBuild";
@@ -1721,35 +1722,43 @@ export class App {
     await this.terminal.run(cmd, file.dir);
   }
 
-  /** コードを PDF・Word・HTML・テキストに書き出す（ページの形ごと） */
-  private async exportActive() {
+  /** 印刷・書き出しの専用画面（右に出来上がりのプレビュー） */
+  private async exportActive(mode: "print" | "export" = "export") {
     const doc = this.activeDoc();
     if (!doc) {
       toast(t("print.noFile"), "info");
       return;
     }
-    const o = await askExportOptions(doc.name);
-    if (!o) return;
     const lines = this.editor.highlightLines(doc.id);
     const meta = { name: doc.name, path: doc.path ?? "", date: new Date().toLocaleString() };
     const tab = settings.get("editor.tabSize");
-    if (o.format === "pdf") {
-      await this.printSheet(lines, o, meta, tab);
-      toast(t("export.pdfHint"), "info", 9000);
-      return;
-    }
-    const ext = o.format === "docx" ? ".docx" : o.format === "html" ? ".html" : ".txt";
-    const suggested = stripExt(doc.name) + (o.format === "txt" && extname(doc.name) === ".txt" ? "-印刷用" : "") + ext;
-    const path = await dialog.saveFile(doc.path ? join(dirname(doc.path), suggested) : suggested);
-    if (!path) return;
-    try {
-      if (o.format === "docx") await fs.writeBase64(path, toBase64(exportDocx(lines, o, meta, tab)));
-      else if (o.format === "html") await fs.writeFile(path, exportHtmlDocument(lines, o, meta, tab));
-      else await fs.writeFile(path, exportText(lines, o, meta, tab));
-      toast(t("export.saved", { path }), "success", 7000);
-    } catch (err) {
-      toast(t("export.failed", { err: String(err) }), "error");
-    }
+    openPrintScreen({
+      name: doc.name,
+      path: doc.path ?? "",
+      lines,
+      tab,
+      mode,
+      onPrint: async (o) => {
+        await this.printSheet(lines, o, meta, tab);
+        toast(t("export.pdfHint"), "info", 9000);
+      },
+      onExport: async (o) => {
+        const ext = o.format === "docx" ? ".docx" : o.format === "html" ? ".html" : ".txt";
+        const suggested = stripExt(doc.name) + (o.format === "txt" && extname(doc.name) === ".txt" ? "-印刷用" : "") + ext;
+        const path = await dialog.saveFile(doc.path ? join(dirname(doc.path), suggested) : suggested);
+        if (!path) return false;
+        try {
+          if (o.format === "docx") await fs.writeBase64(path, toBase64(exportDocx(lines, o, meta, tab)));
+          else if (o.format === "html") await fs.writeFile(path, exportHtmlDocument(lines, o, meta, tab));
+          else await fs.writeFile(path, exportText(lines, o, meta, tab));
+          toast(t("export.saved", { path }), "success", 7000);
+          return true;
+        } catch (err) {
+          toast(t("export.failed", { err: String(err) }), "error");
+          return false;
+        }
+      },
+    });
   }
 
   /** 色付き・行番号付きのコードを印刷する（印刷の画面で「PDF に保存」も選べる） */
@@ -2382,8 +2391,7 @@ export class App {
       return;
     }
     if (!(this.isMarkdown(doc) && this.previewOn)) {
-      const o = { ...defaultExportOptions(), format: "pdf" as const };
-      await this.printSheet(this.editor.highlightLines(doc.id), o, { name: doc.name, path: doc.path ?? "", date: new Date().toLocaleString() }, settings.get("editor.tabSize"));
+      await this.exportActive("print");
       return;
     }
     document.querySelector(".print-sheet")?.remove();
