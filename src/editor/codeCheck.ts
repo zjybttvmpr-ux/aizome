@@ -1,10 +1,13 @@
+import { cssProblems, endBlockProblems, htmlProblems, jsonProblems, shellBlockProblems } from "./langChecks";
 // 書きながらのチェック（CodeMirror を使わない部分。テストしやすいように文字列だけで動く）
 // - かっこ・引用符の閉じ忘れ、Python の「:」の付け忘れ
 // - Python の「まだ作っていない名前」（タイプミスの候補つき）
 // - import / using / #include の付け忘れと、それを足す位置
 // 言語ごとに表を分けていて、ほかの言語の候補が混ざらないようにしている。
 
-export type CheckLang = "python" | "java" | "csharp" | "c" | "cpp" | "go" | "rust";
+export type CheckLang =
+  | "python" | "java" | "csharp" | "c" | "cpp" | "go" | "rust"
+  | "js" | "php" | "kotlin" | "swift" | "dart" | "ruby" | "lua" | "shell" | "powershell" | "sql" | "css" | "json" | "html" | "xml";
 
 const EXT_LANG: Record<string, CheckLang> = {
   ".py": "python", ".pyw": "python",
@@ -14,10 +17,35 @@ const EXT_LANG: Record<string, CheckLang> = {
   ".cpp": "cpp", ".cc": "cpp", ".cxx": "cpp", ".hpp": "cpp", ".hh": "cpp",
   ".go": "go",
   ".rs": "rust",
+  ".js": "js", ".mjs": "js", ".cjs": "js", ".jsx": "js", ".ts": "js", ".tsx": "js", ".mts": "js", ".cts": "js",
+  ".php": "php",
+  ".kt": "kotlin", ".kts": "kotlin",
+  ".swift": "swift",
+  ".dart": "dart",
+  ".rb": "ruby",
+  ".lua": "lua",
+  ".sh": "shell", ".bash": "shell", ".zsh": "shell",
+  ".ps1": "powershell", ".psm1": "powershell",
+  ".sql": "sql",
+  ".css": "css", ".scss": "css", ".less": "css",
+  ".json": "json",
+  ".html": "html", ".htm": "html", ".vue": "html", ".xml": "xml", ".svg": "xml", ".xhtml": "xml", ".csproj": "xml", ".xaml": "xml",
+};
+
+/** エディタの言語の名前（CodeMirror の言語名や、下に出ている言語名）から */
+const NAME_LANG: Record<string, CheckLang> = {
+  python: "python", java: "java", csharp: "csharp", "c#": "csharp", c: "c", cpp: "cpp", "c++": "cpp", go: "go", rust: "rust",
+  javascript: "js", typescript: "js", jsx: "js", tsx: "js", php: "php", kotlin: "kotlin", swift: "swift", dart: "dart",
+  ruby: "ruby", lua: "lua", shell: "shell", sh: "shell", bash: "shell", powershell: "powershell", sql: "sql",
+  css: "css", scss: "css", less: "css", json: "json", html: "html", xml: "xml", vue: "html",
 };
 
 export function checkLangOf(ext: string): CheckLang | null {
   return EXT_LANG[ext.toLowerCase()] ?? null;
+}
+
+export function checkLangByName(name: string): CheckLang | null {
+  return NAME_LANG[name.toLowerCase().replace(/\s+/g, "")] ?? null;
 }
 
 // ---------- 字句に分ける ----------
@@ -70,6 +98,15 @@ function isId(c: string) {
 
 export function lex(text: string, lang: CheckLang): Lexed {
   const py = lang === "python";
+  // コメントの書き方
+  const hashComment = py || lang === "ruby" || lang === "shell" || lang === "php" || lang === "powershell";
+  const lineSlash = !["python", "ruby", "shell", "lua", "sql", "css", "powershell"].includes(lang);
+  const blockSlash = lineSlash || lang === "sql" || lang === "css";
+  const dashComment = lang === "lua" || lang === "sql";
+  // 何行にもわたってよい文字列
+  const multilineStr = ["shell", "ruby", "sql", "php", "powershell"].includes(lang);
+  // シェルの case の「a)」などで、かっこが合わないのはふつうなので数えない
+  const noBrackets = lang === "shell";
   const toks: Tok[] = [];
   const problems: Problem[] = [];
   const skipped: [number, number][] = [];
@@ -147,21 +184,50 @@ export function lex(text: string, lang: CheckLang): Lexed {
       continue;
     }
     // コメント
-    if (py && c === "#") {
+    if (lang === "ruby" && lineStart && text.startsWith("=begin", i)) {
+      const e = text.indexOf("\n=end", i);
+      const end = e < 0 ? n : e + 5;
+      skipped.push([i, end]);
+      i = end;
+      continue;
+    }
+    if (lang === "powershell" && c === "<" && text[i + 1] === "#") {
+      const e = text.indexOf("#>", i + 2);
+      const end = e < 0 ? n : e + 2;
+      skipped.push([i, end]);
+      i = end;
+      continue;
+    }
+    if (dashComment && c === "-" && text[i + 1] === "-") {
+      // Lua の --[[ … ]]
+      const long = lang === "lua" ? /^--\[(=*)\[/.exec(text.slice(i, i + 12)) : null;
+      let end: number;
+      if (long) {
+        const close = text.indexOf("]" + long[1] + "]", i + long[0].length);
+        end = close < 0 ? n : close + long[1].length + 2;
+      } else {
+        const e = text.indexOf("\n", i);
+        end = e < 0 ? n : e;
+      }
+      skipped.push([i, end]);
+      i = end;
+      continue;
+    }
+    if (hashComment && c === "#" && !(lang === "shell" && i > 0 && !/\s/.test(text[i - 1])) && !(lang === "ruby" && text[i + 1] === "{")) {
       const e = text.indexOf("\n", i);
       const end = e < 0 ? n : e;
       skipped.push([i, end]);
       i = end;
       continue;
     }
-    if (!py && c === "/" && text[i + 1] === "/") {
+    if (lineSlash && c === "/" && text[i + 1] === "/") {
       const e = text.indexOf("\n", i);
       const end = e < 0 ? n : e;
       skipped.push([i, end]);
       i = end;
       continue;
     }
-    if (!py && c === "/" && text[i + 1] === "*") {
+    if (blockSlash && c === "/" && text[i + 1] === "*") {
       const e = text.indexOf("*/", i + 2);
       const end = e < 0 ? n : e + 2;
       skipped.push([i, end]);
@@ -189,6 +255,42 @@ export function lex(text: string, lang: CheckLang): Lexed {
       continue;
     }
     lineStart = false;
+    // JavaScript の正規表現 /…/（かっこを数えないように）
+    if (lang === "js" && c === "/") {
+      const prev = toks[toks.length - 1];
+      const regexOk = !prev || (prev.k === "op" && !")]}".includes(prev.v)) || ["return", "typeof", "case", "in", "of", "delete", "void", "throw", "new"].includes(prev.v);
+      if (regexOk && text[i + 1] !== "/" && text[i + 1] !== "*") {
+        let j = i + 1;
+        let cls = false;
+        while (j < n && text[j] !== "\n") {
+          const ch = text[j];
+          if (ch === "\\") j++;
+          else if (ch === "[") cls = true;
+          else if (ch === "]") cls = false;
+          else if (ch === "/" && !cls) break;
+          j++;
+        }
+        if (text[j] === "/") {
+          j++;
+          while (j < n && /[a-z]/.test(text[j])) j++;
+          skipped.push([i, j]);
+          toks.push({ k: "num", v: "regex", from: i, to: j, d: stack.length });
+          i = j;
+          continue;
+        }
+      }
+    }
+    // Lua の [[ … ]] の文字列
+    if (lang === "lua" && c === "[" && /^\[=*\[/.test(text.slice(i, i + 10))) {
+      const eq = /^\[(=*)\[/.exec(text.slice(i, i + 10))![1];
+      const close = text.indexOf("]" + eq + "]", i);
+      const end = close < 0 ? n : close + eq.length + 2;
+      if (close < 0) problems.push({ from: i, to: i + 2 + eq.length, kind: "syntax", severity: "error", msg: "check.unclosedString", args: { q: `[${eq}[` }, fixes: [] });
+      skipped.push([i, end]);
+      toks.push({ k: "num", v: "str", from: i, to: end, d: stack.length });
+      i = end;
+      continue;
+    }
     // 文字列
     let q = -1;
     let prefixLen = 0;
@@ -209,13 +311,19 @@ export function lex(text: string, lang: CheckLang): Lexed {
         i++;
         continue;
       }
+      // 英語の文の中の ' （don't など）は、文字の扱いにしない言語もある
+      if ((lang === "shell" || lang === "ruby") && i > 0 && /[A-Za-z]/.test(text[i - 1]) && /[A-Za-z]/.test(text[i + 1] ?? "")) {
+        i++;
+        continue;
+      }
       q = i;
     }
     if (q >= 0 && prefixLen === q - i) {
       const quote = text[q];
       const triple = py && text.slice(q, q + 3) === quote.repeat(3);
       const verbatim = lang === "csharp" && text.slice(i, q).includes("@");
-      const raw = quote === "`" || verbatim;
+      // シェルの '…' は \ も文字のまま
+      const raw = quote === "`" || verbatim || ((lang === "shell" || lang === "powershell") && quote === "'");
       let j = q + (triple ? 3 : 1);
       let closed = false;
       while (j < n) {
@@ -238,7 +346,7 @@ export function lex(text: string, lang: CheckLang): Lexed {
           j++;
           closed = true;
           break;
-        } else if (ch === "\n" && !raw) {
+        } else if (ch === "\n" && !raw && !multilineStr) {
           break;
         }
         j++;
@@ -271,8 +379,13 @@ export function lex(text: string, lang: CheckLang): Lexed {
     const three = text.slice(i, i + 3);
     const two = text.slice(i, i + 2);
     const op = OPS3.includes(three) ? three : OPS2.includes(two) ? two : c;
+    if (noBrackets && (OPEN[op] || CLOSE[op])) {
+      toks.push({ k: "op", v: op, from: i, to: i + op.length, d: 0 });
+      i += op.length;
+      continue;
+    }
     // { } の言語：「;」や「{」が来たのに、同じ文の ( が閉じていない
-    if (!py && (op === ";" || op === "{") && stack.length && stack[stack.length - 1].c !== "{") {
+    if (!py && lang !== "powershell" && (op === ";" || op === "{") && stack.length && stack[stack.length - 1].c !== "{") {
       let k = stack.length;
       while (k > 0 && stack[k - 1].c !== "{") k--;
       const open = stack.slice(k);
@@ -1052,7 +1165,7 @@ const CONT_START = new Set(["{", ".", "?", ":", "+", "-", "*", "/", "%", "&&", "
 
 /** C# / Java / C / C++：行の終わりの「;」忘れと、if の中の「=」 */
 export function bracePunctProblems(text: string, lang: CheckLang, lexed: Lexed): Problem[] {
-  if (!["csharp", "java", "c", "cpp"].includes(lang)) return [];
+  if (!["csharp", "java", "c", "cpp", "dart"].includes(lang)) return [];
   const out: Problem[] = [];
   const { toks } = lexed;
   // 行ごとにトークンを分ける
@@ -1143,9 +1256,17 @@ export function bracePunctProblems(text: string, lang: CheckLang, lexed: Lexed):
 
 export function checkCode(text: string, lang: CheckLang, opts: { syntax: boolean; names: boolean; cursor?: number | null; indent?: boolean }): Problem[] {
   if (text.length > 400_000) return [];
+  // 字句で分けない言語
+  if (lang === "json") return opts.syntax ? jsonProblems(text) : [];
+  if (lang === "html" || lang === "xml") return opts.syntax ? htmlProblems(text, lang === "xml") : [];
   const lexed = lex(text, lang);
   const out: Problem[] = [];
   if (opts.syntax) out.push(...lexed.problems);
+  if (opts.syntax) {
+    const lines = new Set(out.map((p) => text.slice(0, p.from).split("\n").length));
+    const extra = lang === "ruby" || lang === "lua" ? endBlockProblems(text, lang, lexed) : lang === "shell" ? shellBlockProblems(text, lexed) : lang === "css" ? cssProblems(text, lexed) : [];
+    out.push(...extra.filter((p) => !lines.has(text.slice(0, p.from).split("\n").length)));
+  }
   if (opts.syntax && lang === "python" && opts.indent !== false) {
     const lines = new Set(out.map((p) => text.slice(0, p.from).split("\n").length));
     out.push(...pythonIndentProblems(text, lexed).filter((p) => !lines.has(text.slice(0, p.from).split("\n").length)));
@@ -1187,7 +1308,7 @@ export function importSuggestions(text: string, lang: CheckLang, typed: string, 
       if (!imp) continue;
       out.push({ name, line: imp.line, edit: pythonImportEdit(rest, imp) });
     }
-  } else {
+  } else if (["java", "csharp", "c", "cpp", "rust", "go"].includes(lang)) {
     const table: Map<string, string> | Record<string, string> =
       lang === "java" ? JAVA : lang === "csharp" ? CSHARP : lang === "c" ? C_HEADERS : lang === "cpp" ? CPP_HEADERS : lang === "rust" ? RUST : GO_PKGS;
     const keys = table instanceof Map ? [...table.keys()] : Object.keys(table);

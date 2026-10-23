@@ -1,10 +1,10 @@
 // 書きながらのエラー表示：文法のまちがい・まだ作っていない名前・import の付け忘れに波線を引く。
 // 波線にマウスを乗せると直し方のボタンが出る。Ctrl+. でカーソルの行の直し方をすぐ使える。
 import { forceLinting, linter, type Action, type Diagnostic } from "@codemirror/lint";
-import { syntaxTree } from "@codemirror/language";
+import { language, syntaxTree } from "@codemirror/language";
 import { EditorView, keymap } from "@codemirror/view";
 import { Prec, type EditorState, type Extension } from "@codemirror/state";
-import { checkCode, checkLangOf, importEdit, type CheckLang, type Fix, type Problem } from "./codeCheck";
+import { checkCode, checkLangByName, checkLangOf, importEdit, type CheckLang, type Fix, type Problem } from "./codeCheck";
 import { inferUpdated } from "./checkEvents";
 import { cachedPyCheck, pyCheck, translatePy, ZENKAKU_FIX, type PyIssue } from "../run/pycheck";
 import { docFilename } from "./ghost";
@@ -19,7 +19,11 @@ import { t } from "../core/i18n";
 export function checkLangOfState(state: EditorState): CheckLang | null {
   const first = state.doc.line(1).text;
   const d = settings.get("files.langDirective") ? parseDirective(first) : null;
-  return checkLangOf(d?.ext ?? extname(filenameForLanguage(state.facet(docFilename))));
+  // 1 行目の ## 言語 ## → ファイル名（下に出ている言語と同じ）→ エディタが色分けに使っている言語
+  const byName = checkLangOf(d?.ext ?? extname(filenameForLanguage(state.facet(docFilename))));
+  if (byName) return byName;
+  const lang = state.facet(language);
+  return lang ? checkLangByName(lang.name) : null;
 }
 
 /** 文法のまちがい（自動判定の行の右に出す用）。行番号と短い説明 */
