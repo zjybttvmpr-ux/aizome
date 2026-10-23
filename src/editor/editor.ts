@@ -126,7 +126,6 @@ class CodeMirrorHost implements EditorHost {
     bar.title = "ドラッグで幅を変える／ダブルクリックで半分ずつ";
     this.dragSplit(bar);
     parent.append(this.panes[0].el, bar, this.panes[1].el);
-    this.applyRatio(settings.get("ui.splitRatio"));
     this.layout();
   }
 
@@ -219,6 +218,9 @@ class CodeMirrorHost implements EditorHost {
     const split = this.idsIn(1).length > 0;
     this.root?.classList.toggle("split", split);
     if (this.panes[1]) this.panes[1].el.hidden = !split;
+    // 1 つだけのときは画面いっぱい、並べたときは決めた割合で分ける
+    if (split) this.applyRatio(settings.get("ui.splitRatio"));
+    else if (this.panes[0]) this.panes[0].el.style.flex = "1 1 0";
     if (!split && this.cur === 1) this.cur = 0;
     this.markFocus();
   }
