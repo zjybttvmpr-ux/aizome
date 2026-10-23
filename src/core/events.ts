@@ -30,6 +30,8 @@ export interface AppEvents extends Record<string, unknown> {
   "settings:changed": { key: string };
   "theme:changed": { id: string };
   "cursor:changed": { line: number; col: number };
+  /** pip でライブラリを入れる（エラーの直し方から） */
+  "pip:install": { pkg: string };
 }
 
 export const bus = new Emitter<AppEvents>();

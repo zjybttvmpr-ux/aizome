@@ -11,7 +11,7 @@ import { forEachView, sideMode, sideModeChanged, trackView } from "./sideMode";
 import { bus } from "../core/events";
 import { traceAt, traceTimeAt } from "./valueLens";
 import { inferBusy, setInferBusy } from "./inferState";
-import { syntaxProblems } from "./liveCheck";
+import { predictedProblems, syntaxProblems } from "./liveCheck";
 import { t } from "../core/i18n";
 
 /** AI の予想が新しくなった合図（行の説明もこれで描き直す） */
@@ -23,7 +23,7 @@ export function riskLines(state: EditorState): Set<number> {
   if (sideMode() !== "auto") return new Set();
   const syntax = syntaxProblems(state);
   if (syntax.length) return new Set(syntax.map((s) => s.line));
-  return new Set(resultFor(state)?.risks.map((r) => r.line) ?? []);
+  return new Set([...predictedProblems(state).map((p) => p.line), ...(resultFor(state)?.risks.map((r) => r.line) ?? [])]);
 }
 
 // ───────── AI の予想（コードごとに覚えておく）
@@ -123,16 +123,20 @@ function buildRisks(state: EditorState): DecorationSet {
     return b.finish();
   }
   const result = resultFor(state);
-  if (!result?.risks.length) return Decoration.none;
+  // 書き方から確かにわかる「実行するとエラー」（まだない名前・math.cil など）を先に、AI の予想はほかの行に
+  const predicted = predictedProblems(state);
+  if (!result?.risks.length && !predicted.length) return Decoration.none;
   const b = new RangeSetBuilder<Decoration>();
   const seen = new Set<number>();
-  for (const r of [...result.risks].sort((a, b) => a.line - b.line)) {
+  const all = [...predicted.map((p) => ({ line: p.line, reason: p.text, sure: true })), ...(result?.risks ?? []).map((r) => ({ line: r.line, reason: r.reason, sure: false }))].sort((a, b) => a.line - b.line);
+  for (const r of all) {
     if (seen.has(r.line) || r.line > state.doc.lines) continue;
     seen.add(r.line);
     const line = state.doc.line(r.line);
-    b.add(line.to, line.to, Decoration.widget({ widget: new RiskWidget(r.reason), side: 2 }));
+    b.add(line.to, line.to, Decoration.widget({ widget: new RiskWidget(r.reason, r.sure), side: 2 }));
   }
   return b.finish();
+
 }
 
 // ───────── 変数の上にマウスを置いたときの小窓

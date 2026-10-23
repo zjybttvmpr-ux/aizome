@@ -560,6 +560,12 @@ export class App {
 
     this.editor.mount(this.editorMount);
     startClipWatch();
+    bus.on("pip:install", async ({ pkg }) => {
+      const win = this.sys.os === "windows";
+      const py = await this.resolvePython((win ? "python" : "python3") + " ");
+      if (py === null) return;
+      await this.terminal.run(`${py.trim()} -m pip install ${pkg}`);
+    });
     this.editorMount.addEventListener("contextmenu", (e) => {
       e.preventDefault();
       this.editorMenu(e.clientX, e.clientY);
@@ -960,7 +966,7 @@ export class App {
     const view = settings.get("editor.sideView") === "output" ? "output" : "values";
     const step = this.traceStep && this.traceStep.docId === docId ? this.traceStep : null;
     const time = step ? (stepTimes(raw, step.line)[step.index] ?? null) : null;
-    this.editor.showValues(docId, { values: formatTrace(raw, view, time), raw, time });
+    this.editor.showValues(docId, { values: formatTrace(raw, view, time, this.editor.getText(docId)), raw, time });
     if (step && docId === this.activeId && moveCursor && this.editor.cursor().line !== step.line) this.editor.goTo(step.line, 1);
     this.renderBreadcrumbs();
   }

@@ -1,3 +1,5 @@
+import { explainRuntime } from "./pyErrors";
+import { t } from "../core/i18n";
 // 「値を見る」：Python のプログラムを、行ごとの変数の値を記録しながら実行する
 // 実行はターミナルで行う（input() も使える）。終わると JSON に記録が書き出されるので、それを読んで行の横に表示する
 
@@ -136,10 +138,19 @@ def main():
     except BaseException as e:
         sys.settrace(None)
         line = None
+        col = None
+        end_col = None
         for fr in traceback.extract_tb(e.__traceback__):
             if os.path.abspath(fr.filename) == target:
                 line = fr.lineno
-        error = {"line": line, "message": type(e).__name__ + ": " + str(e)}
+                col = getattr(fr, "colno", None)
+                end_col = getattr(fr, "end_colno", None)
+        try:
+            detail = "".join(traceback.format_exception_only(type(e), e)).strip().splitlines()[-1]
+        except Exception:
+            detail = type(e).__name__ + ": " + str(e)
+        nm = getattr(e, "name", None)
+        error = {"line": line, "message": type(e).__name__ + ": " + str(e), "type": type(e).__name__, "detail": detail, "name": nm if isinstance(nm, str) else None, "col": col, "endCol": end_col}
         # 自分のプログラムの部分だけのエラー表示にする（トレーサーの中は見せない）
         tb = e.__traceback__
         while tb is not None and os.path.abspath(tb.tb_frame.f_code.co_filename) != target:
@@ -171,7 +182,19 @@ export interface TraceRecord {
 
 export interface TraceResult {
   lines: Record<string, { n: number; recs: TraceRecord[] }>;
-  error: { line: number | null; message: string } | null;
+  error: {
+    line: number | null;
+    message: string;
+    /** NameError など */
+    type?: string;
+    /** Python が出す 1 行（Did you mean: … も入る） */
+    detail?: string;
+    /** まちがえた名前（NameError・AttributeError） */
+    name?: string | null;
+    /** その行の中の場所（0 から） */
+    col?: number | null;
+    endCol?: number | null;
+  } | null;
   truncated: boolean;
 }
 
@@ -220,7 +243,7 @@ function varsText(r: TraceRecord): string {
  * 記録を、行ごとの表示の文にする。
  * view：values（変数の値）か output（その行の出力）。time を渡すと「その瞬間」の値だけを出す（ステップ表示）
  */
-export function formatTrace(result: TraceResult, view: TraceView = "values", time: number | null = null): Map<number, LineValue> {
+export function formatTrace(result: TraceResult, view: TraceView = "values", time: number | null = null, source?: string): Map<number, LineValue> {
   const out = new Map<number, LineValue>();
   for (const [lineStr, entry] of Object.entries(result.lines)) {
     const line = Number(lineStr);
@@ -283,7 +306,8 @@ export function formatTrace(result: TraceResult, view: TraceView = "values", tim
     }
   }
   if (result.error?.line && (time === null || time >= maxTime(result))) {
-    out.set(result.error.line, { text: `✖ ${result.error.message}`, detail: result.error.message, kind: "error" });
+    const ex = explainRuntime(result.error, source);
+    out.set(result.error.line, { text: `✖ ${ex.text}${ex.fix ? `　${t("rt.tabHint", { to: ex.fix.to })}` : ""}`, detail: `${ex.text}\n${ex.hint ? ex.hint + "\n" : ""}（${result.error.detail ?? result.error.message}）`, kind: "error" });
   }
   return out;
 }

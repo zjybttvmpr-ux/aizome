@@ -6,6 +6,10 @@ import { EditorView, keymap } from "@codemirror/view";
 import { Prec, type EditorState, type Extension } from "@codemirror/state";
 import { checkCode, checkLangByName, checkLangOf, importEdit, type CheckLang, type Fix, type Problem } from "./codeCheck";
 import { inferUpdated } from "./checkEvents";
+import { setValues, traceAt } from "./valueLens";
+import { tabHooks } from "./ghost";
+import { explainRuntime } from "../run/pyErrors";
+import { contextMenu, type MenuItem as CtxItem } from "../ui/fileTree";
 import { cachedPyCheck, pyCheck, translatePy, ZENKAKU_FIX, type PyIssue } from "../run/pycheck";
 import { docFilename } from "./ghost";
 import { filenameForLanguage } from "../core/languages";
@@ -26,6 +30,21 @@ export function checkLangOfState(state: EditorState): CheckLang | null {
   return lang ? checkLangByName(lang.name) : null;
 }
 
+/** 実行するとエラーになりそうなこと（自動判定の行の右に出す用）：まだない名前・モジュールにない名前・0 で割る など */
+export function predictedProblems(state: EditorState): { line: number; text: string }[] {
+  if (!settings.get("editor.liveCheck")) return [];
+  const out: { line: number; text: string }[] = [];
+  for (const p of problemsOf(state, null)) {
+    if (p.kind !== "undefined" && p.kind !== "runtime") continue;
+    if (p.msg === "rt.dynamic") continue;
+    const line = state.doc.lineAt(Math.min(p.from, state.doc.length)).number;
+    if (out.some((x) => x.line === line)) continue;
+    const msg = t(p.msg, p.args ?? {});
+    out.push({ line, text: p.kind === "undefined" ? t("predict.name", { msg }) : t("predict.runtime", { msg }) });
+  }
+  return out;
+}
+
 /** 文法のまちがい（自動判定の行の右に出す用）。行番号と短い説明 */
 export function syntaxProblems(state: EditorState): { line: number; text: string }[] {
   const lang = checkLangOfState(state);
@@ -43,6 +62,72 @@ export function syntaxProblems(state: EditorState): { line: number; text: string
   }
   return out;
 }
+
+// ───────── 「値を見る」で出た実行時のエラー（日本語の説明と直し方）
+
+/** その行の中で、find がいちばん col に近い場所 */
+function findInLine(text: string, find: string, attr: boolean, col: number | null | undefined): number {
+  const re = attr ? new RegExp(`\\.(${find})\\b`, "g") : new RegExp(`(?<![\\w.])(${find})\\b`, "g");
+  let best = -1;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text))) {
+    const at = m.index + (attr ? 1 : 0);
+    if (best < 0 || (col != null && Math.abs(at - col) < Math.abs(best - col))) best = at;
+  }
+  return best;
+}
+
+export function runtimeProblems(state: EditorState): Problem[] {
+  const err = traceAt(state)?.error;
+  if (!err?.line || err.line > state.doc.lines) return [];
+  const line = state.doc.line(err.line);
+  const ex = explainRuntime(err, state.doc.toString());
+  const lead = /^\s*/.exec(line.text)![0].length;
+  let from = line.from + lead;
+  let to = Math.max(from + 1, line.from + line.text.trimEnd().length);
+  if (err.col != null && err.endCol != null && err.endCol > err.col && err.endCol <= line.text.length) {
+    from = line.from + err.col;
+    to = line.from + err.endCol;
+  }
+  const fixes: Fix[] = [];
+  if (ex.fix) {
+    const at = findInLine(line.text, ex.fix.find, !!ex.fix.attr, err.col);
+    if (at >= 0) {
+      from = line.from + at;
+      to = from + ex.fix.find.length;
+      fixes.push({ label: "rt.fixLabel", args: { to: ex.fix.to }, changes: [{ from, to, insert: ex.fix.to }] });
+    }
+  }
+  return [{ from, to: Math.min(to, line.to), kind: "runtime", severity: "error", msg: "rt.dynamic", args: { text: ex.text + (ex.hint ? `\n${ex.hint}` : ""), install: ex.install ?? "" }, fixes }];
+}
+
+/** Tab：カーソルの行に、実行時のエラーやタイプミスの直し方があれば、それを使う */
+function tabFix(view: EditorView): boolean {
+  const sel = view.state.selection.main;
+  if (!sel.empty) return false;
+  const line = view.state.doc.lineAt(sel.head);
+  const onLine = (p: Problem) => p.fixes.length > 0 && p.from >= line.from && p.from <= line.to;
+  const list = [...runtimeProblems(view.state), ...problemsOf(view.state, null).filter((p) => p.msg === "check.undefinedNear" || p.msg === "pyl.attr_missing")].filter(onLine);
+  if (!list.length) return false;
+  list.sort((a, b) => Math.abs(a.from - sel.head) - Math.abs(b.from - sel.head));
+  view.dispatch({ changes: list[0].fixes[0].changes, userEvent: "input.quickfix" });
+  return true;
+}
+tabHooks.push(tabFix);
+
+/** エラーの印（✖ …）を押したとき：説明と直し方の一覧 */
+window.addEventListener("aizome:runtime-error", (e) => {
+  const { el, x, y } = (e as CustomEvent<{ el: HTMLElement; x: number; y: number }>).detail;
+  const view = [...views].find((v) => v.dom.contains(el));
+  if (!view) return;
+  const [p] = runtimeProblems(view.state);
+  if (!p) return;
+  const lines = (p.args?.text ?? "").split("\n");
+  const items: CtxItem[] = [{ label: t("rt.menuTitle"), note: true }, ...lines.map((l) => ({ label: l, note: true }))];
+  for (const f of p.fixes) items.push({ label: t(f.label, f.args ?? {}), hint: "Tab", run: () => view.dispatch({ changes: f.changes, userEvent: "input.quickfix" }) });
+  if (p.args?.install) items.push({ label: t("rt.pipLabel", { pip: p.args.install }), run: () => bus.emit("pip:install", { pkg: p.args!.install }) });
+  contextMenu(x, y, items);
+});
 
 function problemsOf(state: EditorState, cursor: number | null, py: PyIssue[] | null = null): Problem[] {
   const lang = checkLangOfState(state);
@@ -64,6 +149,7 @@ function problemsOf(state: EditorState, cursor: number | null, py: PyIssue[] | n
     }
     out.push(...treeErrors(state, out, true));
   } else if (live) out.push(...treeErrors(state, out));
+  if (live) out.push(...runtimeProblems(state));
   return out;
 }
 
@@ -146,6 +232,9 @@ export function pyProblems(state: EditorState, issues: PyIssue[]): Problem[] {
             break;
           }
         }
+      }
+      if ((key === "attr_missing") && args.near) {
+        fixes.push({ label: "rt.fixLabel", args: { to: args.near }, changes: [{ from, to, insert: args.near }] });
       }
       if (key === "no_self") {
         const m = /\(\s*\)/.exec(line.text);
@@ -387,6 +476,8 @@ export function liveCheck(): Extension {
     Prec.high(keymap.of([{ key: "Mod-.", run: quickFix }])),
     EditorView.updateListener.of((u) => {
       views.add(u.view);
+      // 「値を見る」の結果が来たら、実行時のエラーの波線もすぐ出す
+      if (u.transactions.some((tr) => tr.effects.some((e) => e.is(setValues)))) forceLinting(u.view);
     }),
   ];
 }

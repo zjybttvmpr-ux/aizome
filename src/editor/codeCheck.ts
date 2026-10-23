@@ -443,7 +443,7 @@ export function lex(text: string, lang: CheckLang): Lexed {
 const PY_KEYWORDS = new Set(
   "False None True and as assert async await break class continue def del elif else except finally for from global if import in is lambda nonlocal not or pass raise return try while with yield".split(" "),
 );
-const PY_BUILTINS = new Set(
+export const PY_BUILTINS = new Set(
   (
     "abs aiter all anext any ascii bin bool breakpoint bytearray bytes callable chr classmethod compile complex copyright credits delattr dict dir divmod " +
     "enumerate eval exec exit filter float format frozenset getattr globals hasattr hash help hex id input int isinstance issubclass iter len license list " +
@@ -686,16 +686,38 @@ function editDistance(a: string, b: string, max: number): number {
   return d[a.length][b.length];
 }
 
-function closest(name: string, pool: Iterable<string>): string | null {
+/** よく使う名前（打ちかけ・タイプミスの候補で先に出す） */
+const COMMON_NAMES = ["print", "input", "range", "len", "int", "str", "float", "list", "dict", "set", "tuple", "sorted", "sum", "max", "min", "abs", "round", "open", "enumerate", "zip", "type", "isinstance", "bool", "format", "reversed", "map", "filter", "any", "all"];
+
+/** タイプミスの直し方の候補：同じ大文字小文字ちがい → 打ちかけ（pr → print）→ 1〜2 文字ちがい */
+export function closest(name: string, pool: Iterable<string>): string | null {
+  const list = [...new Set(pool)].filter((c) => c !== name && c.length >= 2);
+  const lower = name.toLowerCase();
+  const sameCase = list.find((c) => c.toLowerCase() === lower);
+  if (sameCase) return sameCase;
   const max = name.length >= 6 ? 2 : 1;
   let best: string | null = null;
   let bestD = max + 1;
-  for (const cand of pool) {
-    if (cand === name || cand.length < 2) continue;
-    const d = cand.toLowerCase() === name.toLowerCase() ? 0.5 : editDistance(name, cand, max);
-    if (d < bestD) {
+  for (const cand of list) {
+    const d = editDistance(name, cand, max);
+    if (d < bestD || (d === bestD && best && COMMON_NAMES.indexOf(cand) >= 0 && (COMMON_NAMES.indexOf(best) < 0 || COMMON_NAMES.indexOf(cand) < COMMON_NAMES.indexOf(best)))) {
       bestD = d;
       best = cand;
+    }
+  }
+  // 打ちかけ（先頭が同じで、少し短い）は、よく使う名前を優先
+  if (name.length >= 2) {
+    const prefix = list.filter((c) => c.startsWith(name) && c.length - name.length <= 6);
+    if (prefix.length) {
+      prefix.sort((a, b) => {
+        const ia = COMMON_NAMES.indexOf(a);
+        const ib = COMMON_NAMES.indexOf(b);
+        if (ia >= 0 || ib >= 0) return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib);
+        return a.length - b.length;
+      });
+      const p = prefix[0];
+      // 1 文字ちがいの候補があって、それがよく使う名前なら、そちら（pirnt → print）
+      if (!best || bestD > 1 || COMMON_NAMES.indexOf(p) >= 0) return p;
     }
   }
   return best;

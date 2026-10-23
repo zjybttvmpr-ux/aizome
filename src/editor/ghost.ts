@@ -112,6 +112,9 @@ let acceptWhenReady = 0;
  * 4. 単語の途中や行の途中ではインデントを入れない（一覧を呼ぶだけ）
  * 5. 行の頭（空白だけの前）や範囲を選んでいるときだけ、ふつうのインデント
  */
+/** Tab で先に試す処理（エラーの直し方など）。true を返したら Tab はそこで使われる */
+export const tabHooks: ((view: EditorView) => boolean)[] = [];
+
 function onTab(view: EditorView): boolean {
   const listKey = settings.get("editor.listKey") === "tab";
   const status = completionStatus(view.state);
@@ -119,6 +122,7 @@ function onTab(view: EditorView): boolean {
   if (accept(view)) return true;
   // ひな形の入力欄を移動しているときは、そちらに任せる
   if (hasNextSnippetField(view.state)) return false;
+  for (const hook of tabHooks) if (hook(view)) return true;
   const sel = view.state.selection.main;
   if (!sel.empty) return false;
   const line = view.state.doc.lineAt(sel.head);

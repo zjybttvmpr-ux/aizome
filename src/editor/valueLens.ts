@@ -18,6 +18,14 @@ class ValueWidget extends WidgetType {
     el.className = `cm-value ${this.v.kind}`;
     el.textContent = this.v.text;
     el.title = this.v.detail;
+    if (this.v.kind === "error") {
+      // 押すと直し方の一覧（liveCheck が受け取る）
+      el.addEventListener("mousedown", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        window.dispatchEvent(new CustomEvent("aizome:runtime-error", { detail: { el, x: e.clientX, y: e.clientY } }));
+      });
+    }
     return el;
   }
   ignoreEvent() {

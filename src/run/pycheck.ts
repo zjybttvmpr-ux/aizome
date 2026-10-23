@@ -237,7 +237,35 @@ if tree is not None:
             if not exits:
                 l, c, el, ec = pos(n)
                 add("warning", "lint", "endless", l, c, l, c + 5)
-    # ── == で比べるつもりの「is 数」は SyntaxWarning で出る。if の中の代入はそもそも文法エラー
+    # ── import したモジュールにない名前（math.cil など）。読み込んでも安全な標準のモジュールだけ調べる
+    SAFE = {"math", "random", "time", "datetime", "json", "re", "string", "statistics", "itertools", "functools", "collections",
+            "copy", "csv", "decimal", "fractions", "heapq", "bisect", "os", "sys", "pathlib", "calendar", "textwrap", "operator", "cmath", "array", "enum", "typing", "dataclasses"}
+    import importlib, difflib
+    mods = {}
+    for st in ast.walk(tree):
+        if isinstance(st, ast.Import):
+            for al in st.names:
+                top = al.name.split(".")[0]
+                if al.name in SAFE and (al.asname or "." not in al.name):
+                    mods[al.asname or al.name] = al.name
+    rebound = {k for k in assigns if k in mods}
+    loaded = {}
+    for n in ast.walk(tree):
+        if isinstance(n, ast.Attribute) and isinstance(n.value, ast.Name) and n.value.id in mods and n.value.id not in rebound:
+            name = mods[n.value.id]
+            if name not in loaded:
+                try:
+                    loaded[name] = importlib.import_module(name)
+                except Exception:
+                    loaded[name] = None
+            m = loaded[name]
+            if m is None or hasattr(m, n.attr):
+                continue
+            near = difflib.get_close_matches(n.attr, [x for x in dir(m) if not x.startswith("_")], n=1, cutoff=0.6)
+            el = getattr(n, "end_lineno", n.lineno)
+            ec = (getattr(n, "end_col_offset", 0) or 0) + 1
+            key = "attr_missing" if near else "attr_missing_none"
+            add("warning", "lint", key + "|" + json.dumps({"mod": n.value.id, "attr": n.attr, "near": near[0] if near else ""}, ensure_ascii=False), el, ec - len(n.attr), el, ec)
 print(json.dumps(out, ensure_ascii=False))
 `;
 
