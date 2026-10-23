@@ -4294,3 +4294,18 @@ html.has-bg .pane-bar {
   text-decoration: underline dotted color-mix(in srgb, var(--text-muted) 80%, transparent);
   text-underline-offset: 3px;
 }
+
+/* 行の右のまちがい（書きながら・実行して出たもの） */
+.cm-value.warn {
+  color: color-mix(in srgb, #d29922 85%, var(--text));
+  background: color-mix(in srgb, #d29922 14%, transparent);
+}
+.cm-value.error,
+.cm-value.warn,
+.cm-inline-problem,
+.cm-run-error {
+  cursor: pointer;
+}
+.cm-inline-problem {
+  opacity: 0.9;
+}

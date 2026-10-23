@@ -11,6 +11,7 @@ import { docFilename, ghostPos } from "./ghost";
 import { hasValueAt, setValues } from "./valueLens";
 import { sideMode, sideModeChanged } from "./sideMode";
 import { inferUpdated, riskLines } from "./autoInfer";
+import { inlineLines } from "./liveCheck";
 import { inferBusy } from "./inferState";
 
 const refresh = StateEffect.define<null>();
@@ -64,7 +65,7 @@ function build(view: EditorView): DecorationSet {
   const side = sideMode();
   if (mode === "off" || (side !== "explain" && side !== "auto")) return Decoration.none;
   // 自動判定ではエラーの可能性（⚠）を優先し、その行には説明を出さない
-  const risky = side === "auto" ? riskLines(view.state) : new Set<number>();
+  const risky = side === "auto" ? riskLines(view.state) : inlineLines(view.state);
   const filename = view.state.facet(docFilename);
   const ghost = ghostPos(view.state);
   const ghostLine = ghost !== null ? view.state.doc.lineAt(ghost).number : -1;

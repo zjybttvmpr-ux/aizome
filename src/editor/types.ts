@@ -46,6 +46,8 @@ export interface EditorHost {
    * 複数行のひな形で、カーソルの行に文字があるときは、次の行に入れる
    */
   insertSnippet(template: string): void;
+  /** 実行・コンパイルで出たエラーを、その行の右に日本語で出す（空で消す） */
+  showRunErrors(id: string, errors: import("../run/errorExplain").ParsedError[]): void;
   /** カーソルのある名前（変数・関数）。なければ null */
   symbolAtCursor(): { name: string; count: number } | null;
   /** ファイル内の名前をまとめて変える。変えた数を返す */

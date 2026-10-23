@@ -130,6 +130,36 @@ export function explainRuntime(err: RuntimeError, source?: string): RuntimeExpla
       return r("rt.stopIteration");
     case "PermissionError":
       return r("rt.permission");
+    case "IsADirectoryError":
+      return { text: "IsADirectoryError：ファイルではなくフォルダを開こうとしています" };
+    case "NotADirectoryError":
+      return { text: "NotADirectoryError：フォルダではなくファイルを指定しています" };
+    case "FileExistsError":
+      return { text: "FileExistsError：同じ名前のファイル（フォルダ）がもうあります" };
+    case "JSONDecodeError":
+      return { text: `JSONDecodeError：JSON として読めません（${msg}）`, hint: "ファイルの中身が JSON の書き方になっているか確かめましょう" };
+    case "NotImplementedError":
+      return { text: "NotImplementedError：まだ中身を作っていない部分を呼びました" };
+    case "RuntimeError":
+      return { text: `RuntimeError：実行中に問題が起きました（${msg}）` };
+    case "MemoryError":
+      return { text: "MemoryError：メモリが足りません（大きすぎるリストなど）" };
+    case "TimeoutError":
+      return { text: "TimeoutError：時間内に終わりませんでした" };
+    case "ConnectionError":
+    case "ConnectionRefusedError":
+    case "ConnectionResetError":
+      return { text: `${type}：つながりませんでした（ネットや相手の状態を確かめましょう）` };
+    case "TclError":
+      return { text: `TclError：tkinter の画面でエラー（${msg}）`, hint: "ウィンドウを閉じたあとに部品を使っていないか確かめましょう" };
+    case "LookupError":
+    case "UnicodeEncodeError":
+      return { text: `${type}：この文字はその文字コードで書けません`, hint: "encoding=\"utf-8\" を付けてみましょう" };
+    case "SystemExit":
+      return { text: "プログラムが exit( ) で終わりました" };
+    case "GeneratorExit":
+    case "StopAsyncIteration":
+      return { text: `${type}：${msg}` };
   }
   return r("rt.other", { type, msg: msg.slice(0, 120) });
 }

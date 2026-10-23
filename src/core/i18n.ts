@@ -929,9 +929,9 @@ const ja: Dict = {
   "check.missingCloseHere": "ここに「{want}」が必要です（{line} 行目 {col} 文字目の「{c}」が閉じていません）",
   "check.openedHere": "この「{c}」が閉じていません（{line} 行目に「{want}」が必要です）",
   "check.cascade": "↑ {line} 行目のまちがいが原因で、この行もエラーに見えています（{cause}）。{line} 行目を直すと消えます",
-  "rt.tabHint": "Tab で「{to}」に直す",
+  "rt.tabHint": "ホイール押し込みで「{to}」に直す",
   "rt.nameNear": "NameError：「{name}」という名前はありません。「{near}」のまちがい？",
-  "rt.nameNearHint": "Tab か、ここを押すと「{near}」に直せます",
+  "rt.nameNearHint": "ホイールの押し込み（中クリック）か、ここを押すと「{near}」に直せます",
   "rt.name": "NameError：「{name}」という名前はまだ作られていません",
   "rt.nameHint": "使う前に {name} = … で作るか、import が足りないか、名前のつづりを確かめましょう",
   "rt.modAttrNear": "AttributeError：{mod} に「{name}」はありません。「{near}」のまちがい？",
@@ -1000,6 +1000,10 @@ const ja: Dict = {
   "predict.name": "実行するとエラー（NameError）：{msg}",
   "predict.runtime": "実行するとエラーになりそう：{msg}",
   "rt.dynamic": "{text}",
+  "rt.wheel": "ホイール押し込み",
+  "feat.inlineErrors": "まちがいを行の右にも出す",
+  "feat.inlineErrors.help": "書きながら見つけたまちがい（まだない名前・import 忘れ・文法のまちがいなど）を、値を見るのエラーと同じように行の右に日本語で出します。その行でホイールを押し込む（中クリック）と直せます。",
+  "run.errorsFound": "エラーが {n} 個ありました。行の右に日本語で説明を出しています（ホイール押し込みで直せるものもあります）",
 };
 
 const en: Dict = {
@@ -1910,7 +1914,7 @@ const en: Dict = {
   "check.missingCloseHere": "“{want}” is needed here (the “{c}” at line {line}, column {col} is not closed)",
   "check.openedHere": "This “{c}” is not closed (“{want}” is needed on line {line})",
   "check.cascade": "↑ Caused by the mistake on line {line} ({cause}). Fixing line {line} will clear this",
-  "rt.tabHint": "Tab: change to “{to}”",
+  "rt.tabHint": "Middle-click: change to “{to}”",
   "rt.nameNear": "NameError: “{name}” is not defined. Did you mean “{near}”?",
   "rt.nameNearHint": "Press Tab or click here to change it to “{near}”",
   "rt.name": "NameError: “{name}” is not defined",
@@ -1981,6 +1985,10 @@ const en: Dict = {
   "predict.name": "Will fail (NameError): {msg}",
   "predict.runtime": "Likely to fail: {msg}",
   "rt.dynamic": "{text}",
+  "rt.wheel": "Middle-click",
+  "feat.inlineErrors": "Show mistakes at the end of the line",
+  "feat.inlineErrors.help": "Shows the mistakes found while typing (undefined names, missing imports, syntax errors…) at the end of the line, like errors from Show values. Middle-click the line to apply the fix.",
+  "run.errorsFound": "{n} errors were explained next to the lines (middle-click a line to fix it)",
 };
 
 const dicts: Record<string, Dict> = { ja, en };

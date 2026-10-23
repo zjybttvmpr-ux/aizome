@@ -40,6 +40,13 @@
 - メニューの AI →「組み立て用のひな形を入れる」で見本が入ります
 - 小さいモデル（1.5b）だと組み立ての質が落ちます。できれば `qwen2.5-coder:7b` 以上を使ってください
 
+### 0.27.0：まちがいを行の右に・ホイール押し込みで直す・全言語のエラーを日本語に
+
+- 書きながら見つけたまちがい（`pr(…)` → もしかして print、`math.cil` → もしかして ceil、文法のまちがい、import 忘れなど）を、**値を見るのエラーと同じように行の右** に日本語で出します（押すと説明と直し方の一覧）
+- 直すのは **ホイールの押し込み（中クリック）** に変えました（Tab は補完のまま）。その行で中クリックすると、いちばん確かな直し方を使います
+- **実行して出たエラーを、どの言語でも日本語で行の右に**：Python・C#（Unity）・Java・C/C++・JavaScript/TypeScript・Go・Rust・Ruby・PHP・Lua・Kotlin・Swift・Dart・シェル・PowerShell・SQL のコンパイルエラーと実行時エラー（例外）を読み取って、その行に説明とヒントを出します
+- ターミナルの「エラーを日本語で」も、ほかの言語のエラーまで説明できるようになりました
+
 ### 0.26.0：実行時のエラーを日本語で・Tab で直す・実行前に予想
 
 - 「値を見る」で出たエラー（✖ …）を **日本語** に（NameError・AttributeError・TypeError・ValueError・IndexError・KeyError・ZeroDivisionError・UnboundLocalError・ModuleNotFoundError など）

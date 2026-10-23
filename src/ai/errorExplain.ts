@@ -1,4 +1,5 @@
 // ターミナルに出たエラーを、日本語でかんたんに説明する（よくあるものはルールで、すぐに）
+import { translateError } from "../run/errorExplain";
 
 export interface ErrorExplanation {
   /** エラーの名前（例：NameError） */
@@ -201,6 +202,15 @@ export function explainError(output: string, os = "windows"): ErrorExplanation |
       const place = findPlace(lines, i);
       return { kind: /^[A-Z]\w+(Error|Exception|Interrupt)$/.test(l.split(":")[0].trim()) ? l.split(":")[0].trim() : kind, raw: l.trim(), ...r, ...place };
     }
+  }
+  // ほかの言語（C#・Java・C/C++・Go・Rust・JavaScript・Ruby・Lua・シェルなど）のエラーの表
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const l = lines[i].trim();
+    if (!l || !/error|exception|panic|fault|not found|undefined|expected|cannot|unexpected|denied|not recognized|attempt to/i.test(l)) continue;
+    const ex2 = translateError(l, null);
+    if (ex2.text === l) continue;
+    const place = findPlace(lines, i);
+    return { kind: /\b(\w+(?:Error|Exception))\b/.exec(l)?.[1] ?? "エラー", raw: l, what: ex2.text, fix: ex2.hint ?? "上の行のエラーの場所（ファイル:行）をクリックすると、その行へ移動できます。", ...place };
   }
   return null;
 }

@@ -2,12 +2,13 @@
 // 波線にマウスを乗せると直し方のボタンが出る。Ctrl+. でカーソルの行の直し方をすぐ使える。
 import { forceLinting, linter, type Action, type Diagnostic } from "@codemirror/lint";
 import { language, syntaxTree } from "@codemirror/language";
-import { EditorView, keymap } from "@codemirror/view";
-import { Prec, type EditorState, type Extension } from "@codemirror/state";
+import { Decoration, EditorView, WidgetType, keymap, type DecorationSet } from "@codemirror/view";
+import { Prec, RangeSetBuilder, StateEffect, StateField, type EditorState, type Extension } from "@codemirror/state";
 import { checkCode, checkLangByName, checkLangOf, importEdit, type CheckLang, type Fix, type Problem } from "./codeCheck";
 import { inferUpdated } from "./checkEvents";
-import { setValues, traceAt } from "./valueLens";
-import { tabHooks } from "./ghost";
+import { hasValueAt, setValues, traceAt } from "./valueLens";
+import { runErrorsAt, setRunErrors } from "./runErrors";
+import { sideMode, sideModeChanged } from "./sideMode";
 import { explainRuntime } from "../run/pyErrors";
 import { contextMenu, type MenuItem as CtxItem } from "../ui/fileTree";
 import { cachedPyCheck, pyCheck, translatePy, ZENKAKU_FIX, type PyIssue } from "../run/pycheck";
@@ -101,33 +102,176 @@ export function runtimeProblems(state: EditorState): Problem[] {
   return [{ from, to: Math.min(to, line.to), kind: "runtime", severity: "error", msg: "rt.dynamic", args: { text: ex.text + (ex.hint ? `\n${ex.hint}` : ""), install: ex.install ?? "" }, fixes }];
 }
 
-/** Tab：カーソルの行に、実行時のエラーやタイプミスの直し方があれば、それを使う */
-function tabFix(view: EditorView): boolean {
-  const sel = view.state.selection.main;
-  if (!sel.empty) return false;
-  const line = view.state.doc.lineAt(sel.head);
-  const onLine = (p: Problem) => p.fixes.length > 0 && p.from >= line.from && p.from <= line.to;
-  const list = [...runtimeProblems(view.state), ...problemsOf(view.state, null).filter((p) => p.msg === "check.undefinedNear" || p.msg === "pyl.attr_missing")].filter(onLine);
+/** 実行・コンパイルで出たエラー（どの言語でも）を、波線と直し方にする */
+export function runErrorProblems(state: EditorState): Problem[] {
+  const out: Problem[] = [];
+  for (const it of runErrorsAt(state)) {
+    if (it.pos > state.doc.length) continue;
+    const line = state.doc.lineAt(it.pos);
+    const lead = /^\s*/.exec(line.text)![0].length;
+    let from = line.from + lead;
+    let to = Math.max(from + 1, line.from + line.text.trimEnd().length);
+    if (it.col && it.col - 1 < line.text.length) {
+      from = line.from + it.col - 1;
+      const w = /^[\w$]+/.exec(line.text.slice(it.col - 1));
+      to = w ? from + w[0].length : Math.min(line.to, from + 1);
+    }
+    const fixes: Fix[] = [];
+    if (it.fix) {
+      const at = findInLine(line.text, it.fix.find, !!it.fix.attr, it.col ? it.col - 1 : null);
+      if (at >= 0) {
+        from = line.from + at;
+        to = from + it.fix.find.length;
+        fixes.push({ label: "rt.fixLabel", args: { to: it.fix.to }, changes: [{ from, to, insert: it.fix.to }] });
+      }
+    }
+    out.push({ from, to: Math.min(Math.max(to, from + 1), line.to), kind: "runtime", severity: it.severity, msg: "rt.dynamic", args: { text: it.text + (it.hint ? `\n${it.hint}` : ""), install: it.install ?? "" }, fixes });
+  }
+  return out;
+}
+
+/** その行の、直し方のある問題（実行時のエラー・実行やコンパイルのエラー・書きながらのチェック） */
+function lineProblems(state: EditorState, lineNo: number): Problem[] {
+  const line = state.doc.line(Math.max(1, Math.min(lineNo, state.doc.lines)));
+  const on = (p: Problem) => p.from >= line.from && p.from <= line.to;
+  const seen = new Set<string>();
+  return [...runtimeProblems(state), ...runErrorProblems(state), ...problemsOf(state, null).filter((p) => p.severity !== "info")]
+    .filter(on)
+    .filter((p) => {
+      const k = `${p.from}:${p.msg}:${JSON.stringify(p.args ?? {})}`;
+      if (seen.has(k)) return false;
+      seen.add(k);
+      return true;
+    });
+}
+
+/** ホイールの押し込み（中クリック）：その行の、いちばん確かな直し方を使う */
+function applyLineFix(view: EditorView, lineNo: number, near: number): boolean {
+  const list = lineProblems(view.state, lineNo).filter((p) => p.fixes.length > 0);
   if (!list.length) return false;
-  list.sort((a, b) => Math.abs(a.from - sel.head) - Math.abs(b.from - sel.head));
+  // 実行して出たエラー → タイプミス → そのほか の順。同じなら押した場所に近いもの
+  const rank = (p: Problem) => (p.kind === "runtime" ? 0 : p.msg === "check.undefinedNear" || p.msg === "pyl.attr_missing" ? 1 : p.severity === "error" ? 2 : 3);
+  list.sort((a, b) => rank(a) - rank(b) || Math.abs(a.from - near) - Math.abs(b.from - near));
   view.dispatch({ changes: list[0].fixes[0].changes, userEvent: "input.quickfix" });
   return true;
 }
-tabHooks.push(tabFix);
 
 /** エラーの印（✖ …）を押したとき：説明と直し方の一覧 */
+function showProblemMenu(view: EditorView, lineNo: number, x: number, y: number) {
+  const list = lineProblems(view.state, lineNo);
+  if (!list.length) return;
+  const items: CtxItem[] = [{ label: t("rt.menuTitle"), note: true }];
+  for (const p of list) {
+    const text = p.msg === "rt.dynamic" ? p.args?.text ?? "" : t(p.msg, p.args ?? {});
+    for (const l of text.split("\n")) items.push({ label: l, note: true });
+    for (const f of p.fixes) items.push({ label: t(f.label, f.args ?? {}), hint: t("rt.wheel"), run: () => view.dispatch({ changes: f.changes, userEvent: "input.quickfix" }) });
+    if (p.args?.install) items.push({ label: t("rt.pipLabel", { pip: p.args.install }), run: () => bus.emit("pip:install", { pkg: p.args!.install }) });
+    items.push({ label: "", sep: true });
+  }
+  items.pop();
+  contextMenu(x, y, items);
+}
+
 window.addEventListener("aizome:runtime-error", (e) => {
   const { el, x, y } = (e as CustomEvent<{ el: HTMLElement; x: number; y: number }>).detail;
   const view = [...views].find((v) => v.dom.contains(el));
-  if (!view) return;
-  const [p] = runtimeProblems(view.state);
-  if (!p) return;
-  const lines = (p.args?.text ?? "").split("\n");
-  const items: CtxItem[] = [{ label: t("rt.menuTitle"), note: true }, ...lines.map((l) => ({ label: l, note: true }))];
-  for (const f of p.fixes) items.push({ label: t(f.label, f.args ?? {}), hint: "Tab", run: () => view.dispatch({ changes: f.changes, userEvent: "input.quickfix" }) });
-  if (p.args?.install) items.push({ label: t("rt.pipLabel", { pip: p.args.install }), run: () => bus.emit("pip:install", { pkg: p.args!.install }) });
-  contextMenu(x, y, items);
+  const err = view ? traceAt(view.state)?.error : null;
+  if (view && err?.line) showProblemMenu(view, err.line, x, y);
 });
+window.addEventListener("aizome:problem-menu", (e) => {
+  const { el, x, y, line } = (e as CustomEvent<{ el: HTMLElement; x: number; y: number; line: number }>).detail;
+  const view = [...views].find((v) => v.dom.contains(el));
+  if (view) showProblemMenu(view, line, x, y);
+});
+
+// ───────── 書きながら見つけたまちがいを、行の右にも出す（値を見るのエラーと同じ形）
+
+const setInline = StateEffect.define<{ pos: number; text: string; fix: string | null; severity: "error" | "warning" }[]>();
+
+class InlineWidget extends WidgetType {
+  constructor(
+    readonly text: string,
+    readonly fix: string | null,
+    readonly severity: "error" | "warning",
+    readonly line: number,
+  ) {
+    super();
+  }
+  eq(o: InlineWidget) {
+    return o.text === this.text && o.fix === this.fix && o.severity === this.severity;
+  }
+  toDOM() {
+    const el = document.createElement("span");
+    el.className = `cm-value ${this.severity === "error" ? "error" : "warn"} cm-inline-problem`;
+    el.textContent = `${this.severity === "error" ? "✖" : "⚠"} ${this.text}${this.fix ? `　${t("rt.tabHint", { to: this.fix })}` : ""}`;
+    el.title = this.text;
+    el.addEventListener("mousedown", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      window.dispatchEvent(new CustomEvent("aizome:problem-menu", { detail: { el, x: e.clientX, y: e.clientY, line: this.line } }));
+    });
+    return el;
+  }
+  ignoreEvent() {
+    return true;
+  }
+}
+
+const inlineField = StateField.define<{ items: { pos: number; text: string; fix: string | null; severity: "error" | "warning" }[]; deco: DecorationSet }>({
+  create: () => ({ items: [], deco: Decoration.none }),
+  update(value, tr) {
+    let items = value.items;
+    let changed = false;
+    for (const e of tr.effects) {
+      if (e.is(setInline)) {
+        items = e.value;
+        changed = true;
+      }
+      if (e.is(sideModeChanged) || e.is(setValues) || e.is(setRunErrors)) changed = true;
+    }
+    if (tr.docChanged) {
+      items = items.map((it) => ({ ...it, pos: tr.changes.mapPos(it.pos, -1) }));
+      changed = true;
+    }
+    if (!changed) return value;
+    return { items, deco: buildInline(tr.state, items) };
+  },
+  provide: (f) => EditorView.decorations.from(f, (v) => v.deco),
+});
+
+function buildInline(state: EditorState, items: { pos: number; text: string; fix: string | null; severity: "error" | "warning" }[]): DecorationSet {
+  // 自動判定では行の右に予想を出すので、ここでは出さない。値を見る・実行のエラーがある行も重ねない
+  if (!settings.get("editor.inlineErrors") || sideMode() === "auto" || sideMode() === "off") return Decoration.none;
+  const runLines = new Set(runErrorsAt(state).map((x) => state.doc.lineAt(Math.min(x.pos, state.doc.length)).number));
+  const b = new RangeSetBuilder<Decoration>();
+  const done = new Set<number>();
+  for (const it of [...items].sort((a, b) => a.pos - b.pos)) {
+    if (it.pos > state.doc.length) continue;
+    const line = state.doc.lineAt(it.pos);
+    if (done.has(line.number) || runLines.has(line.number) || hasValueAt(state, line.number)) continue;
+    done.add(line.number);
+    b.add(line.to, line.to, Decoration.widget({ widget: new InlineWidget(it.text, it.fix, it.severity, line.number), side: 3 }));
+  }
+  return b.finish();
+}
+
+/** 行の右にまちがいを出している行（行の説明はその行に重ねない） */
+export function inlineLines(state: EditorState): Set<number> {
+  const f = state.field(inlineField, false);
+  if (!f || !settings.get("editor.inlineErrors") || sideMode() === "auto" || sideMode() === "off") return new Set();
+  return new Set(f.items.filter((it) => it.pos <= state.doc.length).map((it) => state.doc.lineAt(it.pos).number));
+}
+
+function inlineItems(_state: EditorState, problems: Problem[]) {
+  const out: { pos: number; text: string; fix: string | null; severity: "error" | "warning" }[] = [];
+  for (const p of problems) {
+    if (p.severity === "info" || p.msg === "rt.dynamic") continue;
+    const fix = p.fixes[0];
+    const to = fix && fix.changes.length === 1 && fix.changes[0].insert && fix.changes[0].insert.length <= 30 && !fix.changes[0].insert.includes("\n") ? fix.changes[0].insert.trim() : null;
+    out.push({ pos: p.from, text: t(p.msg, p.args ?? {}), fix: p.kind === "undefined" || p.kind === "runtime" ? to : null, severity: p.severity === "error" ? "error" : "warning" });
+  }
+  return out;
+}
 
 function problemsOf(state: EditorState, cursor: number | null, py: PyIssue[] | null = null): Problem[] {
   const lang = checkLangOfState(state);
@@ -149,7 +293,7 @@ function problemsOf(state: EditorState, cursor: number | null, py: PyIssue[] | n
     }
     out.push(...treeErrors(state, out, true));
   } else if (live) out.push(...treeErrors(state, out));
-  if (live) out.push(...runtimeProblems(state));
+  if (live) out.push(...runtimeProblems(state), ...runErrorProblems(state));
   return out;
 }
 
@@ -467,13 +611,34 @@ export function liveCheck(): Extension {
           // 自動判定の「実行するとエラー」も描き直す
           if (fresh && py) setTimeout(() => view.dispatch({ effects: inferUpdated.of(null) }));
         }
-        return problemsOf(state, cursor, py)
-          .filter((p) => !typingLine(state, p))
-          .map((p) => toDiagnostic(state, p));
+        const shown = problemsOf(state, cursor, py).filter((p) => !typingLine(state, p));
+        // 行の右にも出す（実行時のエラー・実行やコンパイルのエラーは、それぞれの印があるので除く）
+        const inline = inlineItems(state, shown.filter((p) => p.kind !== "runtime" || p.msg !== "rt.dynamic"));
+        setTimeout(() => {
+          if (view.state.doc === state.doc) view.dispatch({ effects: [setInline.of(inline), inferUpdated.of(null)] });
+        });
+        return shown.map((p) => toDiagnostic(state, p));
       },
       { delay: 700 },
     ),
     Prec.high(keymap.of([{ key: "Mod-.", run: quickFix }])),
+    inlineField,
+    // ホイールの押し込み（中クリック）で、その行のまちがいを直す
+    EditorView.domEventHandlers({
+      mousedown(e, view) {
+        if (e.button !== 1) return false;
+        const pos = view.posAtCoords({ x: e.clientX, y: e.clientY }, false);
+        const lineNo = view.state.doc.lineAt(pos).number;
+        if (!applyLineFix(view, lineNo, pos)) return false;
+        e.preventDefault();
+        return true;
+      },
+      auxclick(e) {
+        // Linux の「中クリックで貼り付け」を止める（直したとき）
+        if (e.button === 1 && e.defaultPrevented) return true;
+        return false;
+      },
+    }),
     EditorView.updateListener.of((u) => {
       views.add(u.view);
       // 「値を見る」の結果が来たら、実行時のエラーの波線もすぐ出す

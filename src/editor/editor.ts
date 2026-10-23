@@ -37,6 +37,7 @@ import { setValues, valueLens } from "./valueLens";
 import type { LineValue, TraceResult } from "../run/trace";
 import { autoInfer } from "./autoInfer";
 import { liveCheck } from "./liveCheck";
+import { runErrorsField, setRunErrors } from "./runErrors";
 import { occurrences, renameAll, symbolAt } from "./rename";
 import { settings } from "../core/settings";
 import { filenameForLanguage } from "../core/languages";
@@ -351,6 +352,7 @@ class CodeMirrorHost implements EditorHost {
       valueLens(),
       autoInfer(),
       liveCheck(),
+      runErrorsField,
       languageSlot.of([]),
       configSlot.of(configExtensions()),
     ];
@@ -546,6 +548,15 @@ class CodeMirrorHost implements EditorHost {
     } else {
       const entry = this.docs.get(id);
       if (entry) entry.state = entry.state.update({ effects: setValues.of(data) }).state;
+    }
+  }
+
+  showRunErrors(id: string, errors: import("../run/errorExplain").ParsedError[]) {
+    const view = this.viewOf(id);
+    if (view) view.dispatch({ effects: setRunErrors.of(errors) });
+    else {
+      const entry = this.docs.get(id);
+      if (entry) entry.state = entry.state.update({ effects: setRunErrors.of(errors) }).state;
     }
   }
 

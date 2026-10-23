@@ -38,6 +38,8 @@ import { exportSettings, importSettings } from "./ui/settingsTransfer";
 import { contextMenu, type MenuItem as CtxItem } from "./ui/fileTree";
 import { openPrintScreen } from "./ui/printScreen";
 import { showDiff } from "./ui/diffView";
+import { parseRunErrors } from "./run/errorExplain";
+import { checkLangOf } from "./editor/codeCheck";
 import { OutlineView } from "./ui/outlineView";
 import { buildOutline, currentSymbol, outlineLangOf, type OutlineItem } from "./editor/outline";
 import { formatBraces, formatJson, formatPlain, formatPython } from "./editor/format";
@@ -1438,6 +1440,7 @@ export class App {
     }
     const target = await this.prepareRunTarget(doc);
     if (target) {
+      this.editor.showRunErrors(doc.id, []);
       await this.runPath(target.path, target.overrides, target.cleanup, await this.inputsFileFor(doc), { key: doc.id, name: doc.name });
       this.pairRunsIfSplit();
     }
@@ -1574,6 +1577,7 @@ export class App {
   private runOutputs = new Map<string, { prev?: { text: string; at: Date }; last?: { text: string; at: Date } }>();
 
   private rememberRun(key: string, text: string) {
+    this.showRunErrorsFor(key, text);
     const r = this.runOutputs.get(key) ?? {};
     r.prev = r.last;
     r.last = { text, at: new Date() };
@@ -1582,6 +1586,19 @@ export class App {
     if (r.prev && r.prev.text !== text && settings.get("run.notifyChanged")) {
       toast(t("runcmp.changed", { key: formatKey("Mod-Alt-D") }), "info", 5000);
     }
+  }
+
+  /** 実行・コンパイルで出たエラーを、そのファイルの行の右に日本語で出す（どの言語でも） */
+  private showRunErrorsFor(key: string, text: string) {
+    const doc = this.docs.find((d) => d.id === key);
+    if (!doc || !this.editor.has(doc.id)) return;
+    const eff = this.effectiveName(doc);
+    const ext = extname(eff);
+    const names = [doc.name, basename(eff), stripExt(doc.name) + ext, doc.path ? basename(doc.path) : ""].filter(Boolean);
+    const errors = parseRunErrors(text, names, checkLangOf(ext), this.editor.getText(doc.id));
+    this.editor.showRunErrors(doc.id, errors);
+    const n = errors.filter((e) => e.severity === "error").length;
+    if (n) toast(t("run.errorsFound", { n: String(n) }), "warn", 6000);
   }
 
   /** 前回の実行と今回の実行の出力を、色付きで左右に並べる */
