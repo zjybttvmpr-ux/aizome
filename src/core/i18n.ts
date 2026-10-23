@@ -698,7 +698,7 @@ const ja: Dict = {
   "check.unclosedString": "引用符 {q} が閉じていません",
   "check.extraClose": "閉じかっこ「{c}」が多すぎます",
   "check.mismatch": "「{open}」を「{close}」で閉じています（「{want}」のはず）",
-  "check.unclosed": "「{c}」が閉じていません（「{want}」が足りません）",
+  "check.unclosed": "「{c}」が閉じていません（「{want}」がありません）",
   "check.missingColon": "{kw} の行の最後に「:」がありません",
   "check.undefined": "「{name}」はまだ作られていません（この名前の変数・関数がありません）",
   "check.undefinedNear": "「{name}」はまだ作られていません。もしかして「{near}」？",
@@ -836,6 +836,10 @@ const ja: Dict = {
   "runcmp.last": "今回の出力（{time}）",
   "feat.notifyChanged": "出力が前回と変わったら知らせる",
   "feat.notifyChanged.help": "同じファイルを実行して、出力が前回と違ったときに小さく知らせます。違いは Ctrl+Alt+D かターミナルの 🕒 ボタンで見られます。",
+  "check.fix.addClose": "「{c}」を足す",
+  "check.fix.remove": "「{c}」を消す",
+  "check.fix.replace": "「{c}」にする",
+  "check.runWillFail": "実行するとエラー",
 };
 
 const en: Dict = {
@@ -1653,6 +1657,10 @@ const en: Dict = {
   "runcmp.last": "This output ({time})",
   "feat.notifyChanged": "Tell me when the output changes",
   "feat.notifyChanged.help": "When you run the same file again and the output differs, a small notice appears. See the difference with Ctrl+Alt+D or the 🕒 button in the terminal.",
+  "check.fix.addClose": "Add “{c}”",
+  "check.fix.remove": "Remove “{c}”",
+  "check.fix.replace": "Change to “{c}”",
+  "check.runWillFail": "Will fail to run",
 };
 
 const dicts: Record<string, Dict> = { ja, en };

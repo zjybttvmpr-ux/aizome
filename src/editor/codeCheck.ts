@@ -73,13 +73,62 @@ export function lex(text: string, lang: CheckLang): Lexed {
   const toks: Tok[] = [];
   const problems: Problem[] = [];
   const skipped: [number, number][] = [];
-  const stack: { c: string; at: number }[] = [];
+  const stack: { c: string; at: number; prev: string }[] = [];
   let i = 0;
   const n = text.length;
   let lineStart = true;
+  /** Python：今の文が始まった行の字下げ */
+  let stmtIndent = 0;
+  const indentAt = (pos: number) => {
+    const ls = text.lastIndexOf("\n", pos - 1) + 1;
+    const m = /^[ \t]*/.exec(text.slice(ls, ls + 200))![0];
+    return m.replace(/\t/g, "    ").length;
+  };
+  /** 閉じていないかっこを、ここで閉じ忘れたとみなして知らせ、続きを読めるように閉じたことにする */
+  const closeHere = (insertAt: number, upto: number) => {
+    const open = stack.splice(upto);
+    if (!open.length) return;
+    const closers = open.map((s) => OPEN[s.c]).reverse().join("");
+    const inner = open[open.length - 1];
+    problems.push({
+      from: inner.at,
+      to: inner.at + 1,
+      kind: "syntax",
+      severity: "error",
+      msg: "check.unclosed",
+      args: { c: inner.c, want: closers },
+      fixes: [{ label: "check.fix.addClose", args: { c: closers }, changes: [{ from: insertAt, to: insertAt, insert: closers }] }],
+    });
+  };
   while (i < n) {
     const c = text[i];
     if (c === "\n") {
+      // Python：かっこが閉じないまま、次の行で新しい文が始まっている → この行の終わりで閉じ忘れ
+      if (py && stack.length > 0) {
+        const last = toks[toks.length - 1];
+        const complete = !!last && (last.k === "id" || last.k === "num" || [")", "]", "}"].includes(last.v)) && !["and", "or", "not", "in", "is", "if", "else", "lambda", "for"].includes(last.v);
+        if (complete) {
+          let j = i + 1;
+          let next = "";
+          while (j < n) {
+            const e = text.indexOf("\n", j);
+            const line = text.slice(j, e < 0 ? n : e);
+            if (line.trim() && !line.trim().startsWith("#")) {
+              next = line;
+              break;
+            }
+            if (e < 0) break;
+            j = e + 1;
+          }
+          const ni = /^[ \t]*/.exec(next)![0].replace(/\t/g, "    ").length;
+          const body = next.trim();
+          const startsStmt =
+            /^(def|class|if|elif|else|for|while|try|except|finally|with|return|import|from|print|pass|break|continue|raise|global|nonlocal|assert|del|yield|async|match)\b/.test(body) ||
+            body.startsWith("@") ||
+            /^[A-Za-z_\u00c0-\uffff][\w\u00c0-\uffff]*(\.[\w\u00c0-\uffff]+)*(\[[^\]]*\])?\s*(=(?!=)|\+=|-=|\*=|\/=|\()/.test(body);
+          if (next && ni <= stmtIndent && startsStmt) closeHere(last.to, 0);
+        }
+      }
       if (py && stack.length === 0) {
         const last = toks[toks.length - 1];
         if (last && last.k !== "nl") toks.push({ k: "nl", v: "\n", from: i, to: i + 1, d: 0 });
@@ -210,6 +259,7 @@ export function lex(text: string, lang: CheckLang): Lexed {
       i = j;
       continue;
     }
+    if (py && stack.length === 0 && (toks.length === 0 || toks[toks.length - 1].k === "nl")) stmtIndent = indentAt(i);
     if (isIdStart(c)) {
       let j = i + 1;
       while (j < n && isId(text[j])) j++;
@@ -221,22 +271,52 @@ export function lex(text: string, lang: CheckLang): Lexed {
     const three = text.slice(i, i + 3);
     const two = text.slice(i, i + 2);
     const op = OPS3.includes(three) ? three : OPS2.includes(two) ? two : c;
+    // { } の言語：「;」や「{」が来たのに、同じ文の ( が閉じていない
+    if (!py && (op === ";" || op === "{") && stack.length && stack[stack.length - 1].c !== "{") {
+      let k = stack.length;
+      while (k > 0 && stack[k - 1].c !== "{") k--;
+      const open = stack.slice(k);
+      const inFor = open.some((s) => s.c === "(" && s.prev === "for");
+      const head = open[0];
+      const blockHead = op === "{" && head.c === "(" && ["if", "while", "foreach", "switch", "catch", "using", "lock", "for"].includes(head.prev) && open.length === 1;
+      if (op === ";" && !inFor && open.every((s) => s.c !== "{")) closeHere(toks[toks.length - 1]?.to ?? i, k);
+      else if (blockHead) closeHere(toks[toks.length - 1]?.to ?? i, k);
+    }
     const d = stack.length;
-    if (OPEN[op]) stack.push({ c: op, at: i });
+    if (py && d === 0 && (toks.length === 0 || toks[toks.length - 1].k === "nl")) stmtIndent = indentAt(i);
+    if (OPEN[op]) stack.push({ c: op, at: i, prev: toks[toks.length - 1]?.v ?? "" });
     else if (CLOSE[op]) {
       const top = stack[stack.length - 1];
       if (!top) {
-        problems.push({ from: i, to: i + 1, kind: "syntax", severity: "error", msg: "check.extraClose", args: { c: op }, fixes: [] });
+        problems.push({ from: i, to: i + 1, kind: "syntax", severity: "error", msg: "check.extraClose", args: { c: op }, fixes: [{ label: "check.fix.remove", args: { c: op }, changes: [{ from: i, to: i + 1, insert: "" }] }] });
       } else if (top.c !== CLOSE[op]) {
-        problems.push({ from: i, to: i + 1, kind: "syntax", severity: "error", msg: "check.mismatch", args: { open: top.c, close: op, want: OPEN[top.c] }, fixes: [] });
-        stack.pop();
+        // 外側のかっこと合うなら、内側を閉じ忘れている（[1, 2} → ] が足りない）
+        let k = stack.length - 1;
+        while (k >= 0 && stack[k].c !== CLOSE[op]) k--;
+        if (k >= 0) {
+          closeHere(toks[toks.length - 1]?.to ?? i, k + 1);
+          stack.pop();
+        } else {
+          problems.push({
+            from: i,
+            to: i + 1,
+            kind: "syntax",
+            severity: "error",
+            msg: "check.mismatch",
+            args: { open: top.c, close: op, want: OPEN[top.c] },
+            fixes: [{ label: "check.fix.replace", args: { c: OPEN[top.c] }, changes: [{ from: i, to: i + 1, insert: OPEN[top.c] }] }],
+          });
+          stack.pop();
+        }
       } else stack.pop();
     }
     toks.push({ k: "op", v: op, from: i, to: i + op.length, d: CLOSE[op] ? stack.length : d });
     i += op.length;
   }
-  for (const s of stack) {
-    problems.push({ from: s.at, to: s.at + 1, kind: "syntax", severity: "error", msg: "check.unclosed", args: { c: s.c, want: OPEN[s.c] }, fixes: [] });
+  // 最後まで閉じなかったかっこ：最後のコードの後ろに足す
+  if (stack.length) {
+    const lastTok = toks[toks.length - 1];
+    closeHere(lastTok ? lastTok.to : n, 0);
   }
   if (py) {
     const last = toks[toks.length - 1];

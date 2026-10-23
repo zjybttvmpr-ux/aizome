@@ -11,6 +11,8 @@ import { forEachView, sideMode, sideModeChanged, trackView } from "./sideMode";
 import { bus } from "../core/events";
 import { traceAt, traceTimeAt } from "./valueLens";
 import { inferBusy, setInferBusy } from "./inferState";
+import { syntaxProblems } from "./liveCheck";
+import { t } from "../core/i18n";
 
 /** AI の予想が新しくなった合図（行の説明もこれで描き直す） */
 export const inferUpdated = StateEffect.define<null>();
@@ -18,6 +20,8 @@ export const inferUpdated = StateEffect.define<null>();
 /** 自動判定でエラーの可能性を出している行（行の説明より優先するため） */
 export function riskLines(state: EditorState): Set<number> {
   if (sideMode() !== "auto") return new Set();
+  const syntax = syntaxProblems(state);
+  if (syntax.length) return new Set(syntax.map((s) => s.line));
   return new Set(resultFor(state)?.risks.map((r) => r.line) ?? []);
 }
 
@@ -84,15 +88,18 @@ async function analyze(view: EditorView) {
 
 // ───────── エラーになりそうな行（右に薄く）
 class RiskWidget extends WidgetType {
-  constructor(readonly text: string) {
+  constructor(
+    readonly text: string,
+    readonly sure = false,
+  ) {
     super();
   }
   eq(o: RiskWidget) {
-    return o.text === this.text;
+    return o.text === this.text && o.sure === this.sure;
   }
   toDOM() {
     const el = document.createElement("span");
-    el.className = "cm-risk";
+    el.className = this.sure ? "cm-risk sure" : "cm-risk";
     el.textContent = `⚠ ${this.text}`;
     el.title = this.text;
     return el;
@@ -104,6 +111,16 @@ class RiskWidget extends WidgetType {
 
 function buildRisks(state: EditorState): DecorationSet {
   if (sideMode() !== "auto") return Decoration.none;
+  // 文法のまちがいがあると実行そのものができないので、それを先に（AI の予想より確か）
+  const syntax = syntaxProblems(state);
+  if (syntax.length) {
+    const b = new RangeSetBuilder<Decoration>();
+    for (const s of syntax.sort((a, b) => a.line - b.line)) {
+      const line = state.doc.line(s.line);
+      b.add(line.to, line.to, Decoration.widget({ widget: new RiskWidget(`${t("check.runWillFail")}：${s.text}`, true), side: 2 }));
+    }
+    return b.finish();
+  }
   const result = resultFor(state);
   if (!result?.risks.length) return Decoration.none;
   const b = new RangeSetBuilder<Decoration>();

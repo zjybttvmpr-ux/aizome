@@ -4270,3 +4270,10 @@ html.has-bg .pane-bar {
   min-width: 0;
   padding: 0 4px;
 }
+
+/* 自動判定：実行するとエラーになる文法のまちがい（AI の予想より確か） */
+.cm-risk.sure {
+  color: var(--danger);
+  opacity: 0.95;
+  font-weight: 600;
+}

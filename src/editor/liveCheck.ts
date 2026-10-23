@@ -20,6 +20,20 @@ export function checkLangOfState(state: EditorState): CheckLang | null {
   return checkLangOf(d?.ext ?? extname(filenameForLanguage(state.facet(docFilename))));
 }
 
+/** 文法のまちがい（自動判定の行の右に出す用）。行番号と短い説明 */
+export function syntaxProblems(state: EditorState): { line: number; text: string }[] {
+  const lang = checkLangOfState(state);
+  if (!lang || state.doc.lines > 8000) return [];
+  const list = checkCode(state.doc.toString(), lang, { syntax: true, names: false }).filter((p) => p.kind === "syntax");
+  const out: { line: number; text: string }[] = [];
+  for (const p of list) {
+    const line = state.doc.lineAt(Math.min(p.from, state.doc.length)).number;
+    if (out.some((x) => x.line === line)) continue;
+    out.push({ line, text: t(p.msg, p.args ?? {}) });
+  }
+  return out;
+}
+
 function problemsOf(state: EditorState, cursor: number | null): Problem[] {
   const lang = checkLangOfState(state);
   const live = settings.get("editor.liveCheck");
@@ -36,11 +50,15 @@ function problemsOf(state: EditorState, cursor: number | null): Problem[] {
 function treeErrors(state: EditorState, found: Problem[]): Problem[] {
   const tree = syntaxTree(state);
   if (tree.length < state.doc.length) return [];
-  const lines = new Set(found.filter((p) => p.kind === "syntax").map((p) => state.doc.lineAt(p.from).number));
+  const own = found.filter((p) => p.kind === "syntax");
+  const lines = new Set(own.map((p) => state.doc.lineAt(p.from).number));
+  // 自分で原因（かっこの閉じ忘れなど）を見つけたときは、その後ろの「巻き添え」のまちがいは出さない
+  const firstOwn = own.length ? Math.min(...own.map((p) => p.from)) : Infinity;
   const out: Problem[] = [];
   tree.iterate({
     enter: (node) => {
       if (!node.type.isError || out.length >= 20) return;
+      if (node.from >= firstOwn) return;
       const line = state.doc.lineAt(node.from);
       if (line.number === 1 && parseDirective(line.text)) return;
       if (lines.has(line.number)) return;
@@ -66,7 +84,12 @@ function typingLine(state: EditorState, p: Problem): boolean {
   const head = state.selection.main.head;
   const line = state.doc.lineAt(head);
   if (p.from < line.from || p.from > line.to) return false;
-  return head >= line.from + line.text.trimEnd().length;
+  if (head < line.from + line.text.trimEnd().length) return false;
+  // 下にまだコードがあるなら、打ち終わった行のまちがい（直してから下を書いた・あとで消した）なので出す
+  for (let n = line.number + 1; n <= Math.min(state.doc.lines, line.number + 50); n++) {
+    if (state.doc.line(n).text.trim()) return false;
+  }
+  return true;
 }
 
 function message(p: Problem): string {
