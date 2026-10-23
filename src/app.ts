@@ -37,6 +37,7 @@ import { createFileGroups } from "./ui/fileGroups";
 import { exportSettings, importSettings } from "./ui/settingsTransfer";
 import { contextMenu, type MenuItem as CtxItem } from "./ui/fileTree";
 import { openPrintScreen } from "./ui/printScreen";
+import { showDiff } from "./ui/diffView";
 import { OutlineView } from "./ui/outlineView";
 import { buildOutline, currentSymbol, outlineLangOf, type OutlineItem } from "./editor/outline";
 import { formatBraces, formatJson, formatPlain, formatPython } from "./editor/format";
@@ -183,6 +184,8 @@ export class App {
       openLocation: (p, l, c) => void this.openLocation(p, l, c),
       onVisibilityChange: (v) => this.el.classList.toggle("panel-open", v),
       explainError: () => void this.explainLastError(),
+      onRunOutput: (key, text) => this.rememberRun(key, text),
+      compareRuns: (key) => void this.compareRuns(key),
     });
     this.extensions = new ExtensionHost({
       editor: this.editor,
@@ -1561,6 +1564,71 @@ export class App {
     }, 500);
   }
 
+  /** ファイルごとの、最近 2 回の実行の出力 */
+  private runOutputs = new Map<string, { prev?: { text: string; at: Date }; last?: { text: string; at: Date } }>();
+
+  private rememberRun(key: string, text: string) {
+    const r = this.runOutputs.get(key) ?? {};
+    r.prev = r.last;
+    r.last = { text, at: new Date() };
+    this.runOutputs.set(key, r);
+    this.terminal.setCompareReady(key, !!r.prev);
+    if (r.prev && r.prev.text !== text && settings.get("run.notifyChanged")) {
+      toast(t("runcmp.changed", { key: formatKey("Mod-Alt-D") }), "info", 5000);
+    }
+  }
+
+  /** 前回の実行と今回の実行の出力を、色付きで左右に並べる */
+  private async compareRuns(key?: string | null) {
+    const k = key ?? this.activeId;
+    const r = k ? this.runOutputs.get(k) : undefined;
+    if (!r?.last || !r.prev) {
+      toast(t("runcmp.notYet"), "info", 6000);
+      return;
+    }
+    const name = this.docs.find((d) => d.id === k)?.name ?? "";
+    const time = (d: Date) => d.toLocaleTimeString();
+    await showDiff({
+      leftTitle: t("runcmp.prev", { time: time(r.prev.at), name }),
+      rightTitle: t("runcmp.last", { time: time(r.last.at) }),
+      left: r.prev.text,
+      right: r.last.text,
+    });
+  }
+
+  /** 2 つのファイルを比べる（開いているファイルか、ほかのファイルを選ぶ） */
+  private async compareFiles(id: string | null = this.activeId) {
+    const doc = this.docs.find((d) => d.id === id);
+    if (!doc) return;
+    const others = this.docs.filter((d) => d.id !== doc.id);
+    const pickFile = { pick: true } as const;
+    const choice = await quickPick<Doc | typeof pickFile>(
+      [
+        ...others.map((d) => ({ label: d.name, detail: d.path ?? t("compare.unsaved"), value: d as Doc | typeof pickFile })),
+        { label: t("compare.pickFile"), detail: t("compare.pickFileHint"), value: pickFile },
+      ],
+      t("compare.pick", { name: doc.name }),
+    );
+    if (!choice) return;
+    let otherName: string;
+    let otherText: string;
+    if ("pick" in choice) {
+      const path = await dialog.pickFile([]);
+      if (!path) return;
+      try {
+        otherText = (await fs.readFileEnc(path)).text;
+      } catch (err) {
+        toast(t("file.openFailed", { name: basename(path), err: String(err) }), "error");
+        return;
+      }
+      otherName = basename(path);
+    } else {
+      otherName = choice.name;
+      otherText = this.editor.getText(choice.id);
+    }
+    await showDiff({ leftTitle: doc.name, rightTitle: otherName, left: this.editor.getText(doc.id), right: otherText });
+  }
+
   /** 左右に並べたファイルを両方実行したら、ターミナルも左右に並べて比べられるようにする */
   private pairRunsIfSplit() {
     if (!this.editor.isSplit()) return;
@@ -1598,13 +1666,15 @@ export class App {
       if (resolved === null) return;
       cmd = resolved;
     }
+    // 出力の始まりと終わりに、画面には見えない印を付ける（前回の実行と比べるため）
+    const mark = (name: string) => (win ? `Write-Host -NoNewline "$([char]27)]633;aizome-${name}$([char]7)"` : `printf '\\033]633;aizome-${name}\\007'`);
     if (win && settings.get("run.showFinished")) {
       // 終わったことと終了コード・かかった時間がわかるように（何も出力しないプログラムでも安心できる）
       const timed = settings.get("run.showTime");
       const msg = timed ? t("run.finishedTime", { code: "$aizomeCode", sec: "$aizomeSec" }) : t("run.finished", { code: "$aizomeCode" });
-      cmd = `${timed ? "$aizomeStart = Get-Date; " : ""}${cmd}; $aizomeCode = $LASTEXITCODE${timed ? "; $aizomeSec = '{0:N2}' -f ((Get-Date) - $aizomeStart).TotalSeconds" : ""}${this.cleanupCommand(cleanup)}; Write-Host ""; Write-Host "--- ${msg} ---" -ForegroundColor DarkGray`;
+      cmd = `${mark("start")}; ${timed ? "$aizomeStart = Get-Date; " : ""}${cmd}; $aizomeCode = $LASTEXITCODE; ${mark("end")}${timed ? "; $aizomeSec = '{0:N2}' -f ((Get-Date) - $aizomeStart).TotalSeconds" : ""}${this.cleanupCommand(cleanup)}; Write-Host ""; Write-Host "--- ${msg} ---" -ForegroundColor DarkGray`;
     } else {
-      cmd += this.cleanupCommand(cleanup);
+      cmd = `${mark("start")}; ${cmd}; ${mark("end")}${this.cleanupCommand(cleanup)}`;
     }
     const cwd = overrides?.fileDir && overrides.fileDir !== "." ? overrides.fileDir : overrides ? undefined : dirname(path);
     this.lastRunDir = cwd ?? dirname(path);
@@ -2081,6 +2151,8 @@ export class App {
     items.push({ label: t("split.left"), run: () => this.splitTab(id, "left") });
     if (inRight) items.push({ label: t("split.back"), run: () => this.splitTab(id, "back") });
     if (split) items.push({ label: t("split.off"), run: () => this.unsplit() });
+    items.push({ label: t("compare.menu"), run: () => void this.compareFiles(id) });
+    if (this.runOutputs.get(id)?.prev) items.push({ label: t("runcmp.menu"), run: () => void this.compareRuns(id) });
     items.push({ label: t("tabs.close"), run: () => void this.closeDoc(id), danger: true });
     contextMenu(x, y, items);
   }
@@ -2280,6 +2352,7 @@ export class App {
           sep,
           c("file.print"),
           c("file.export"),
+          c("file.compare"),
           c("file.copyPath"),
           sep,
           c("file.close"),
@@ -2355,7 +2428,7 @@ export class App {
       {
         type: "submenu",
         label: t("menu.run"),
-        items: () => [c("run.file"), c("run.build"), c("run.editInputs"), c("run.trace"), c("run.stepNext"), c("run.stepPrev"), c("run.clearValues"), sep, c("terminal.new"), c("terminal.toggle", () => this.terminal.isVisible), c("terminal.clear")],
+        items: () => [c("run.file"), c("run.build"), c("run.compareLast"), c("run.editInputs"), c("run.trace"), c("run.stepNext"), c("run.stepPrev"), c("run.clearValues"), sep, c("terminal.new"), c("terminal.toggle", () => this.terminal.isVisible), c("terminal.clear")],
       },
       {
         type: "submenu",
@@ -2710,6 +2783,8 @@ export class App {
     reg("view.splitBack", "cmd.splitBack", () => this.splitTab(this.activeId, "back"));
     reg("view.unsplit", "cmd.unsplit", () => this.unsplit());
     reg("edit.pasteHistory", "cmd.pasteHistory", () => this.pasteFromHistory(), "Mod-Shift-H");
+    reg("file.compare", "cmd.compareFiles", () => this.compareFiles());
+    reg("run.compareLast", "cmd.compareRuns", () => this.compareRuns(), "Mod-Alt-D", true);
     reg("settings.export", "cmd.settingsExport", () => exportSettings());
     reg("settings.import", "cmd.settingsImport", () => importSettings());
     reg("edit.renameSymbol", "cmd.renameSymbol", () => this.renameSymbol(), "F2");

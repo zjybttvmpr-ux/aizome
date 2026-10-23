@@ -821,6 +821,21 @@ const ja: Dict = {
   "ps.info": "全 {pages} ページ ・ {paper} ・ {lines} 行",
   "ps.infoText": "テキスト ・ {n} 行（ページの区切りはありません）",
   "ps.more": "プレビューは最初の {n} ページまでです（書き出すと全部入ります）",
+  "cmd.compareFiles": "ほかのファイルと比べる…",
+  "cmd.compareRuns": "前回の実行と比べる",
+  "compare.menu": "ほかのファイルと比べる…",
+  "compare.pick": "「{name}」と比べるファイルを選んでください",
+  "compare.pickFile": "ほかのファイルを選ぶ…",
+  "compare.pickFileHint": "開いていないファイル（先生の見本など）",
+  "compare.unsaved": "まだ保存していないファイル",
+  "runcmp.menu": "前回の実行と比べる",
+  "runcmp.button": "前回の実行と比べる（Ctrl+Alt+D）",
+  "runcmp.notYet": "比べるには、このファイルを 2 回実行してください（ファイルの上の ▶ 実行 か F5）",
+  "runcmp.changed": "出力が前回と変わりました。{key} で違いを見られます",
+  "runcmp.prev": "前回の出力（{time}）",
+  "runcmp.last": "今回の出力（{time}）",
+  "feat.notifyChanged": "出力が前回と変わったら知らせる",
+  "feat.notifyChanged.help": "同じファイルを実行して、出力が前回と違ったときに小さく知らせます。違いは Ctrl+Alt+D かターミナルの 🕒 ボタンで見られます。",
 };
 
 const en: Dict = {
@@ -1623,6 +1638,21 @@ const en: Dict = {
   "ps.info": "{pages} pages · {paper} · {lines} lines",
   "ps.infoText": "Text · {n} lines (no pages)",
   "ps.more": "Preview shows the first {n} pages (export includes everything)",
+  "cmd.compareFiles": "Compare with another file…",
+  "cmd.compareRuns": "Compare with the previous run",
+  "compare.menu": "Compare with another file…",
+  "compare.pick": "Choose a file to compare with “{name}”",
+  "compare.pickFile": "Choose another file…",
+  "compare.pickFileHint": "A file that is not open",
+  "compare.unsaved": "Not saved yet",
+  "runcmp.menu": "Compare with the previous run",
+  "runcmp.button": "Compare with the previous run (Ctrl+Alt+D)",
+  "runcmp.notYet": "Run this file twice to compare outputs",
+  "runcmp.changed": "The output changed since the last run. Press {key} to see the difference",
+  "runcmp.prev": "Previous output ({time})",
+  "runcmp.last": "This output ({time})",
+  "feat.notifyChanged": "Tell me when the output changes",
+  "feat.notifyChanged.help": "When you run the same file again and the output differs, a small notice appears. See the difference with Ctrl+Alt+D or the 🕒 button in the terminal.",
 };
 
 const dicts: Record<string, Dict> = { ja, en };

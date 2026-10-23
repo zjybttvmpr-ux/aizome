@@ -38,6 +38,26 @@ export interface TerminalDeps {
   explainError?: () => void;
   openLocation: (path: string, line: number, col: number) => void;
   onVisibilityChange: (visible: boolean) => void;
+  /** ファイルの実行が終わったとき、その出力（前回と比べるため） */
+  onRunOutput?: (key: string, text: string) => void;
+  /** 「前回と比べる」ボタン */
+  compareRuns?: (key: string | null) => void;
+}
+
+const START = "\x1b]633;aizome-start\x07";
+const END = "\x1b]633;aizome-end\x07";
+
+/** 出力の文字から、色や画面の操作の記号を取り除く */
+function plainText(s: string): string {
+  return s
+    .replace(/\x1b\][^\x07\x1b]*(\x07|\x1b\\)/g, "")
+    .replace(/\x1b\[[0-9;?]*[ -\/]*[@-~]/g, "")
+    .replace(/\x1b[()][A-Za-z0-9]/g, "")
+    .replace(/\x1b[=>78]/g, "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .replace(/^\n+|\s+$/g, "");
 }
 
 export class TerminalPanel {
@@ -60,6 +80,10 @@ export class TerminalPanel {
   /** 直前に選んでいたタブ（「並べる」の相手） */
   private previous: Session | null = null;
   private lastRuns = new Map<string, { command: string; cwd?: string }>();
+  /** 実行中の出力をためておく（ptyId ごと） */
+  private captures = new Map<number, { key: string; text: string | null; tail: string }>();
+  private compareBtn!: HTMLButtonElement;
+  private compareReady = new Set<string>();
   private shells: { name: string; command: string }[] | null = null;
 
   constructor(private deps: TerminalDeps) {
@@ -69,9 +93,11 @@ export class TerminalPanel {
     const pick = this.button("chevronDown", t("terminal.pickShell"), () => void this.pickShell(pick));
     pick.classList.add("narrow");
     this.pairBtn = this.button("sidebar", t("terminal.pair"), () => this.togglePair()) as HTMLButtonElement;
+    this.compareBtn = this.button("clock", t("runcmp.button"), () => this.deps.compareRuns?.(this.active?.runner ? (this.active.key ?? null) : null)) as HTMLButtonElement;
     const actions = h(
       "div",
       { class: "panel-actions" },
+      this.compareBtn,
       this.pairBtn,
       h("span", { class: "panel-sep" }),
       this.button("stop", t("terminal.interrupt"), () => this.interrupt()),
@@ -106,6 +132,8 @@ export class TerminalPanel {
     this.listening = true;
     await pty.onData(({ id, data }) => {
       this.sessions.find((s) => s.ptyId === id)?.view.write(data);
+      const cap = this.captures.get(id);
+      if (cap) this.capture(id, cap, data);
       const w = this.watches.get(id);
       if (w) this.watchData(w, data);
     });
@@ -116,6 +144,49 @@ export class TerminalPanel {
       s.view.write(`\r\n\x1b[2m${t("terminal.exited", { code: String(code ?? "?") })}\x1b[0m\r\n`);
       this.renderTabs();
     });
+  }
+
+  /** 見えない印の間の出力をためて、終わったら知らせる */
+  private capture(id: number, cap: { key: string; text: string | null; tail: string }, data: string) {
+    let chunk = cap.tail + data;
+    cap.tail = "";
+    for (;;) {
+      if (cap.text === null) {
+        const i = chunk.indexOf(START);
+        if (i < 0) {
+          cap.tail = chunk.slice(-START.length);
+          return;
+        }
+        cap.text = "";
+        chunk = chunk.slice(i + START.length);
+        continue;
+      }
+      const j = chunk.indexOf(END);
+      if (j < 0) {
+        // 印が 2 回に分かれて届いたときのために、最後の少しは残しておく
+        const keep = Math.min(chunk.length, END.length - 1);
+        cap.text += chunk.slice(0, chunk.length - keep);
+        cap.tail = chunk.slice(chunk.length - keep);
+        if (cap.text.length > 400_000) cap.text = cap.text.slice(-400_000);
+        return;
+      }
+      cap.text += chunk.slice(0, j);
+      this.captures.delete(id);
+      this.deps.onRunOutput?.(cap.key, plainText(cap.text));
+      return;
+    }
+  }
+
+  /** 「前回と比べる」ボタンを、比べられるときだけ目立たせる */
+  setCompareReady(key: string, ready: boolean) {
+    if (ready) this.compareReady.add(key);
+    else this.compareReady.delete(key);
+    this.updateCompareBtn();
+  }
+
+  private updateCompareBtn() {
+    const key = this.active?.runner ? this.active.key : undefined;
+    this.compareBtn?.classList.toggle("on", !!key && this.compareReady.has(key));
   }
 
   get isVisible() {
@@ -339,6 +410,7 @@ export class TerminalPanel {
       x.view.el.classList.toggle("pair-right", !!this.pair && x === this.pair[1]);
     }
     this.body.classList.toggle("pair", !!this.pair);
+    this.updateCompareBtn();
     this.pairBtn?.classList.toggle("on", !!this.pair);
     this.renderTabs();
     requestAnimationFrame(() => shown.forEach((x) => x.view.fit()));
@@ -469,6 +541,7 @@ export class TerminalPanel {
     }
     if (s.ptyId !== null && s.alive) {
       this.startWatch(s.ptyId);
+      if (who) this.captures.set(s.ptyId, { key: who.key, text: null, tail: "" });
       await pty.write(s.ptyId, command + "\r");
     }
   }

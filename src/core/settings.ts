@@ -12,6 +12,8 @@ export interface Settings {
   "clip.history": boolean;
   /** 実行の前に、コンパイラなどが入っているか確かめる */
   "run.checkTools": boolean;
+  /** 実行の出力が前回と変わったら知らせる */
+  "run.notifyChanged": boolean;
   /** 整形に black・gofmt などがあれば使う（オフならあいぞめの中の整形だけ） */
   "editor.externalFormatter": boolean;
   /** 書き出しの設定（前回のもの） */
@@ -143,6 +145,7 @@ export const defaults: Settings = {
   "ui.splitRatio": 0.5,
   "clip.history": true,
   "run.checkTools": true,
+  "run.notifyChanged": true,
   "editor.externalFormatter": true,
   "export.options": null,
   "ui.panelHeight": 240,
