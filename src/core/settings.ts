@@ -98,6 +98,8 @@ export interface Settings {
   "editor.indentFollow": boolean;
   /** 書きながら、文法のまちがい・まだ作っていない名前に波線を引く */
   "editor.liveCheck": boolean;
+  /** Python は本物の Python でも文法・字下げを確かめる */
+  "editor.pythonCheck": boolean;
   /** import / using / #include の付け忘れを知らせ、補完から足せるようにする */
   "editor.importHelp": boolean;
   /** 変数にマウスを乗せてから小窓が出るまで（ミリ秒） */
@@ -208,6 +210,7 @@ export const defaults: Settings = {
   "editor.gotoDefinition": true,
   "editor.indentFollow": true,
   "editor.liveCheck": true,
+  "editor.pythonCheck": true,
   "editor.importHelp": true,
   "editor.hoverDelay": 250,
   "editor.langTag": true,

@@ -1,7 +1,7 @@
 // 自動判定モード：実行せずに AI がコード全体を読んで、変数の中身とエラーになりそうな行を予想する。
 // - 変数の上にマウスを置いて少し待つと、その行の時点での値を小窓で見せる（値モードでは実行した結果を見せる）
 // - エラーになりそうな行には、右に薄く原因を書く
-import { Compartment, RangeSetBuilder, StateEffect, type EditorState, type Extension } from "@codemirror/state";
+import { Compartment, RangeSetBuilder, type EditorState, type Extension } from "@codemirror/state";
 import { Decoration, EditorView, ViewPlugin, WidgetType, hoverTooltip, type DecorationSet, type ViewUpdate } from "@codemirror/view";
 import { settings } from "../core/settings";
 import { completer } from "../ai/completer";
@@ -15,7 +15,8 @@ import { syntaxProblems } from "./liveCheck";
 import { t } from "../core/i18n";
 
 /** AI の予想が新しくなった合図（行の説明もこれで描き直す） */
-export const inferUpdated = StateEffect.define<null>();
+import { inferUpdated } from "./checkEvents";
+export { inferUpdated };
 
 /** 自動判定でエラーの可能性を出している行（行の説明より優先するため） */
 export function riskLines(state: EditorState): Set<number> {

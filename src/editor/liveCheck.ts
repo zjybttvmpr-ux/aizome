@@ -4,7 +4,9 @@ import { forceLinting, linter, type Action, type Diagnostic } from "@codemirror/
 import { syntaxTree } from "@codemirror/language";
 import { EditorView, keymap } from "@codemirror/view";
 import { Prec, type EditorState, type Extension } from "@codemirror/state";
-import { checkCode, checkLangOf, importEdit, type CheckLang, type Problem } from "./codeCheck";
+import { checkCode, checkLangOf, importEdit, type CheckLang, type Fix, type Problem } from "./codeCheck";
+import { inferUpdated } from "./checkEvents";
+import { cachedPyCheck, pyCheck, translatePy, ZENKAKU_FIX, type PyIssue } from "../run/pycheck";
 import { docFilename } from "./ghost";
 import { filenameForLanguage } from "../core/languages";
 import { parseDirective } from "../core/langDirective";
@@ -24,7 +26,11 @@ export function checkLangOfState(state: EditorState): CheckLang | null {
 export function syntaxProblems(state: EditorState): { line: number; text: string }[] {
   const lang = checkLangOfState(state);
   if (!lang || state.doc.lines > 8000) return [];
-  const list = checkCode(state.doc.toString(), lang, { syntax: true, names: false }).filter((p) => p.kind === "syntax");
+  const text = state.doc.toString();
+  const py = lang === "python" && settings.get("editor.pythonCheck") ? cachedPyCheck(text) : null;
+  const list = checkCode(text, lang, { syntax: true, names: false, indent: !py }).filter((p) => p.kind === "syntax" && p.severity === "error");
+  if (py) list.push(...pyProblems(state, py).filter((p) => p.kind === "syntax" && p.severity === "error"));
+  list.sort((a, b) => a.from - b.from);
   const out: { line: number; text: string }[] = [];
   for (const p of list) {
     const line = state.doc.lineAt(Math.min(p.from, state.doc.length)).number;
@@ -34,15 +40,220 @@ export function syntaxProblems(state: EditorState): { line: number; text: string
   return out;
 }
 
-function problemsOf(state: EditorState, cursor: number | null): Problem[] {
+function problemsOf(state: EditorState, cursor: number | null, py: PyIssue[] | null = null): Problem[] {
   const lang = checkLangOfState(state);
   const live = settings.get("editor.liveCheck");
   const imports = settings.get("editor.importHelp");
   if (!lang || (!live && !imports) || state.doc.lines > 8000) return [];
   const text = state.doc.toString();
-  const all = checkCode(text, lang, { syntax: live, names: true, cursor });
+  if (lang === "python" && !py && settings.get("editor.pythonCheck")) py = cachedPyCheck(text);
+  // 本物の Python で調べられたときは、字下げはそちらに任せる
+  const all = checkCode(text, lang, { syntax: live, names: true, cursor, indent: !py });
   const out = all.filter((p) => (p.kind === "import" ? imports : live));
-  if (live) out.push(...treeErrors(state, out));
+  if (live && py) {
+    const own = new Set(out.filter((p) => p.kind === "syntax").map((p) => state.doc.lineAt(p.from).number));
+    for (const q of pyProblems(state, py)) {
+      // 同じ行を自分でも見つけていたら、直し方を付けてあるそちらを使う
+      if (q.kind === "syntax" && q.severity === "error" && own.has(state.doc.lineAt(q.from).number)) continue;
+      if (cursor !== null && q.kind === "syntax" && q.severity === "error" && q.msg === "py.unterminated" && state.doc.lineAt(cursor).number === state.doc.lineAt(q.from).number) continue;
+      out.push(q);
+    }
+  } else if (live) out.push(...treeErrors(state, out));
+  return out;
+}
+
+// ───────── 本物の Python の結果を、波線と直し方にする
+
+/** 行の中の「# コメント」の前（文字列の中の # は除く） */
+function codeEnd(text: string): number {
+  let q: string | null = null;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (q) {
+      if (c === "\\") i++;
+      else if (c === q) q = null;
+    } else if (c === '"' || c === "'") q = c;
+    else if (c === "#") return text.slice(0, i).trimEnd().length;
+  }
+  return text.trimEnd().length;
+}
+
+function indentOf(s: string) {
+  return /^[ \t]*/.exec(s)![0].replace(/\t/g, "    ").length;
+}
+
+function prevCodeLine(state: EditorState, n: number): { text: string; number: number } | null {
+  for (let k = n - 1; k >= 1; k--) {
+    const l = state.doc.line(k);
+    if (l.text.trim() && !l.text.trim().startsWith("#")) return { text: l.text, number: k };
+  }
+  return null;
+}
+
+export function pyProblems(state: EditorState, issues: PyIssue[]): Problem[] {
+  const out: Problem[] = [];
+  const doc = state.doc;
+  for (const it of issues) {
+    const lineNo = Math.max(1, Math.min(doc.lines, it.l));
+    const line = doc.line(lineNo);
+    const lead = /^[ \t]*/.exec(line.text)![0].length;
+    let from = line.from + Math.max(0, (it.c || 1) - 1);
+    let to = it.el === it.l && it.ec && it.ec > it.c ? line.from + it.ec - 1 : -1;
+    if (from > line.to) from = line.to;
+    if (to < 0 || to > line.to) {
+      const m = /^[\w\u00c0-\uffff]+/.exec(doc.sliceString(from, line.to));
+      to = m ? from + m[0].length : Math.min(line.to, from + 1);
+    }
+    if (from >= line.to && line.to > line.from) {
+      from = line.to - 1;
+      to = line.to;
+    }
+    const wholeLine = () => {
+      from = line.from + lead;
+      to = Math.max(from + 1, line.from + codeEnd(line.text));
+      if (to > line.to) to = line.to;
+    };
+    if (it.t === "lint") {
+      const [key, json] = it.m.split("|");
+      const args = json ? (JSON.parse(json) as Record<string, string>) : {};
+      const fixes: Fix[] = [];
+      if ((key === "input_str" || key === "input_cmp") && args.name) {
+        // いちばん近い「name = input(…)」を int(input(…)) に
+        for (let k = lineNo - 1; k >= 1; k--) {
+          const l = doc.line(k);
+          const m = new RegExp(`^(\\s*${args.name}\\s*=\\s*)(input\\(.*\\))(\\s*(#.*)?)$`).exec(l.text);
+          if (m) {
+            const s0 = l.from + m[1].length;
+            fixes.push({ label: "pyl.fix.int", changes: [{ from: s0, to: s0 + m[2].length, insert: `int(${m[2]})` }] });
+            break;
+          }
+        }
+      }
+      if (key === "need_global" && args.name) {
+        const myIndent = indentOf(line.text);
+        for (let k = lineNo - 1; k >= 1; k--) {
+          const l = doc.line(k);
+          if (/^\s*(async\s+)?def\s/.test(l.text) && indentOf(l.text) < myIndent) {
+            const body = k + 1 <= doc.lines ? doc.line(k + 1) : null;
+            const ind = body ? /^[ \t]*/.exec(body.text)![0] : " ".repeat(indentOf(l.text) + 4);
+            const at = body ? body.from : l.to;
+            fixes.push({ label: "pyl.fix.global", args: { name: args.name }, changes: [{ from: at, to: at, insert: `${body ? "" : "\n"}${ind}global ${args.name}\n` }] });
+            break;
+          }
+        }
+      }
+      if (key === "no_self") {
+        const m = /\(\s*\)/.exec(line.text);
+        if (m) fixes.push({ label: "pyl.fix.self", changes: [{ from: line.from + m.index + 1, to: line.from + m.index + m[0].length - 1, insert: "self" }] });
+      }
+      if (key === "endless" || key === "unreachable" || key === "no_self") wholeLine();
+      out.push({ from, to, kind: "runtime", severity: "warning", msg: `pyl.${key}`, args, fixes });
+      continue;
+    }
+    const tr = translatePy(it.m, it.t);
+    const fixes: Fix[] = [];
+    const end = line.from + codeEnd(line.text);
+    switch (tr.key) {
+      case "py.expectedColon": {
+        // Python が指す場所は行の終わり。文が複数行のときもあるので、その行の終わりに足す
+        fixes.push({ label: "check.fix.addColon", changes: [{ from: end, to: end, insert: ":" }] });
+        from = Math.max(line.from + lead, end - 1);
+        to = end;
+        break;
+      }
+      case "py.neverClosed": {
+        fixes.push({ label: "check.fix.addClose", args: { c: tr.args.want }, changes: [{ from: end, to: end, insert: tr.args.want }] });
+        to = from + 1;
+        break;
+      }
+      case "py.invalidChar": {
+        // その行の全角の記号をまとめて半角に（文字列の中は変えない）
+        const changes: { from: number; to: number; insert: string }[] = [];
+        let q: string | null = null;
+        for (let k = 0; k < line.text.length; k++) {
+          const ch = line.text[k];
+          if (q) {
+            if (ch === "\\") k++;
+            else if (ch === q) q = null;
+            continue;
+          }
+          if (ch === '"' || ch === "'") q = ch;
+          else if (ch === "#") break;
+          else if (ZENKAKU_FIX[ch] !== undefined) changes.push({ from: line.from + k, to: line.from + k + 1, insert: ZENKAKU_FIX[ch] });
+        }
+        if (changes.length) fixes.push({ label: "py.fix.zenkaku", changes });
+        to = from + tr.args.c.length;
+        break;
+      }
+      case "py.assignInCond": {
+        const seg = doc.sliceString(from, Math.max(to, line.to));
+        const m = /(^|[^=!<>:+\-*/%&|^])=(?!=)/.exec(seg);
+        if (m) {
+          const at = from + m.index + m[1].length;
+          fixes.push({ label: "check.fix.replace", args: { c: "==" }, changes: [{ from: at, to: at + 1, insert: "==" }] });
+        }
+        break;
+      }
+      case "py.forgotComma": {
+        const seg = doc.sliceString(from, to);
+        const m = /\S(\s+)\S/.exec(seg);
+        if (m) {
+          const at = from + m.index + 1;
+          fixes.push({ label: "py.fix.comma", changes: [{ from: at, to: at + m[1].length, insert: ", " }] });
+        }
+        break;
+      }
+      case "py.printParen": {
+        const m = /^(\s*)(print)\s+(.+?)\s*$/.exec(line.text.slice(0, codeEnd(line.text)));
+        if (m) fixes.push({ label: "py.fix.printParen", changes: [{ from: line.from, to: line.from + codeEnd(line.text), insert: `${m[1]}print(${m[3]})` }] });
+        wholeLine();
+        break;
+      }
+      case "py.expectedIndent":
+      case "py.expectedIndentAfter": {
+        const prev = prevCodeLine(state, lineNo);
+        const want = (prev ? indentOf(prev.text) : 0) + 4;
+        fixes.push({ label: "check.fix.indent", changes: [{ from: line.from, to: line.from + lead, insert: " ".repeat(want) }] });
+        wholeLine();
+        break;
+      }
+      case "py.unexpectedIndent": {
+        const prev = prevCodeLine(state, lineNo);
+        fixes.push({ label: "check.fix.indent", changes: [{ from: line.from, to: line.from + lead, insert: " ".repeat(prev ? indentOf(prev.text) : 0) }] });
+        wholeLine();
+        break;
+      }
+      case "py.unindent": {
+        // 上の行で使っている字下げのうち、いちばん近いもの（同じ近さなら深い方）にそろえる
+        const mine = indentOf(line.text);
+        let best = 0;
+        let bestD = Infinity;
+        for (let k = lineNo - 1; k >= 1; k--) {
+          const l = doc.line(k);
+          if (!l.text.trim() || l.text.trim().startsWith("#")) continue;
+          const ind = indentOf(l.text);
+          const d = Math.abs(ind - mine);
+          if (d < bestD || (d === bestD && ind > best)) {
+            best = ind;
+            bestD = d;
+          }
+          if (ind === 0) break;
+        }
+        fixes.push({ label: "check.fix.indent", changes: [{ from: line.from, to: line.from + lead, insert: " ".repeat(best) }] });
+        wholeLine();
+        break;
+      }
+      case "py.tabs": {
+        fixes.push({ label: "check.fix.spaces", changes: [{ from: line.from, to: line.from + lead, insert: " ".repeat(indentOf(line.text)) }] });
+        wholeLine();
+        break;
+      }
+      default:
+        if (!it.c) wholeLine();
+    }
+    if (to <= from) to = Math.min(line.to, from + 1);
+    out.push({ from, to, kind: "syntax", severity: it.k === "error" ? "error" : "warning", msg: tr.key, args: tr.args, fixes });
+  }
   return out;
 }
 
@@ -135,10 +346,20 @@ let views = new Set<EditorView>();
 export function liveCheck(): Extension {
   return [
     linter(
-      (view) => {
+      async (view) => {
         const state = view.state;
         const cursor = view.hasFocus ? state.selection.main.head : null;
-        return problemsOf(state, cursor)
+        // Python は本物の Python でも調べる（字下げ・文法のまちがいを、実行したときと同じ判定で）
+        let py: PyIssue[] | null = null;
+        if (settings.get("editor.liveCheck") && settings.get("editor.pythonCheck") && checkLangOfState(state) === "python") {
+          const text = state.doc.toString();
+          const fresh = !cachedPyCheck(text);
+          py = await pyCheck(text);
+          if (view.state.doc !== state.doc) return [];
+          // 自動判定の「実行するとエラー」も描き直す
+          if (fresh && py) setTimeout(() => view.dispatch({ effects: inferUpdated.of(null) }));
+        }
+        return problemsOf(state, cursor, py)
           .filter((p) => !typingLine(state, p))
           .map((p) => toDiagnostic(state, p));
       },

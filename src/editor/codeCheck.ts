@@ -34,7 +34,7 @@ export interface Tok {
 export interface Problem {
   from: number;
   to: number;
-  kind: "syntax" | "undefined" | "import";
+  kind: "syntax" | "undefined" | "import" | "runtime";
   severity: "error" | "warning" | "info";
   /** 表示用の言葉のキーと埋め込む値 */
   msg: string;
@@ -54,7 +54,7 @@ const OPS2 = ["==", "!=", "<=", ">=", ":=", "+=", "-=", "*=", "/=", "%=", "&=", 
 const OPEN: Record<string, string> = { "(": ")", "[": "]", "{": "}" };
 const CLOSE: Record<string, string> = { ")": "(", "]": "[", "}": "{" };
 
-interface Lexed {
+export interface Lexed {
   toks: Tok[];
   problems: Problem[];
   /** 文字列・コメントの範囲（差し込み位置の判断などに使う） */
@@ -985,11 +985,175 @@ function checkOthers(text: string, lang: CheckLang, lexed: Lexed): Problem[] {
 }
 
 /** まとめて調べる。cursor は入力中の場所（そこにくっついている名前は出さない） */
-export function checkCode(text: string, lang: CheckLang, opts: { syntax: boolean; names: boolean; cursor?: number | null }): Problem[] {
+/** Python の字下げ（本物の Python で調べられないときの代わり） */
+export function pythonIndentProblems(text: string, lexed: Lexed): Problem[] {
+  const out: Problem[] = [];
+  const { toks, skipped } = lexed;
+  const inSkip = (pos: number) => skipped.some(([a, b]) => pos > a && pos < b);
+  const lines = text.split("\n");
+  const stack = [0];
+  let headerPending = false;
+  let offset = 0;
+  let ti = 0;
+  for (let i = 0; i < lines.length; i++) {
+    const raw = lines[i];
+    const start = offset;
+    offset += raw.length + 1;
+    const body = raw.trim();
+    if (!body || body.startsWith("#") || inSkip(start)) continue;
+    // この行の最初のトークンが「かっこの中」なら続きの行
+    while (ti < toks.length && toks[ti].to <= start) ti++;
+    const first = toks[ti];
+    if (!first || first.from >= start + raw.length + 1) continue;
+    if (first.d > 0) continue;
+    if (i > 0 && /\\\s*$/.test(lines[i - 1])) continue;
+    const lead = /^[ \t]*/.exec(raw)![0];
+    const ind = lead.replace(/\t/g, "    ").length;
+    const mark = { from: start + lead.length, to: start + raw.trimEnd().length };
+    if (lead.includes("\t") && lead.includes(" ")) {
+      out.push({ ...mark, kind: "syntax", severity: "warning", msg: "py.tabs", fixes: [{ label: "check.fix.spaces", changes: [{ from: start, to: start + lead.length, insert: " ".repeat(ind) }] }] });
+    }
+    const top = stack[stack.length - 1];
+    if (headerPending) {
+      headerPending = false;
+      if (ind <= top) {
+        const want = top + 4;
+        out.push({ ...mark, kind: "syntax", severity: "error", msg: "py.expectedIndent", fixes: [{ label: "check.fix.indent", changes: [{ from: start, to: start + lead.length, insert: " ".repeat(want) }] }] });
+        stack.push(want);
+      } else stack.push(ind);
+    } else if (ind > top) {
+      out.push({ ...mark, kind: "syntax", severity: "error", msg: "py.unexpectedIndent", fixes: [{ label: "check.fix.indent", changes: [{ from: start, to: start + lead.length, insert: " ".repeat(top) }] }] });
+    } else if (ind < top) {
+      while (stack.length > 1 && stack[stack.length - 1] > ind) stack.pop();
+      if (stack[stack.length - 1] !== ind) {
+        const near = stack[stack.length - 1];
+        out.push({ ...mark, kind: "syntax", severity: "error", msg: "py.unindent", fixes: [{ label: "check.fix.indent", changes: [{ from: start, to: start + lead.length, insert: " ".repeat(near) }] }] });
+      }
+    }
+    // この行（とかっこの続き）の終わりが「:」なら、次の行は字下げが必要
+    let j = ti;
+    let lastTok = first;
+    let colonInside = false;
+    while (j < toks.length && toks[j].k !== "nl") {
+      lastTok = toks[j++];
+      if (lastTok.v === ":" && lastTok.d === 0) colonInside = true;
+    }
+    // 「:」を忘れた行（そちらは別に知らせる）も、次の行の字下げは正しいとみなす
+    const blockKw = /^(if|elif|else|for|while|def|class|try|except|finally|with|async|match|case)\b/.test(body);
+    const isHeader = blockKw && ((lastTok.v === ":" && lastTok.d === 0) || !colonInside);
+    if (isHeader) headerPending = true;
+  }
+  return out;
+}
+
+const STMT_KW = new Set(["if", "for", "foreach", "while", "switch", "catch", "lock", "using", "fixed", "else", "do", "try", "finally"]);
+const NOT_END = new Set(["else", "do", "try", "finally", "get", "set", "init", "public", "private", "protected", "internal", "static", "override", "virtual", "abstract", "sealed", "async", "return", "new", "case", "default", "operator", "where", "const", "readonly", "extern", "unsafe", "volatile", "partial", "template", "typename", "class", "struct", "enum", "interface", "namespace", "throws", "implements", "extends"]);
+const CONT_START = new Set(["{", ".", "?", ":", "+", "-", "*", "/", "%", "&&", "||", "=>", ",", ")", "]", "?.", "??", "&", "|", "^", "==", "!=", "<", ">", "<=", ">=", "=", "+=", "-=", "<<", ">>", "::", "->"]);
+
+/** C# / Java / C / C++：行の終わりの「;」忘れと、if の中の「=」 */
+export function bracePunctProblems(text: string, lang: CheckLang, lexed: Lexed): Problem[] {
+  if (!["csharp", "java", "c", "cpp"].includes(lang)) return [];
+  const out: Problem[] = [];
+  const { toks } = lexed;
+  // 行ごとにトークンを分ける
+  const lineOf: number[] = [];
+  {
+    let line = 0;
+    let pos = 0;
+    for (const tk of toks) {
+      while (pos < tk.from) {
+        const nl = text.indexOf("\n", pos);
+        if (nl < 0 || nl >= tk.from) {
+          pos = tk.from;
+          break;
+        }
+        line++;
+        pos = nl + 1;
+      }
+      lineOf.push(line);
+    }
+  }
+  // { の種類：コードのまとまりか、値を並べる（enum・初期化）か
+  const braceKinds: boolean[] = []; // true = 値を並べる
+  let paren = 0;
+  const lineText = (tkIndex: number) => {
+    const ls = text.lastIndexOf("\n", toks[tkIndex].from - 1) + 1;
+    const le = text.indexOf("\n", toks[tkIndex].from);
+    return text.slice(ls, le < 0 ? text.length : le);
+  };
+  for (let i = 0; i < toks.length; i++) {
+    const tk = toks[i];
+    if (tk.v === "(" || tk.v === "[") paren++;
+    else if (tk.v === ")" || tk.v === "]") paren = Math.max(0, paren - 1);
+    else if (tk.v === "{") {
+      const prev = toks[i - 1];
+      const lt = lineText(i);
+      const init = !!prev && (["=", ",", "(", "return", "=>", "]"].includes(prev.v) || /\b(new|enum)\b/.test(lt.slice(0, tk.from - (text.lastIndexOf("\n", tk.from - 1) + 1))) || (prev.v === ">" && /\bnew\b/.test(lt)));
+      braceKinds.push(init || paren > 0);
+    } else if (tk.v === "}") braceKinds.pop();
+    // if ( x = 5 ) の「=」
+    if ((tk.v === "if" || tk.v === "while") && toks[i + 1]?.v === "(") {
+      const base = toks[i + 1].d + 1;
+      for (let k = i + 2; k < toks.length; k++) {
+        const x = toks[k];
+        if (x.v === ")" && x.d === base - 1) break;
+        if (x.v === "=" && x.d === base) {
+          out.push({ from: x.from, to: x.to, kind: "syntax", severity: lang === "c" || lang === "cpp" ? "warning" : "error", msg: "check.assignInIf", fixes: [{ label: "check.fix.replace", args: { c: "==" }, changes: [{ from: x.from, to: x.to, insert: "==" }] }] });
+          break;
+        }
+      }
+    }
+    // 行の終わりのトークンか
+    const next = toks[i + 1];
+    const endOfLine = !next || lineOf[i + 1] !== lineOf[i];
+    if (!endOfLine) continue;
+    if (paren > 0 || braceKinds[braceKinds.length - 1]) continue;
+    const endsValue = tk.k === "id" || tk.k === "num" || tk.v === ")" || tk.v === "]" || tk.v === "++" || tk.v === "--" || (tk.v === ">" && false);
+    if (!endsValue || (tk.k === "id" && NOT_END.has(tk.v))) continue;
+    // この行の最初のトークン
+    let f = i;
+    while (f > 0 && lineOf[f - 1] === lineOf[i]) f--;
+    const firstTok = toks[f];
+    if (firstTok.v === "[" && tk.v === "]") continue; // [SerializeField] などの属性
+    if (firstTok.v === "@") continue; // Java の @Override など
+    if (STMT_KW.has(firstTok.v) && (tk.v === ")" || firstTok.v === "else" || firstTok.v === "do")) continue; // { のない if (…) など
+    if (firstTok.v === "}" && toks[f + 1]?.v === "else") continue;
+    if (firstTok.v === "case" || firstTok.v === "default") continue;
+    // 次の行が続き（. や + で始まる・{ で始まる）なら、まだ文の途中
+    if (!next) {
+      // ファイルの最後：} の外の文だけ
+    } else {
+      if (CONT_START.has(next.v)) continue;
+      if (next.v === "{" ) continue;
+    }
+    // 前の行が続きの記号で終わっている文の途中（a +\n b）も、ここで終わるなら ; が要る
+    // メソッドや関数の宣言（次の行が { ）は上で除いた。型の宣言 class A : B も同じ
+    if (/\b(class|struct|interface|enum|namespace|record)\b/.test(lineText(i))) continue;
+    out.push({
+      from: tk.from,
+      to: tk.to,
+      kind: "syntax",
+      severity: "error",
+      msg: "check.missingSemicolon",
+      fixes: [{ label: "check.fix.addSemicolon", changes: [{ from: tk.to, to: tk.to, insert: ";" }] }],
+    });
+  }
+  return out;
+}
+
+export function checkCode(text: string, lang: CheckLang, opts: { syntax: boolean; names: boolean; cursor?: number | null; indent?: boolean }): Problem[] {
   if (text.length > 400_000) return [];
   const lexed = lex(text, lang);
   const out: Problem[] = [];
   if (opts.syntax) out.push(...lexed.problems);
+  if (opts.syntax && lang === "python" && opts.indent !== false) {
+    const lines = new Set(out.map((p) => text.slice(0, p.from).split("\n").length));
+    out.push(...pythonIndentProblems(text, lexed).filter((p) => !lines.has(text.slice(0, p.from).split("\n").length)));
+  }
+  if (opts.syntax && lang !== "python") {
+    const lines = new Set(out.map((p) => text.slice(0, p.from).split("\n").length));
+    out.push(...bracePunctProblems(text, lang, lexed).filter((p) => !lines.has(text.slice(0, p.from).split("\n").length)));
+  }
   if (lang === "python") {
     const py = checkPython(text, lexed, opts.cursor ?? null);
     out.push(...py.filter((p) => (p.kind === "syntax" ? opts.syntax : opts.names)));
