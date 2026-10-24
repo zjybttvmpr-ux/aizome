@@ -1,0 +1,9 @@
+before {"ghost":[],"calls":"ai_autodetect","aiPill":"qwen2.5-coder:7b","settings":"{}"}
+after 500 {"ghost":["t(i)"],"calls":"ai_autodetect,ai_complete","last":"_main__\":\n    for r in range(1, 4):\n        print(f\"r={r}: {area(r):.2f}\")\n\nprin","aiPill":"qwen2.5-coder:7b","settings":"{}"}
+after 1000 {"ghost":["t(i)"],"calls":"ai_autodetect,ai_complete","last":"_main__\":\n    for r in range(1, 4):\n        print(f\"r={r}: {area(r):.2f}\")\n\nprin","aiPill":"qwen2.5-coder:7b","settings":"{}"}
+after 2000 {"ghost":["t(i)"],"calls":"ai_autodetect,ai_complete,ai_complete","last":"  for r in range(1, 4):\n11:         print(f\"r={r}: {area(r):.2f}\")\n12: \n13: prin","aiPill":"qwen2.5-coder:7b","settings":"{}"}
+after 4000 {"ghost":["t(i)"],"calls":"ai_autodetect,ai_complete,ai_complete","last":"  for r in range(1, 4):\n11:         print(f\"r={r}: {area(r):.2f}\")\n12: \n13: prin","aiPill":"qwen2.5-coder:7b","settings":"{}"}
+mode 説明 {"ghost":["t(i)"],"calls":"ai_autodetect,ai_complete,ai_complete,ai_complete","last":"__\":\n    for r in range(1, 4):\n        print(f\"r={r}: {area(r):.2f}\")\n\nprin\nprin","aiPill":"qwen2.5-coder:7b","settings":"{}"}
+mode なし {"ghost":["t(i)"],"calls":"ai_autodetect,ai_complete,ai_complete,ai_complete,ai_complete","last":"    for r in range(1, 4):\n        print(f\"r={r}: {area(r):.2f}\")\n\nprin\nprin\nprin","aiPill":"qwen2.5-coder:7b","settings":"{}"}
+mode 自動判定 {"ghost":["t(i)"],"calls":"ai_autodetect,ai_complete,ai_complete,ai_complete,ai_complete,ai_complete,ai_complete","last":"         print(f\"r={r}: {area(r):.2f}\")\n12: \n13: prin\n14: prin\n15: prin\n16: prin","aiPill":"qwen2.5-coder:7b","settings":"{}"}
+log UNKNOWN find_python
