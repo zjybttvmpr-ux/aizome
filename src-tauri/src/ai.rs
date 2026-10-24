@@ -107,7 +107,42 @@ fn emit_text(app: &AppHandle, id: u32, text: &str) {
     }
 }
 
+/// Ollama の中で AI を動かす部分（ランナー）が止まったときのエラーか
+fn runner_crashed(lower: &str) -> bool {
+    ["health resp", "llama runner", "runner process", "runner has unexpectedly", "exit status", "out of memory", "unable to allocate", "cudamalloc", "failed to load model", "error loading model", "connection refused"]
+        .iter()
+        .any(|k| lower.contains(k))
+}
+
+/// 一度ランナーが止まったら、このあとは CPU で動かす（グラフィックのメモリが足りないときのため）
+static CPU_ONLY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 async fn run(app: &AppHandle, client: &reqwest::Client, id: u32, req: AiRequest) -> Result<(), String> {
+    match run_once(app, client, id, &req, CPU_ONLY.load(Ordering::SeqCst)).await {
+        Err(e) if req.provider != "openai" && e.starts_with("RUNNER:") => {
+            // モデルをいったん外してから、もう一度（1 回目はそのまま、だめなら CPU で）
+            let unload = json!({ "model": req.model, "keep_alive": 0 });
+            let _ = client.post(format!("{}/api/generate", base(&req.endpoint))).json(&unload).send().await;
+            let _ = tauri::async_runtime::spawn_blocking(|| std::thread::sleep(Duration::from_millis(800))).await;
+            if !CPU_ONLY.load(Ordering::SeqCst) {
+                match run_once(app, client, id, &req, false).await {
+                    Err(e2) if e2.starts_with("RUNNER:") => {}
+                    other => return other,
+                }
+                CPU_ONLY.store(true, Ordering::SeqCst);
+                let _ = client.post(format!("{}/api/generate", base(&req.endpoint))).json(&unload).send().await;
+                let _ = tauri::async_runtime::spawn_blocking(|| std::thread::sleep(Duration::from_millis(800))).await;
+            }
+            match run_once(app, client, id, &req, true).await {
+                Err(e3) if e3.starts_with("RUNNER:") => Err(format!("RUNNER_CRASHED: {}", e3.trim_start_matches("RUNNER:").trim())),
+                other => other,
+            }
+        }
+        other => other,
+    }
+}
+
+async fn run_once(app: &AppHandle, client: &reqwest::Client, id: u32, req: &AiRequest, cpu: bool) -> Result<(), String> {
     let max_tokens = req.max_tokens.unwrap_or(128);
     let temperature = req.temperature.unwrap_or(0.2);
     let stop = req.stop.clone().unwrap_or_default();
@@ -130,6 +165,9 @@ async fn run(app: &AppHandle, client: &reqwest::Client, id: u32, req: AiRequest)
         });
         if let Some(n) = req.num_ctx {
             body["options"]["num_ctx"] = json!(n);
+        }
+        if cpu {
+            body["options"]["num_gpu"] = json!(0);
         }
         if let Some(s) = &req.suffix {
             body["suffix"] = json!(s);
@@ -171,6 +209,9 @@ async fn run(app: &AppHandle, client: &reqwest::Client, id: u32, req: AiRequest)
         if lower.contains("does not support insert") || lower.contains("suffix") && lower.contains("not support") {
             return Err(format!("NO_FIM: {short}"));
         }
+        if is_ollama && status.as_u16() >= 500 && runner_crashed(&lower) {
+            return Err(format!("RUNNER: HTTP {status}: {short}"));
+        }
         return Err(format!("HTTP {status}: {short}"));
     }
 
@@ -189,6 +230,9 @@ async fn run(app: &AppHandle, client: &reqwest::Client, id: u32, req: AiRequest)
             if is_ollama {
                 let v: Value = serde_json::from_str(line).map_err(|e| e.to_string())?;
                 if let Some(e) = v.get("error").and_then(|e| e.as_str()) {
+                    if runner_crashed(&e.to_lowercase()) {
+                        return Err(format!("RUNNER: {e}"));
+                    }
                     return Err(e.to_string());
                 }
                 if let Some(t) = v.get("response").and_then(|t| t.as_str()) {

@@ -1,4 +1,5 @@
 // 「日本語から組み立てる」の確認画面
+import { describeAiError } from "../ai/localAi";
 import { h } from "../core/dom";
 import { t } from "../core/i18n";
 import { settings } from "../core/settings";
@@ -118,7 +119,7 @@ export async function buildFromJapanese(deps: BuildDeps, line?: number) {
         status.textContent = code ? t("build.done", { lines: String(code.split("\n").length - 1), sec: String(Math.round((Date.now() - started) / 1000)) }) : "";
         [copy, insert, save, saveRun].forEach((b) => (b.disabled = !code));
       } catch (err) {
-        out.textContent = t("chat.failed", { err: String((err as Error).message ?? err) });
+        out.textContent = t("chat.failed", { err: describeAiError(String((err as Error).message ?? err)) });
         status.textContent = "";
       } finally {
         stop = null;

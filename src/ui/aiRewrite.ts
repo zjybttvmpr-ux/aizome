@@ -1,5 +1,6 @@
 // 「AI で書き換え」：選択範囲（なければカーソル位置）に、指示どおりのコードを書く。
 // 結果は確認画面に出し、「適用」を押したときだけエディタに反映する。
+import { describeAiError } from "../ai/localAi";
 import { h } from "../core/dom";
 import { t } from "../core/i18n";
 import { settings } from "../core/settings";
@@ -83,7 +84,7 @@ export async function aiRewrite(editor: EditorHost, presetInstruction?: string) 
         out.textContent = result || t("rewrite.empty");
         apply.disabled = !result;
       } catch (err) {
-        out.textContent = t("chat.failed", { err: String((err as Error).message ?? err) });
+        out.textContent = t("chat.failed", { err: describeAiError(String((err as Error).message ?? err)) });
       } finally {
         stop = null;
         retry.disabled = false;

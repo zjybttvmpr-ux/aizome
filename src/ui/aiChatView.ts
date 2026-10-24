@@ -1,4 +1,5 @@
 // サイドバーの「AI チャット」ビュー。開いているファイルや選択範囲について質問できる
+import { describeAiError } from "../ai/localAi";
 import { h, clear } from "../core/dom";
 import { t } from "../core/i18n";
 import { settings } from "../core/settings";
@@ -146,7 +147,7 @@ export function createAiChatView(deps: AiChatDeps): AiChatView {
       });
       answer.text = text.trim() || t("chat.noAnswer");
     } catch (err) {
-      answer.text = t("chat.failed", { err: String((err as Error).message ?? err) });
+      answer.text = t("chat.failed", { err: describeAiError(String((err as Error).message ?? err)) });
     } finally {
       cancel = null;
       send.hidden = false;
