@@ -1,0 +1,21 @@
+name: Ghost debug
+on:
+  push:
+    branches: [debug/ghost]
+jobs:
+  ui:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+      - run: npm install && npm install --no-save esbuild playwright
+      - run: npx playwright install --with-deps chromium
+      - run: node tests/ui/build.mjs
+      - run: mkdir -p shots && node tests/ui/ghost.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: shots
+          path: shots
