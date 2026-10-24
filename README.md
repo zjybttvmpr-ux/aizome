@@ -40,6 +40,13 @@
 - メニューの AI →「組み立て用のひな形を入れる」で見本が入ります
 - 小さいモデル（1.5b）だと組み立ての質が落ちます。できれば `qwen2.5-coder:7b` 以上を使ってください
 
+### 0.28.0：行の説明で、関数やメソッドが何をするかまで日本語に
+
+- 「行の右 → 説明」で、`math.sin(i)` なら「i の正弦（サイン）を表示します」、`math.sqrt(i)` なら「i の平方根（ルート）」、`math.inf` なら「無限大」のように、**関数・メソッド・定数の意味まで日本語で** 出るようになりました
+- `from math import sin` は「math から sin（正弦（サイン）を求める）を読み込みます」、`import math` はモジュールが何の道具かも出ます
+- 入れ子（`round(math.sin(i), 2)`）、メソッドのつながり（`s.strip().split(",")`）、計算（`sum(a) / len(a)`）、条件（`if s.isdigit():` →「もし s が数字だけでできているなら」）にも対応
+- 対応：Python（組み込み関数・math・random・time・datetime・os・sys・json・re・statistics・collections・itertools・turtle・tkinter・numpy・matplotlib・pandas・pygame、文字・リスト・辞書・集合・ファイルのメソッド）、JavaScript / TypeScript、C#・Unity（Mathf・Input・Vector3・Rigidbody・GetComponent・Start / Update などのイベント）、Java、C / C++、Go、Rust、Kotlin、Ruby
+
 ### 0.27.0：まちがいを行の右に・ホイール押し込みで直す・全言語のエラーを日本語に
 
 - 書きながら見つけたまちがい（`pr(…)` → もしかして print、`math.cil` → もしかして ceil、文法のまちがい、import 忘れなど）を、**値を見るのエラーと同じように行の右** に日本語で出します（押すと説明と直し方の一覧）

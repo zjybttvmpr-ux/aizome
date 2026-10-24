@@ -1,7 +1,28 @@
 // 1行のコードが何をするかを、日本語で短く説明する（AI を使わないルール。純粋関数）
 // 対応：Python、JavaScript / TypeScript、よく使う C・C++・Java・Rust・Go の表示
 
+import { asCondition, describeExpr, describeStatement, importedMeaning, moduleMeaning, type ExprLang } from "./exprJa";
+
 export type ExplainLang = "python" | "js" | "c" | "ruby" | "shell" | "other";
+
+const exprLang = (l: ExplainLang): ExprLang | null => (l === "python" || l === "js" || l === "c" || l === "ruby" ? l : null);
+
+/** 式の意味（名詞）。分からなければ null */
+function nounOf(expr: string, lang: ExplainLang): string | null {
+  const el = exprLang(lang);
+  return el ? describeExpr(expr, el)?.noun ?? null : null;
+}
+
+/** 条件式を「〜なら」の前の部分にする（分からなければ式のまま） */
+function cond(expr: string, lang: ExplainLang): string {
+  const n = nounOf(expr, lang);
+  return n ? asCondition(n) : cut(expr, 30) + " ";
+}
+
+function stmt(line: string, lang: ExplainLang): string | null {
+  const el = exprLang(lang);
+  return el ? describeStatement(line, el) : null;
+}
 
 export function langFromFilename(name: string): ExplainLang {
   const ext = name.toLowerCase().split(".").pop() ?? "";
@@ -59,7 +80,7 @@ function splitArgs(s: string): string[] {
 }
 
 /** 表示する中身の説明：「こんにちは」/ x の中身 / 文字と値 */
-function describeShown(args: string[]): string {
+function describeShown(args: string[], lang: ExplainLang = "other"): string {
   const parts = args.filter((a) => !/^(sep|end|file|flush)\s*=/.test(a));
   if (!parts.length) return "空の行を表示します";
   if (parts.length === 1) {
@@ -70,13 +91,20 @@ function describeShown(args: string[]): string {
       const inner = a.replace(/^\s*f?(["'`])/, "").replace(/(["'`])\s*$/, "").replace(/\$?\{([^}]*)\}/g, "〔$1〕");
       return `「${cut(inner, 30)}」と表示します（〔 〕の所に値が入ります）`;
     }
+    const n = nounOf(a, lang);
+    if (n) return `${n}${/か$/.test(n) ? "どうか" : ""}を表示します`;
     if (/^[A-Za-z_][\w.]*$/.test(a)) return `${a} の中身を表示します`;
-    if (/^len\((.+)\)$/.test(a)) return `${a.slice(4, -1)} の長さ（個数）を表示します`;
+    if (/^len\([^()]*\)$/.test(a)) return `${a.slice(4, -1)} の長さ（個数）を表示します`;
     return `${cut(a)} の結果を表示します`;
   }
   const lits = parts.map((p) => stringLiteral(p));
   if (lits.every((l) => l !== null)) return `「${cut(lits.join(" "), 30)}」と表示します`;
-  return `${parts.map((p, i) => (lits[i] !== null ? `「${cut(lits[i]!, 12)}」` : cut(p, 12))).join("・")} を並べて表示します`;
+  const shown = parts.map((p, i) => {
+    if (lits[i] !== null) return `「${cut(lits[i]!, 12)}」`;
+    const n = nounOf(p, lang);
+    return n && n.length <= 24 ? `『${n}』` : cut(p, 12);
+  });
+  return `${shown.join("・")} を並べて表示します`;
 }
 
 function describeValue(v: string): string | null {
@@ -120,6 +148,25 @@ function describeRange(args: string[]): string | null {
   return null;
 }
 
+function returns(expr: string, lang: ExplainLang): string {
+  const n = nounOf(expr, lang);
+  return n ? `${n}を返します` : `${cut(expr)} を返します`;
+}
+
+function pyFromImport(mod: string, list: string): string {
+  const names = list.replace(/[()]/g, "").split(",").map((x) => x.trim()).filter(Boolean);
+  const modMean = moduleMeaning(mod, "python");
+  if (names.length === 1 && names[0] === "*") return `${mod}${modMean ? `（${modMean}）` : ""} の中身を全部読み込みます`;
+  const parts = names.map((n) => {
+    const [name, alias] = n.split(/\s+as\s+/);
+    const mean = importedMeaning(mod, name, "python");
+    return `${name}${mean ? `（${mean}）` : ""}${alias ? ` を ${alias} という名前で` : ""}`;
+  });
+  const text = parts.join("・");
+  if (text.length > 60) return `${mod} から ${cut(names.join("・"), 30)} を読み込みます`;
+  return `${mod} から ${text} を読み込みます`;
+}
+
 // ───────── Python
 
 function python(line: string): string | null {
@@ -127,9 +174,16 @@ function python(line: string): string | null {
   let m: RegExpExecArray | null;
 
   if (/^if\s+__name__\s*==\s*["']__main__["']\s*:/.test(s)) return "このファイルを直接実行したときだけ、下の処理を動かします";
-  if ((m = /^from\s+([\w.]+)\s+import\s+(.+)$/.exec(s))) return `${m[1]} から ${cut(m[2].replace(/[()]/g, ""), 30)} を読み込みます`;
-  if ((m = /^import\s+([\w.]+)\s+as\s+(\w+)$/.exec(s))) return `${m[1]} を ${m[2]} という名前で読み込みます`;
-  if ((m = /^import\s+(.+)$/.exec(s))) return `${m[1].split(",").map((x) => x.trim()).join("・")} を読み込みます`;
+  if ((m = /^from\s+([\w.]+)\s+import\s+(.+)$/.exec(s))) return pyFromImport(m[1], m[2]);
+  if ((m = /^import\s+([\w.]+)\s+as\s+(\w+)$/.exec(s))) {
+    const mean = moduleMeaning(m[1], "python");
+    return `${m[1]}${mean ? `（${mean}）` : ""} を ${m[2]} という名前で読み込みます`;
+  }
+  if ((m = /^import\s+(.+)$/.exec(s))) {
+    const mods = m[1].split(",").map((x) => x.trim());
+    const one = mods.length === 1 ? moduleMeaning(mods[0], "python") : null;
+    return `${mods.join("・")}${one ? `（${one}）` : ""} を読み込みます`;
+  }
   if ((m = /^(async\s+)?def\s+(\w+)\s*\((.*)\)\s*(->\s*[^:]+)?:\s*$/.exec(s))) {
     const params = splitArgs(m[3]).filter((p) => p && p !== "self" && p !== "cls").map((p) => p.split(/[:=]/)[0].trim());
     const kind = m[2] === "__init__" ? "作るときに最初に動く処理を" : `関数 ${m[2]} を`;
@@ -140,12 +194,16 @@ function python(line: string): string | null {
     const r = describeRange(splitArgs(m[2]));
     return r ? `${m[1]} を ${r}変えながら繰り返します` : `${m[1]} を数えながら繰り返します`;
   }
+  if ((m = /^for\s+(.+?)\s+in\s+(.+?)\s*:/.exec(s)) && !/^enumerate\(/.test(m[2])) {
+    const n = nounOf(m[2], "python");
+    if (n) return `${n} の中身を 1 つずつ ${m[1]} に入れて繰り返します`;
+  }
   if ((m = /^for\s+(.+?),\s*(.+?)\s+in\s+enumerate\((.+)\)\s*:/.exec(s))) return `${m[3]} の中身を、番号 ${m[1]} と一緒に 1 つずつ ${m[2]} に入れて繰り返します`;
   if ((m = /^for\s+(.+?)\s+in\s+(.+?)\s*:/.exec(s))) return `${cut(m[2])} の中身を 1 つずつ ${m[1]} に入れて繰り返します`;
   if (/^while\s+(True|1)\s*:/.test(s)) return "ずっと繰り返します（break で抜けます）";
-  if ((m = /^while\s+(.+?)\s*:/.exec(s))) return `${cut(m[1])} のあいだ繰り返します`;
-  if ((m = /^if\s+(.+?)\s*:/.exec(s))) return `もし ${cut(m[1], 30)} なら`;
-  if ((m = /^elif\s+(.+?)\s*:/.exec(s))) return `そうでなく、もし ${cut(m[1], 30)} なら`;
+  if ((m = /^while\s+(.+?)\s*:/.exec(s))) return `${cond(m[1], "python")}のあいだ繰り返します`;
+  if ((m = /^if\s+(.+?)\s*:/.exec(s))) return `もし ${cond(m[1], "python")}なら`;
+  if ((m = /^elif\s+(.+?)\s*:/.exec(s))) return `そうでなく、もし ${cond(m[1], "python")}なら`;
   if (/^else\s*:/.test(s)) return "そうでなければ";
   if (/^try\s*:/.test(s)) return "エラーが起きるかもしれない処理を試します";
   if ((m = /^except\s+(\w+)/.exec(s))) return `${m[1]} のエラーが起きたら`;
@@ -159,11 +217,11 @@ function python(line: string): string | null {
     return `ファイル${name !== null ? `「${cut(name, 20)}」` : ` ${cut(args[0], 20)} `}を${what}に開いて ${m[2]} として使います`;
   }
   if (/^return\s*$/.test(s)) return "関数を終わります";
-  if ((m = /^return\s+(.+)$/.exec(s))) return `${cut(m[1])} を返します`;
+  if ((m = /^return\s+(.+)$/.exec(s))) return returns(m[1], "python");
   if (/^break$/.test(s)) return "繰り返しを抜けます";
   if (/^continue$/.test(s)) return "次の繰り返しへ進みます";
   if (/^pass$/.test(s)) return "何もしません";
-  if ((m = /^print\((.*)\)$/.exec(s))) return describeShown(splitArgs(m[1]));
+  if ((m = /^print\((.*)\)$/.exec(s))) return describeShown(splitArgs(m[1]), "python");
   if ((m = /^([\w.[\]]+)\.append\((.+)\)$/.exec(s))) return `${m[1]} の最後に ${cut(m[2], 16)} を追加します`;
   if ((m = /^([\w.[\]]+)\.extend\((.+)\)$/.exec(s))) return `${m[1]} の最後に ${cut(m[2], 16)} の中身をまとめて追加します`;
   if ((m = /^([\w.[\]]+)\.sort\((.*)\)$/.exec(s))) return /reverse\s*=\s*True/.test(m[2]) ? `${m[1]} を大きい順に並べ替えます` : `${m[1]} を小さい順に並べ替えます`;
@@ -171,7 +229,7 @@ function python(line: string): string | null {
   if ((m = /^([\w.[\]]+)\.pop\((.*)\)$/.exec(s))) return m[2] ? `${m[1]} の ${m[2]} 番目を取り出します` : `${m[1]} の最後の 1 つを取り出します`;
   if ((m = /^([\w.]+)\.write\((.+)\)$/.exec(s))) return `${cut(m[2], 20)} をファイルに書き込みます`;
   if ((m = /^time\.sleep\((.+)\)$/.exec(s))) return `${m[1]} 秒待ちます`;
-  return assignment(s, "python");
+  return stmt(s, "python") ?? assignment(s, "python");
 }
 
 // ───────── JavaScript / TypeScript
@@ -179,7 +237,10 @@ function python(line: string): string | null {
 function js(line: string): string | null {
   const s = line.trim().replace(/;$/, "");
   let m: RegExpExecArray | null;
-  if ((m = /^import\s+(.+?)\s+from\s+["'](.+)["']$/.exec(s))) return `${m[2]} から ${cut(m[1].replace(/[{}]/g, "").trim(), 24)} を読み込みます`;
+  if ((m = /^import\s+(.+?)\s+from\s+["'](.+)["']$/.exec(s))) {
+    const mean = moduleMeaning(m[2], "js");
+    return `${m[2]}${mean ? `（${mean}）` : ""} から ${cut(m[1].replace(/[{}]/g, "").trim(), 24)} を読み込みます`;
+  }
   if ((m = /^import\s+["'](.+)["']$/.exec(s))) return `${m[1]} を読み込みます`;
   if ((m = /^(?:const|let|var)\s+(\w+)\s*=\s*require\(["'](.+)["']\)$/.exec(s))) return `${m[2]} を ${m[1]} という名前で読み込みます`;
   if ((m = /^(?:export\s+)?(?:default\s+)?(?:async\s+)?function\s*\*?\s*(\w*)\s*\(([^)]*)\)/.exec(s))) {
@@ -199,27 +260,29 @@ function js(line: string): string | null {
   if ((m = /^for\s*\(\s*(?:const|let|var)\s+(.+?)\s+of\s+(.+?)\s*\)/.exec(s))) return `${cut(m[2])} の中身を 1 つずつ ${m[1]} に入れて繰り返します`;
   if ((m = /^for\s*\(\s*(?:const|let|var)\s+(.+?)\s+in\s+(.+?)\s*\)/.exec(s))) return `${cut(m[2])} の項目名を 1 つずつ ${m[1]} に入れて繰り返します`;
   if (/^while\s*\(\s*true\s*\)/.test(s)) return "ずっと繰り返します（break で抜けます）";
-  if ((m = /^while\s*\((.+)\)\s*\{?$/.exec(s))) return `${cut(m[1])} のあいだ繰り返します`;
-  if ((m = /^\}?\s*else\s+if\s*\((.+)\)\s*\{?$/.exec(s))) return `そうでなく、もし ${cut(m[1], 30)} なら`;
-  if ((m = /^if\s*\((.+)\)\s*\{?$/.exec(s))) return `もし ${cut(m[1], 30)} なら`;
+  if ((m = /^while\s*\((.+)\)\s*\{?$/.exec(s))) return `${cond(m[1], "js")}のあいだ繰り返します`;
+  if ((m = /^\}?\s*else\s+if\s*\((.+)\)\s*\{?$/.exec(s))) return `そうでなく、もし ${cond(m[1], "js")}なら`;
+  if ((m = /^if\s*\((.+)\)\s*\{?$/.exec(s))) return `もし ${cond(m[1], "js")}なら`;
   if (/^\}?\s*else\s*\{?$/.test(s)) return "そうでなければ";
   if (/^try\s*\{?$/.test(s)) return "エラーが起きるかもしれない処理を試します";
   if (/^\}?\s*catch\s*(\(.*\))?\s*\{?$/.test(s)) return "エラーが起きたら";
   if (/^\}?\s*finally\s*\{?$/.test(s)) return "最後に必ず行う処理";
   if (/^return$/.test(s)) return "関数を終わります";
-  if ((m = /^return\s+(.+)$/.exec(s))) return `${cut(m[1])} を返します`;
+  if ((m = /^return\s+(.+)$/.exec(s))) return returns(m[1], "js");
   if (/^break$/.test(s)) return "繰り返しを抜けます";
   if (/^continue$/.test(s)) return "次の繰り返しへ進みます";
   if ((m = /^console\.(log|info|warn|error)\((.*)\)$/.exec(s))) {
-    const d = describeShown(splitArgs(m[2]));
+    const d = describeShown(splitArgs(m[2]), "js");
     return m[1] === "error" ? d.replace("表示します", "エラーとして表示します") : m[1] === "warn" ? d.replace("表示します", "注意として表示します") : d;
   }
-  if ((m = /^alert\((.*)\)$/.exec(s))) return describeShown(splitArgs(m[1])).replace("表示します", "画面に知らせます");
+  if ((m = /^alert\((.*)\)$/.exec(s))) return describeShown(splitArgs(m[1]), "js").replace("表示します", "画面に知らせます");
   if ((m = /^([\w.[\]]+)\.push\((.+)\)$/.exec(s))) return `${m[1]} の最後に ${cut(m[2], 16)} を追加します`;
   if ((m = /^([\w.[\]]+)\.forEach\(/.exec(s))) return `${m[1]} の中身を 1 つずつ処理します`;
   if ((m = /^document\.getElementById\(["'](.+)["']\)/.exec(s))) return `id が ${m[1]} の部品を探します`;
   if ((m = /^([\w.]+)\.addEventListener\(["'](\w+)["']/.exec(s))) return `${m[1]} で ${m[2]} が起きたときの処理を登録します`;
-  if ((m = /^await\s+(.+)$/.exec(s))) return `${cut(m[1])} が終わるのを待ちます`;
+  if ((m = /^await\s+(.+)$/.exec(s))) return stmt(s, "js") ?? `${cut(m[1])} が終わるのを待ちます`;
+  const st = stmt(s, "js");
+  if (st) return st;
   return assignment(s.replace(/^(?:export\s+)?(?:const|let|var)\s+/, (k) => (k.includes("const") ? "const " : "let ")), "js");
 }
 
@@ -231,23 +294,47 @@ function cLike(line: string): string | null {
   if ((m = /^(?:printf|puts)\((.*)\)$/.exec(s))) {
     const args = splitArgs(m[1]);
     const lit = stringLiteral(args[0] ?? "");
-    return lit !== null ? `「${cut(lit.replace(/%\w/g, "〔値〕"), 30)}」と表示します` : describeShown(args);
+    return lit !== null ? `「${cut(lit.replace(/%\w/g, "〔値〕"), 30)}」と表示します` : describeShown(args, "c");
   }
-  if ((m = /^System\.out\.print(?:ln)?\((.*)\)$/.exec(s))) return describeShown(splitArgs(m[1]));
-  if ((m = /^Console\.Write(?:Line)?\((.*)\)$/.exec(s))) return describeShown(splitArgs(m[1]));
+  if ((m = /^Debug\.Log(Warning|Error)?(?:Format)?\((.*)\)$/.exec(s))) {
+    const d = describeShown(splitArgs(m[2]), "c");
+    return d.replace("表示します", m[1] === "Error" ? "エラーとしてコンソールに表示します" : m[1] === "Warning" ? "注意としてコンソールに表示します" : "コンソールに表示します");
+  }
+  if ((m = /^(?:println|print)\((.*)\)$/.exec(s))) return describeShown(splitArgs(m[1]), "c");
+  if ((m = /^(?:std::)?cin\s*>>\s*(.+)$/.exec(s))) return `入力を読み取って ${m[1].split(">>").map((x) => x.trim()).join("・")} に入れます`;
+  if ((m = /^System\.out\.print(?:ln)?\((.*)\)$/.exec(s))) return describeShown(splitArgs(m[1]), "c");
+  if ((m = /^Console\.Write(?:Line)?\((.*)\)$/.exec(s))) return describeShown(splitArgs(m[1]), "c");
   if ((m = /^(?:println|print)!\((.*)\)$/.exec(s))) {
     const args = splitArgs(m[1]);
     const lit = stringLiteral(args[0] ?? "");
     return lit !== null ? `「${cut(lit.replace(/\{[^}]*\}/g, "〔値〕"), 30)}」と表示します` : null;
   }
-  if ((m = /^fmt\.Print(?:ln|f)?\((.*)\)$/.exec(s))) return describeShown(splitArgs(m[1]));
+  if ((m = /^fmt\.Print(?:ln|f)?\((.*)\)$/.exec(s))) return describeShown(splitArgs(m[1]), "c");
   if ((m = /^(?:std::)?cout\s*<<\s*(.+)$/.exec(s))) {
     const parts = m[1].split("<<").map((p) => p.trim()).filter((p) => !/^(std::)?endl$/.test(p));
-    return describeShown(parts);
+    return describeShown(parts, "c");
   }
-  if ((m = /^#include\s*[<"](.+)[>"]/.exec(s))) return `${m[1]} を読み込みます`;
-  if ((m = /^use\s+(.+)$/.exec(s))) return `${m[1]} を使えるようにします`;
-  if ((m = /^import\s+(.+)$/.exec(s))) return `${m[1].replace(/["'()]/g, "").trim()} を読み込みます`;
+  const withMean = (name: string) => {
+    const mean = moduleMeaning(name, "c");
+    return `${name}${mean ? `（${mean}）` : ""}`;
+  };
+  if ((m = /^#include\s*[<"](.+)[>"]/.exec(s))) return `${withMean(m[1])} を読み込みます`;
+  if ((m = /^using\s+(?:static\s+)?([\w.]+)$/.exec(s))) return `${withMean(m[1])} を使えるようにします`;
+  if ((m = /^using\s+namespace\s+(\w+)$/.exec(s))) return m[1] === "std" ? "std:: を書かずに標準の機能を使えるようにします" : `${m[1]} の名前を直接使えるようにします`;
+  if ((m = /^use\s+(.+)$/.exec(s))) return `${withMean(m[1])} を使えるようにします`;
+  if ((m = /^import\s+(.+)$/.exec(s))) return `${withMean(m[1].replace(/["'()]/g, "").replace(/^static\s+/, "").trim())} を読み込みます`;
+  if ((m = /^(?:(?:public|private|protected|internal|abstract|sealed|static|partial|final|open|data)\s+)*class\s+(\w+)(?:<[^>]*>)?(?:\s*(?::|extends)\s*([\w.]+))?/.exec(s))) {
+    if (m[2] === "MonoBehaviour") return `Unity のスクリプト（MonoBehaviour）としてクラス ${m[1]} を定義します`;
+    if (m[2] === "ScriptableObject") return `Unity のデータ用の入れ物（ScriptableObject）としてクラス ${m[1]} を定義します`;
+    return m[2] ? `${m[2]} をもとにしたクラス ${m[1]} を定義します` : `クラス ${m[1]} を定義します`;
+  }
+  if ((m = /^(?:(?:public|private|protected|internal|static|override|virtual|async|abstract|final|sealed|synchronized|inline|extern)\s+)*(?:[\w.]+(?:<[^()]*>)?(?:\[\])*\??\*?\s+)(\w+)\s*\(([^)]*)\)\s*(?:const\s*)?(?:throws\s+[\w,\s]+)?\{?$/.exec(s)) && !/^(return|new|else|if|while|for|switch|catch|using|await|throw|yield|case|delete|goto)\b/.test(s)) {
+    const life = UNITY_EVENTS[m[1]];
+    if (life) return `${life}（${m[1]}）を定義します`;
+    if (m[1] === "main" || m[1] === "Main") return "プログラムの入口（最初に動く関数）を定義します";
+    const params = splitArgs(m[2]).map((p) => p.trim().split(/\s+/).pop()!.replace(/[=].*$/, "")).filter(Boolean);
+    return params.length ? `関数 ${m[1]} を定義します（受け取るもの：${cut(params.join("、"), 30)}）` : `関数 ${m[1]} を定義します`;
+  }
   if ((m = /^for\s*\(\s*(?:int|let|var|auto|size_t)?\s*(\w+)\s*=\s*(\S+?)\s*;\s*\1\s*(<=?)\s*(.+?)\s*;\s*(?:\1\+\+|\+\+\1)\s*\)/.exec(s))) {
     const end = m[3] === "<=" ? m[4] : /^\d+$/.test(m[4]) ? String(Number(m[4]) - 1) : `${m[4]}−1`;
     return `${m[1]} を ${m[2]} から ${cut(end, 16)} まで変えながら繰り返します`;
@@ -264,27 +351,51 @@ function cLike(line: string): string | null {
   if ((m = /^package\s+(\w+)$/.exec(s))) return m[1] === "main" ? "実行できるプログラム（main パッケージ）です" : `${m[1]} パッケージです`;
   if ((m = /^(?:var\s+)?(\w+(?:\s*,\s*\w+)*)\s*:=\s*(.+)$/.exec(s))) return assignment(`${m[1]} = ${m[2]}`, "c");
   if ((m = /^let\s+(?:mut\s+)?(\w+)\s*(?::\s*[^=]+)?=\s*(.+)$/.exec(s))) return assignment(`${m[1]} = ${m[2]}`, "c");
-  if ((m = /^\}?\s*else\s+if\s*\(?(.+?)\)?\s*\{?$/.exec(s))) return `そうでなく、もし ${cut(m[1], 30)} なら`;
-  if ((m = /^if\s*\(?(.+?)\)?\s*\{?$/.exec(s))) return `もし ${cut(m[1], 30)} なら`;
+  if ((m = /^\}?\s*else\s+if\s*\((.+)\)\s*\{?$/.exec(s)) || (m = /^\}?\s*else\s+if\s+(.+?)\s*\{?$/.exec(s))) return `そうでなく、もし ${cond(m[1], "c")}なら`;
+  if ((m = /^if\s*\((.+)\)\s*\{?$/.exec(s)) || (m = /^if\s+(.+?)\s*\{?$/.exec(s))) return `もし ${cond(m[1], "c")}なら`;
   if (/^\}?\s*else\s*\{?$/.test(s)) return "そうでなければ";
   if (/^(while\s*\(\s*(true|1)\s*\)|loop)\s*\{?$/.test(s)) return "ずっと繰り返します（break で抜けます）";
-  if ((m = /^while\s*\(?(.+?)\)?\s*\{?$/.exec(s))) return `${cut(m[1])} のあいだ繰り返します`;
+  if ((m = /^while\s*\((.+)\)\s*\{?$/.exec(s)) || (m = /^while\s+(.+?)\s*\{?$/.exec(s))) return `${cond(m[1], "c")}のあいだ繰り返します`;
   if (/^return$/.test(s)) return "関数を終わります";
-  if ((m = /^return\s+(.+)$/.exec(s))) return `${cut(m[1])} を返します`;
+  if ((m = /^yield\s+return\s+(.+)$/.exec(s))) {
+    const n = nounOf(m[1], "c");
+    if (/^null$/.test(m[1])) return "次のフレームまで待ちます（コルーチン）";
+    if (n && /待つ指示$/.test(n)) return n.replace(/待つ指示$/, "待ちます（コルーチン）");
+    return n ? `${n}が終わるまで待ちます（コルーチン）` : `${cut(m[1])} を待ちます（コルーチン）`;
+  }
+  if ((m = /^return\s+(.+)$/.exec(s))) return returns(m[1], "c");
   if (/^break$/.test(s)) return "繰り返しを抜けます";
   if (/^continue$/.test(s)) return "次の繰り返しへ進みます";
   if ((m = /^(?:pub\s+)?fn\s+(\w+)\s*\(/.exec(s))) return m[1] === "main" ? "プログラムの入口（最初に動く関数）を定義します" : `関数 ${m[1]} を定義します`;
   if ((m = /^func\s+(\w+)\s*\(/.exec(s))) return m[1] === "main" ? "プログラムの入口（最初に動く関数）を定義します" : `関数 ${m[1]} を定義します`;
   if (/^(public\s+)?static\s+void\s+main\s*\(/.test(s) || /^int\s+main\s*\(/.test(s)) return "プログラムの入口（最初に動く関数）を定義します";
-  return null;
+  const st = stmt(s, "c");
+  if (st) return st;
+  // 型つきの宣言：int x = 5 / float speed = Mathf.Sqrt(a) / var list = new List<int>() / val x = …
+  if ((m = /^(?:(?:public|private|protected|internal|static|readonly|final|const|volatile|unsigned|signed|val|var|auto|let)\s+)*(?:[\w.]+(?:<[^=]*>)?(?:\[\])*\??\*?\s+)?\*?(\w+)\s*(?::\s*[\w<>?[\]., ]+)?\s*=\s*(?!=)(.+)$/.exec(s)) && !/^(return|if|while|for)\b/.test(s)) return assignment(`${m[1]} = ${m[2]}`, "c");
+  return assignment(s, "c");
 }
+
+const UNITY_EVENTS: Record<string, string> = {
+  Awake: "いちばん最初に 1 回だけ動く処理", Start: "最初のフレームの前に 1 回だけ動く処理", Update: "毎フレーム動く処理",
+  FixedUpdate: "物理計算のたびに（一定間隔で）動く処理", LateUpdate: "毎フレーム、Update のあとに動く処理",
+  OnEnable: "有効になったときに動く処理", OnDisable: "無効になったときに動く処理", OnDestroy: "消されるときに動く処理",
+  OnCollisionEnter: "何かにぶつかったときの処理", OnCollisionStay: "何かにぶつかり続けているあいだの処理", OnCollisionExit: "ぶつかっていたものから離れたときの処理",
+  OnTriggerEnter: "トリガーの範囲に入ったときの処理", OnTriggerStay: "トリガーの範囲にいるあいだの処理", OnTriggerExit: "トリガーの範囲から出たときの処理",
+  OnCollisionEnter2D: "何かにぶつかったとき（2D）の処理", OnCollisionExit2D: "ぶつかっていたものから離れたとき（2D）の処理",
+  OnTriggerEnter2D: "トリガーの範囲に入ったとき（2D）の処理", OnTriggerExit2D: "トリガーの範囲から出たとき（2D）の処理", OnTriggerStay2D: "トリガーの範囲にいるあいだ（2D）の処理",
+  OnMouseDown: "このオブジェクトがクリックされたときの処理", OnMouseUp: "クリックが離されたときの処理", OnMouseEnter: "マウスが乗ったときの処理", OnMouseExit: "マウスが離れたときの処理",
+  OnBecameVisible: "カメラに映ったときの処理", OnBecameInvisible: "カメラから見えなくなったときの処理", OnGUI: "画面に GUI を描く処理",
+  OnApplicationQuit: "ゲームが終わるときの処理", OnValidate: "インスペクターで値が変わったときの処理", Reset: "コンポーネントを付けたとき（リセット時）の処理",
+  OnDrawGizmos: "シーン画面に確認用の図形を描く処理",
+};
 
 // ───────── Ruby
 
 function ruby(line: string): string | null {
   const s = line.trim();
   let m: RegExpExecArray | null;
-  if ((m = /^(puts|print|p)\s*\(?(.*?)\)?$/.exec(s)) && m[2]) return describeShown(splitArgs(m[2]));
+  if ((m = /^(puts|print|p)\s*\(?(.*?)\)?$/.exec(s)) && m[2]) return describeShown(splitArgs(m[2]), "ruby");
   if ((m = /^require(?:_relative)?\s+["'](.+)["']$/.exec(s))) return `${m[1]} を読み込みます`;
   if ((m = /^def\s+(\w+[?!]?)\s*(\((.*)\))?/.exec(s))) return m[3] ? `関数 ${m[1]} を定義します（受け取るもの：${cut(m[3], 30)}）` : `関数 ${m[1]} を定義します`;
   if ((m = /^class\s+(\w+)(?:\s*<\s*(\w+))?/.exec(s))) return m[2] ? `${m[2]} をもとにしたクラス ${m[1]} を定義します` : `クラス ${m[1]} を定義します`;
@@ -295,7 +406,7 @@ function ruby(line: string): string | null {
   if (/^else$/.test(s)) return "そうでなければ";
   if (/^end$/.test(s)) return null;
   if ((m = /^(\w+)\s*=\s*gets(\.chomp)?(\.to_i)?$/.exec(s))) return m[3] ? `入力された整数を ${m[1]} に入れます` : `入力された文字を ${m[1]} に入れます`;
-  return assignment(s, "other");
+  return stmt(s, "ruby") ?? assignment(s, "ruby");
 }
 
 // ───────── シェル・バッチ
@@ -322,9 +433,14 @@ function shell(line: string): string | null {
 
 function assignment(s: string, lang: ExplainLang): string | null {
   let m: RegExpExecArray | null;
-  if ((m = /^(?:const |let )?([\w.[\]]+)\s*\+=\s*(.+)$/.exec(s))) return /^\d+$/.test(m[2]) ? `${m[1]} を ${m[2]} 増やします` : `${m[1]} に ${cut(m[2], 16)} を足します`;
-  if ((m = /^(?:const |let )?([\w.[\]]+)\s*-=\s*(.+)$/.exec(s))) return `${m[1]} を ${cut(m[2], 16)} 減らします`;
-  if ((m = /^(?:const |let )?([\w.[\]]+)\s*\*=\s*(.+)$/.exec(s))) return `${m[1]} を ${cut(m[2], 16)} 倍にします`;
+  const opnd = (e: string) => {
+    const n = nounOf(e, lang);
+    return n ? (n.includes("『") ? `${n} ` : `『${n}』`) : cut(e, 16);
+  };
+  if ((m = /^(?:const |let )?([\w.[\]]+)\s*\+=\s*(.+)$/.exec(s))) return /^\d+$/.test(m[2]) ? `${m[1]} を ${m[2]} 増やします` : `${m[1]} に ${opnd(m[2])}を足します`.replace("』を", "』を").replace(/ +を足します$/, "を足します");
+  if ((m = /^(?:const |let )?([\w.[\]]+)\s*-=\s*(.+)$/.exec(s))) return `${m[1]} を ${opnd(m[2])} 減らします`;
+  if ((m = /^(?:const |let )?([\w.[\]]+)\s*\*=\s*(.+)$/.exec(s))) return `${m[1]} を ${opnd(m[2])} 倍にします`;
+  if ((m = /^(?:const |let )?([\w.[\]]+)\s*\/=\s*(.+)$/.exec(s))) return `${m[1]} を ${opnd(m[2])} で割ります`;
   if ((m = /^([\w.[\]]+)(\+\+|--)$/.exec(s))) return m[2] === "++" ? `${m[1]} を 1 増やします` : `${m[1]} を 1 減らします`;
   m = /^(const |let )?([A-Za-z_][\w.]*(?:\[[^\]]+\])?(?:\s*,\s*[A-Za-z_]\w*)*)\s*(?::\s*[\w<>[\], ]+)?\s*=\s*(?!=)(.+)$/.exec(s);
   if (!m) return null;
@@ -337,13 +453,15 @@ function assignment(s: string, lang: ExplainLang): string | null {
   }
   const v = describeValue(rhs);
   if (v) return v.startsWith("空の") ? `${v} ${target} を作ります` : `${target} に ${v} を入れます`;
+  const noun = nounOf(rhs, lang);
+  if (noun) return /^空の/.test(noun) ? `${noun} ${target} を作ります` : `${target} に ${noun}を入れます`;
   let mm: RegExpExecArray | null;
   if ((mm = /^(.+)\.split\((.*)\)$/.exec(rhs))) {
     const sep = stringLiteral(mm[2] ?? "");
     return `${cut(mm[1], 14)} を${sep ? `「${sep}」` : "空白"}で区切って ${target} に入れます`;
   }
-  if ((mm = /^len\((.+)\)$/.exec(rhs))) return `${mm[1]} の長さ（個数）を ${target} に入れます`;
-  if ((mm = /^(sum|max|min|sorted)\((.+)\)$/.exec(rhs))) {
+  if ((mm = /^len\(([^()]*)\)$/.exec(rhs))) return `${mm[1]} の長さ（個数）を ${target} に入れます`;
+  if ((mm = /^(sum|max|min|sorted)\(([^()]*)\)$/.exec(rhs))) {
     const w = { sum: "合計", max: "いちばん大きい値", min: "いちばん小さい値", sorted: "小さい順に並べたもの" }[mm[1] as "sum"];
     return `${cut(mm[2], 14)} の${w}を ${target} に入れます`;
   }
@@ -357,7 +475,7 @@ function assignment(s: string, lang: ExplainLang): string | null {
 /** 説明しない行（空行・コメント・かっこだけ・文字列の続き） */
 export function isTrivial(line: string): boolean {
   const s = line.trim();
-  return !s || /^(#|\/\/|\/\*|\*|<!--|--)/.test(s) || /^[)\]}>;,]+$/.test(s) || /^("""|''')/.test(s) || s.length > 220;
+  return !s || /^(#(?!include|define|import|pragma|if|endif|region|endregion)|\/\/|\/\*|\*|<!--|--)/.test(s) || /^[)\]}>;,]+$/.test(s) || /^("""|''')/.test(s) || s.length > 220;
 }
 
 export function explainLine(line: string, lang: ExplainLang): string | null {
