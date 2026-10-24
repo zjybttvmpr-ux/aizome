@@ -42,6 +42,7 @@ function deliver(c: AiChunk) {
   }
   if (c.done) {
     pending.delete(c.id);
+    if (c.error?.startsWith("RUNNER_CRASHED")) completer.memoryProblem();
     if (c.error) p.reject(new Error(c.error));
     else p.resolve(p.text);
   }
@@ -71,6 +72,29 @@ class Completer {
   private listeners = new Set<StatusListener>();
   status: AiStatus = settings.get("ai.enabled") ? "idle" : "off";
   lastError = "";
+  /** メモリ不足で、使うかどうかを聞いている（または「あとで」にした）あいだは AI に頼まない */
+  paused = false;
+  private memoryListeners = new Set<() => void>();
+
+  /** メモリ不足で AI が動かなかったときに呼ばれる（画面で「使うかどうか」を聞く） */
+  onMemoryProblem(cb: () => void) {
+    this.memoryListeners.add(cb);
+    return () => this.memoryListeners.delete(cb);
+  }
+
+  memoryProblem() {
+    if (this.paused) return;
+    this.paused = true;
+    this.cancelInline();
+    this.setStatus("error", "RUNNER_CRASHED");
+    for (const l of this.memoryListeners) l();
+  }
+
+  /** 休止をやめて、また AI に頼めるようにする */
+  resume() {
+    this.paused = false;
+    this.setStatus(settings.get("ai.enabled") ? "idle" : "off");
+  }
 
   onStatus(cb: StatusListener) {
     this.listeners.add(cb);
@@ -89,6 +113,7 @@ class Completer {
       endpoint: settings.get("ai.endpoint"),
       model: settings.get("ai.model"),
       apiKey: settings.get("ai.apiKey") || undefined,
+      cpu: settings.get("ai.cpuOnly") || undefined,
     };
   }
 
@@ -96,6 +121,7 @@ class Completer {
     req: { prompt: string; suffix?: string; maxTokens: number; temperature: number; stop?: string[]; repeatPenalty?: number; numCtx?: number },
     onText: (full: string) => void,
   ): Promise<{ id: number; done: Promise<string> }> {
+    if (this.paused) throw new Error("AI_PAUSED");
     await ensureListener();
     const id = await ai.start({ ...this.base(), ...req });
     const done = new Promise<string>((resolve, reject) => {
@@ -109,7 +135,7 @@ class Completer {
     ctx: { prefix: string; suffix: string; maxTokens?: number },
     onText: (full: string) => void,
   ): Promise<string | null> {
-    if (!settings.get("ai.enabled")) return null;
+    if (!settings.get("ai.enabled") || this.paused) return null;
     this.cancelInline();
     const seq = ++this.inlineSeq;
     this.setStatus("thinking");
@@ -146,7 +172,8 @@ class Completer {
       }
       return text;
     } catch (err) {
-      this.setStatus("error", String((err as Error).message ?? err));
+      const msg = String((err as Error).message ?? err);
+      if (!this.paused) this.setStatus("error", msg);
       return null;
     }
   }

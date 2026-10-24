@@ -15,6 +15,7 @@ import { FileTree } from "./ui/fileTree";
 import { createExtensionsView } from "./ui/extensionsView";
 import { settingsPage } from "./ui/settingsPage";
 import { describeAiError, ensureLocalAi, useModelFile } from "./ai/localAi";
+import { askAboutMemory, watchAiMemory } from "./ui/aiMemory";
 import { checkForUpdates, openUpdateDialog, startUpdateChecks, type UpdateDeps } from "./ui/updates";
 import type { UpdateInfo } from "./core/platform";
 import { applyTheme, listThemes } from "./ui/themes";
@@ -2306,6 +2307,10 @@ export class App {
   }
 
   private onAiPillClick() {
+    if (completer.paused) {
+      void askAboutMemory();
+      return;
+    }
     if (completer.status === "error") {
       toast(describeAiError(completer.lastError), "error", 10000);
       completer.setStatus(settings.get("ai.enabled") ? "idle" : "off");
@@ -2904,6 +2909,7 @@ export class App {
       });
     });
     completer.onStatus((s) => this.renderAi(s));
+    watchAiMemory();
     bus.on("settings:changed", ({ key }) => {
       if (key.startsWith("editor.")) {
         this.editor.applySettings();

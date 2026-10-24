@@ -88,6 +88,8 @@ export interface Settings {
   "ai.languageFilter": boolean;
   /** 複数行の AI 候補を文法で確かめて、崩れた行より後ろを出さない */
   "ai.syntaxTrim": boolean;
+  /** グラフィック（GPU）を使わず CPU だけで AI を動かす（メモリが足りないとき用） */
+  "ai.cpuOnly": boolean;
   /** ###構築py### の行に「▶ 組み立てる」ボタン */
   "editor.buildLens": boolean;
   /** 変数にマウスを乗せたときの小窓（値・自動判定） */
@@ -207,6 +209,7 @@ export const defaults: Settings = {
   "files.guessLanguage": true,
   "ai.languageFilter": true,
   "ai.syntaxTrim": true,
+  "ai.cpuOnly": false,
   "editor.buildLens": true,
   "editor.valueHover": true,
   "editor.gotoDefinition": true,

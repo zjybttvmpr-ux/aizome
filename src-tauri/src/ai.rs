@@ -82,6 +82,8 @@ pub struct AiRequest {
     raw: Option<bool>,
     /// AI が一度に読める量（トークン数）。指定しないと Ollama の既定（小さめ）になり、ファイルの前のほうが切り捨てられる
     num_ctx: Option<u32>,
+    /// true ならグラフィック（GPU）を使わず CPU だけで動かす（Ollama のみ）
+    cpu: Option<bool>,
 }
 
 #[derive(Clone, Serialize)]
@@ -114,27 +116,16 @@ fn runner_crashed(lower: &str) -> bool {
         .any(|k| lower.contains(k))
 }
 
-/// 一度ランナーが止まったら、このあとは CPU で動かす（グラフィックのメモリが足りないときのため）
-static CPU_ONLY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-
 async fn run(app: &AppHandle, client: &reqwest::Client, id: u32, req: AiRequest) -> Result<(), String> {
-    match run_once(app, client, id, &req, CPU_ONLY.load(Ordering::SeqCst)).await {
+    let cpu = req.cpu == Some(true);
+    match run_once(app, client, id, &req, cpu).await {
         Err(e) if req.provider != "openai" && e.starts_with("RUNNER:") => {
-            // モデルをいったん外してから、もう一度（1 回目はそのまま、だめなら CPU で）
+            // モデルをいったん外してから、もう一度だけ試す（だめなら画面で「CPU で使うか」を聞く）
             let unload = json!({ "model": req.model, "keep_alive": 0 });
             let _ = client.post(format!("{}/api/generate", base(&req.endpoint))).json(&unload).send().await;
             let _ = tauri::async_runtime::spawn_blocking(|| std::thread::sleep(Duration::from_millis(800))).await;
-            if !CPU_ONLY.load(Ordering::SeqCst) {
-                match run_once(app, client, id, &req, false).await {
-                    Err(e2) if e2.starts_with("RUNNER:") => {}
-                    other => return other,
-                }
-                CPU_ONLY.store(true, Ordering::SeqCst);
-                let _ = client.post(format!("{}/api/generate", base(&req.endpoint))).json(&unload).send().await;
-                let _ = tauri::async_runtime::spawn_blocking(|| std::thread::sleep(Duration::from_millis(800))).await;
-            }
-            match run_once(app, client, id, &req, true).await {
-                Err(e3) if e3.starts_with("RUNNER:") => Err(format!("RUNNER_CRASHED: {}", e3.trim_start_matches("RUNNER:").trim())),
+            match run_once(app, client, id, &req, cpu).await {
+                Err(e2) if e2.starts_with("RUNNER:") => Err(format!("RUNNER_CRASHED: {}", e2.trim_start_matches("RUNNER:").trim())),
                 other => other,
             }
         }

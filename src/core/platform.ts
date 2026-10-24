@@ -33,6 +33,8 @@ export interface AiRequest {
   raw?: boolean;
   /** AI が一度に読める量（トークン数） */
   numCtx?: number;
+  /** CPU だけで動かす */
+  cpu?: boolean;
 }
 
 export interface AiChunk {

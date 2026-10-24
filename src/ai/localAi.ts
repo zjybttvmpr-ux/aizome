@@ -19,6 +19,7 @@ export function describeAiError(raw: string): string {
   if (raw.startsWith("NOT_GGUF")) return t("aiErr.notGguf");
   if (raw.startsWith("IMPORT_FAILED")) return t("aiErr.importFailed", { err: raw.replace(/^IMPORT_FAILED:\s*/, "") });
   if (raw.startsWith("CONNECT_FAILED")) return t("aiErr.connectFailed");
+  if (raw.startsWith("AI_PAUSED")) return t("aiErr.paused");
   if (raw.startsWith("RUNNER_CRASHED") || /health resp|llama runner|runner process/i.test(raw)) return t("aiErr.runnerCrashed");
   if (/HTTP 40[13]/.test(raw)) return t("aiErr.auth");
   return raw;

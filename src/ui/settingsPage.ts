@@ -299,6 +299,7 @@ function sections(): Section[] {
         row(t("feat.ai_enabled"), toggle("ai.enabled"), undefined, true),
         row(t("feat.ai_languageFilter"), toggle("ai.languageFilter"), t("feat.ai_languageFilter.help"), true),
         row(t("feat.ai_syntaxTrim"), toggle("ai.syntaxTrim"), t("feat.ai_syntaxTrim.help"), true),
+        row(t("feat.ai_cpuOnly"), toggle("ai.cpuOnly"), t("feat.ai_cpuOnly.help"), true),
         row(t("feat.editor_buildLens"), toggle("editor.buildLens"), undefined, true),
         h("h2", { class: "set-group-title", "data-label": t("feat.group.editor") }, t("feat.group.editor")),
         row(t("feat.editor_zenkaku"), toggle("editor.zenkaku"), undefined, true),
