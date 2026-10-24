@@ -6,6 +6,10 @@ import { settings } from "../core/settings";
 import { bus } from "../core/events";
 import { completer } from "../ai/completer";
 import { explainLine, isTrivial, langFromFilename } from "../ai/explainRules";
+import { explainBranch } from "../ai/branchContext";
+
+/** if / elif / else の行（属している条件をさかのぼって説明する） */
+const BRANCH_RE = /^\s*(\}\s*)?(if|elif|else|elsif|elseif|unless)\b/;
 import { languageOf } from "../ai/plan";
 import { docFilename, ghostPos } from "./ghost";
 import { hasValueAt, setValues } from "./valueLens";
@@ -80,7 +84,12 @@ function build(view: EditorView): DecorationSet {
       last = line.number;
       // AI の候補を出している行には重ねない
       if (line.number !== ghostLine && !hasValueAt(view.state, line.number) && !risky.has(line.number)) {
-        const e = explainFor(filename, line.text);
+        let e = explainFor(filename, line.text);
+        if (e && !e.ai && BRANCH_RE.test(line.text)) {
+          const doc = view.state.doc;
+          const br = explainBranch((i) => (i >= 0 && i < doc.lines ? doc.line(i + 1).text : ""), line.number - 1, langFromFilename(filename));
+          if (br) e = { text: br, ai: false };
+        }
         if (e && (mode === "ai" || !e.ai)) b.add(line.to, line.to, Decoration.widget({ widget: new ExplainWidget(e.text, e.ai), side: 2 }));
       }
     }

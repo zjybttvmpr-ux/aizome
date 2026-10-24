@@ -33,6 +33,17 @@ export function splitTop(s: string, sep = ","): string[] {
     cur += c;
   }
   if (cur.trim()) out.push(cur.trim());
+  return sep === "," ? joinLambdas(out) : out;
+}
+
+/** 「lambda a, b: a + b」がカンマで分かれてしまったのをつなぎ直す */
+export function joinLambdas(parts: string[]): string[] {
+  const out: string[] = [];
+  for (let i = 0; i < parts.length; i++) {
+    let p = parts[i];
+    while (/^lambda\b[^:]*$/.test(p) && i + 1 < parts.length) p += ", " + parts[++i];
+    out.push(p);
+  }
   return out;
 }
 
@@ -303,6 +314,16 @@ function describeExprInner(expr: string, lang: ExprLang, depth: number): ExprMea
     if (inner?.noun && /(か|かどうか)$/.test(inner.noun)) return { noun: `「${inner.noun.replace(/\s*(かどうか|か)$/, "")}」ではないか`, verb: null };
     return null;
   }
+  if (lang === "python" && (m = /^lambda\s*([^:]*):\s*(.+)$/s.exec(s))) {
+    const params = m[1].trim();
+    const body = describeExprInner(m[2], lang, depth + 1)?.noun;
+    return { noun: `${params ? `${params} を受け取って ` : ""}${body ? `『${body}』` : cut(m[2], 20)} を返す小さな関数（lambda）`, verb: null };
+  }
+  if ((lang === "js" || lang === "c") && (m = /^\(?([\w\s,]*)\)?\s*=>\s*([^{].*)$/s.exec(s))) {
+    const params = m[1].trim();
+    const body = describeExprInner(m[2], lang, depth + 1)?.noun;
+    return { noun: `${params ? `${params} を受け取って ` : ""}${body ? `『${body}』` : cut(m[2], 20)} を返す小さな関数`, verb: null };
+  }
   const bin = binary(s, lang, depth);
   if (bin) return bin;
   const tail = parseTail(s);
@@ -444,7 +465,7 @@ export function describeStatement(line: string, lang: ExprLang): string | null {
   const d = describeExpr(s, lang);
   if (!d) return null;
   if (d.verb) return d.verb;
-  if (d.noun && parseTail(stripParens(s.replace(/^await\s+/, "")))?.args !== null) return `${d.noun}を求めます`;
+  if (d.noun) return /か$/.test(d.noun) ? `${d.noun}調べます` : `${d.noun}を求めます`;
   return null;
 }
 

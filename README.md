@@ -40,6 +40,14 @@
 - メニューの AI →「組み立て用のひな形を入れる」で見本が入ります
 - 小さいモデル（1.5b）だと組み立ての質が落ちます。できれば `qwen2.5-coder:7b` 以上を使ってください
 
+### 0.29.0：elif / else が「どの if の、どの条件が違ったときか」を説明・関数の説明を追加
+
+- `elif` は「上の「score >= 80」ではなく、もし score >= 60 なら」、`else` は「上の「score >= 80」でも「score >= 60」でもないとき（どれにも当てはまらないとき）」のように、**上の if までさかのぼって条件を** 出します
+- 入れ子のときは「（外側：「a > 0」のとき ＞ 「b > 0」ではないとき）」のように、外側の条件もつけます
+- for / while の `else`（break せずに終わったとき）、try の `else`（エラーが起きなかったとき）にも対応。C#・Java・JavaScript などの `} else if (…) {` / `} else {`、Ruby の elsif、シェルの elif も同じです
+- Python の組み込み関数（全 71 個：repr・ascii・compile・aiter・anext など）と、文字・リスト・辞書・集合・数のメソッド（format_map・isascii・rpartition・bit_count・to_bytes など）をすべて説明できるようにしました
+- lambda・デコレーター（@property・@lru_cache など）・global・nonlocal・yield・raise・del・assert・with・match / case の行も説明します
+
 ### 0.28.0：行の説明で、関数やメソッドが何をするかまで日本語に
 
 - 「行の右 → 説明」で、`math.sin(i)` なら「i の正弦（サイン）を表示します」、`math.sqrt(i)` なら「i の平方根（ルート）」、`math.inf` なら「無限大」のように、**関数・メソッド・定数の意味まで日本語で** 出るようになりました

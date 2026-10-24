@@ -1,7 +1,7 @@
 // 1行のコードが何をするかを、日本語で短く説明する（AI を使わないルール。純粋関数）
 // 対応：Python、JavaScript / TypeScript、よく使う C・C++・Java・Rust・Go の表示
 
-import { asCondition, describeExpr, describeStatement, importedMeaning, moduleMeaning, type ExprLang } from "./exprJa";
+import { asCondition, joinLambdas, describeExpr, describeStatement, importedMeaning, moduleMeaning, type ExprLang } from "./exprJa";
 
 export type ExplainLang = "python" | "js" | "c" | "ruby" | "shell" | "other";
 
@@ -17,6 +17,16 @@ function nounOf(expr: string, lang: ExplainLang): string | null {
 function cond(expr: string, lang: ExplainLang): string {
   const n = nounOf(expr, lang);
   return n ? asCondition(n) : cut(expr, 30) + " ";
+}
+
+/** 条件式を「」の中に入れる形に（「s が数字だけでできている」「x > 0」） */
+export function condPhrase(expr: string, lang: ExplainLang): string {
+  return cond(expr, lang).trim();
+}
+
+/** 「もし 〜なら」の 〜 の部分（式のままなら後ろに空白） */
+export function condIf(expr: string, lang: ExplainLang): string {
+  return cond(expr, lang);
 }
 
 function stmt(line: string, lang: ExplainLang): string | null {
@@ -76,7 +86,7 @@ function splitArgs(s: string): string[] {
     cur += c;
   }
   if (cur.trim()) out.push(cur.trim());
-  return out;
+  return joinLambdas(out);
 }
 
 /** 表示する中身の説明：「こんにちは」/ x の中身 / 文字と値 */
@@ -91,6 +101,7 @@ function describeShown(args: string[], lang: ExplainLang = "other"): string {
       const inner = a.replace(/^\s*f?(["'`])/, "").replace(/(["'`])\s*$/, "").replace(/\$?\{([^}]*)\}/g, "〔$1〕");
       return `「${cut(inner, 30)}」と表示します（〔 〕の所に値が入ります）`;
     }
+    if (/^-?\d+(\.\d+)?$/.test(a)) return `${a} を表示します`;
     const n = nounOf(a, lang);
     if (n) return `${n}${/か$/.test(n) ? "どうか" : ""}を表示します`;
     if (/^[A-Za-z_][\w.]*$/.test(a)) return `${a} の中身を表示します`;
@@ -146,6 +157,25 @@ function describeRange(args: string[]): string | null {
     return `${a} から ${end} まで${c ? `（${c} ずつ）` : ""}`;
   }
   return null;
+}
+
+const DECORATORS: Record<string, string> = {
+  property: "下の関数を、かっこなしで読める属性にします",
+  staticmethod: "下の関数を、self を受け取らないメソッドにします",
+  classmethod: "下の関数を、クラス（cls）を受け取るメソッドにします",
+  dataclass: "下のクラスをデータ用のクラスにします（__init__ などを自動で作ります）",
+  lru_cache: "下の関数の結果を覚えて、同じ引数なら計算を省きます",
+  cache: "下の関数の結果を覚えて、同じ引数なら計算を省きます",
+  wraps: "元の関数の名前や説明を引きつぎます",
+  abstractmethod: "下の関数を、子クラスで必ず作るメソッドにします",
+  override: "下の関数は親クラスのものを上書きします",
+};
+
+function decorator(name: string, args?: string): string {
+  const base = name.split(".").pop()!;
+  if (/\.setter$/.test(name)) return `下の関数を、属性 ${name.split(".")[0]} に代入したときの処理にします`;
+  if (/^(app|router|bp)\.(route|get|post|put|delete)$/.test(name)) return `アドレス ${args ? cut(args, 20) : ""} に来たときに下の関数を動かします`;
+  return DECORATORS[base] ?? `下の関数を ${name} で包みます（デコレーター）`;
 }
 
 function returns(expr: string, lang: ExplainLang): string {
@@ -216,6 +246,27 @@ function python(line: string): string | null {
     const name = stringLiteral(args[0] ?? "");
     return `ファイル${name !== null ? `「${cut(name, 20)}」` : ` ${cut(args[0], 20)} `}を${what}に開いて ${m[2]} として使います`;
   }
+  if ((m = /^with\s+(.+?)\s+as\s+(\w+)\s*:/.exec(s))) {
+    const n = nounOf(m[1], "python");
+    return `${n ? n : cut(m[1], 20)} を ${m[2]} として使い、終わったら自動で片付けます`;
+  }
+  if ((m = /^with\s+(.+?)\s*:/.exec(s))) return `${cut(m[1], 20)} を使い、終わったら自動で片付けます`;
+  if ((m = /^@([\w.]+)(\((.*)\))?\s*$/.exec(s))) return decorator(m[1], m[3]);
+  if ((m = /^global\s+(.+)$/.exec(s))) return `${m[1]} は関数の外（全体）の変数を使います`;
+  if ((m = /^nonlocal\s+(.+)$/.exec(s))) return `${m[1]} は 1 つ外側の関数の変数を使います`;
+  if ((m = /^yield\s+from\s+(.+)$/.exec(s))) return `${cut(m[1])} の中身を 1 つずつ順に渡します`;
+  if ((m = /^yield\s+(.+)$/.exec(s))) return `${nounOf(m[1], "python") ?? cut(m[1])} を 1 つ渡して、次に呼ばれるまで一時停止します`;
+  if (/^yield$/.test(s)) return "ここで一時停止します";
+  if ((m = /^raise\s+(\w+)(?:\((.*)\))?/.exec(s))) {
+    const msg = m[2] ? stringLiteral(m[2]) : null;
+    return `わざとエラー ${m[1]} を起こします${msg ? `（「${cut(msg, 20)}」）` : ""}`;
+  }
+  if (/^raise$/.test(s)) return "今のエラーをもう一度起こします";
+  if ((m = /^del\s+(.+)$/.exec(s))) return `${cut(m[1])} を消します`;
+  if ((m = /^assert\s+(.+?)(?:,\s*(.+))?$/.exec(s))) return `${condIf(m[1], "python")}であることを確かめます（違えばエラー）`;
+  if ((m = /^match\s+(.+?)\s*:/.exec(s))) return `${cut(m[1])} の値によって分けます`;
+  if (/^case\s+_\s*:/.test(s)) return "どれにも当てはまらないとき";
+  if ((m = /^case\s+(.+?)\s*:/.exec(s))) return `${cut(m[1])} のとき`;
   if (/^return\s*$/.test(s)) return "関数を終わります";
   if ((m = /^return\s+(.+)$/.exec(s))) return returns(m[1], "python");
   if (/^break$/.test(s)) return "繰り返しを抜けます";
