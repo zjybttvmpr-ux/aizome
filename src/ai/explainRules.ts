@@ -92,6 +92,19 @@ function splitArgs(s: string): string[] {
 /** 表示する中身の説明：「こんにちは」/ x の中身 / 文字と値 */
 function describeShown(args: string[], lang: ExplainLang = "other"): string {
   const parts = args.filter((a) => !/^(sep|end|file|flush)\s*=/.test(a));
+  const opt = args.filter((a) => /^(sep|end|file|flush)\s*=/.test(a)).map((a) => {
+    const [k, v] = a.split(/=(.*)/s).map((x) => x.trim());
+    const lit = stringLiteral(v);
+    if (k === "end") return lit === "" ? "改行しない" : lit === "\\n" || lit === "（改行）" ? "" : `最後に「${lit ?? v}」を付ける`;
+    if (k === "sep") return `区切りは「${lit ?? v}」`;
+    if (k === "file") return `${v} に書き出す`;
+    if (k === "flush") return "すぐに書き出す";
+    return "";
+  }).filter(Boolean);
+  if (opt.length) {
+    const base = describeShown(parts, lang);
+    return `${base}（${opt.join("・")}）`;
+  }
   if (!parts.length) return "空の行を表示します";
   if (parts.length === 1) {
     const a = parts[0];
@@ -102,6 +115,7 @@ function describeShown(args: string[], lang: ExplainLang = "other"): string {
       return `「${cut(inner, 30)}」と表示します（〔 〕の所に値が入ります）`;
     }
     if (/^-?\d+(\.\d+)?$/.test(a)) return `${a} を表示します`;
+    if (/^\*\w[\w.]*$/.test(a)) return `${a.slice(1)} の中身をばらして並べて表示します`;
     const n = nounOf(a, lang);
     if (n) return `${n}${/か$/.test(n) ? "どうか" : ""}を表示します`;
     if (/^[A-Za-z_][\w.]*$/.test(a)) return `${a} の中身を表示します`;
@@ -130,7 +144,7 @@ function describeValue(v: string): string | null {
   if (/^(None|null|undefined)$/.test(t)) return "「何もない」という値";
   const lit = stringLiteral(t);
   if (lit !== null) return `文字「${cut(lit, 20)}」`;
-  if (/^\[.*\]$/.test(t)) return `リスト ${cut(t, 20)}`;
+  if (/^\[.*\]$/.test(t) && !/\sfor\s/.test(t)) return `リスト ${cut(t, 20)}`;
   return null;
 }
 
@@ -178,7 +192,63 @@ function decorator(name: string, args?: string): string {
   return DECORATORS[base] ?? `下の関数を ${name} で包みます（デコレーター）`;
 }
 
+const SPECIAL_DEFS: Record<string, string> = {
+  __init__: "作るときに最初に動く処理", __str__: "print や str( ) したときの文字を決める処理", __repr__: "開発者向けの表し方（repr）を決める処理",
+  __len__: "len( ) したときの長さを決める処理", __eq__: "== で比べたときの処理", __lt__: "< で比べたときの処理（並べかえにも使われる）",
+  __add__: "+ で足したときの処理", __sub__: "- で引いたときの処理", __call__: "関数のように ( ) で呼んだときの処理",
+  __iter__: "for で回したときの処理", __next__: "next( ) で次を取り出すときの処理", __getitem__: "[ ] で取り出すときの処理",
+  __enter__: "with に入るときの処理", __exit__: "with から出るときの処理", __new__: "オブジェクトを作る前の処理",
+};
+
+/** def の行：引数の種類（省略時の値・*args・**kwargs・/ と *）と返すものの型まで説明する */
+function pyDef(name: string, paramText: string, ret: string | undefined, isAsync: boolean, inlineBody?: string): string {
+  const parts: string[] = [];
+  const notes: string[] = [];
+  for (const raw of splitArgs(paramText)) {
+    const p = raw.trim();
+    if (!p || p === "self" || p === "cls") continue;
+    if (p === "/") {
+      notes.push("/ より前は名前を付けずに順番で渡す");
+      continue;
+    }
+    if (p === "*") {
+      notes.push("* より後ろは名前を付けて渡す");
+      continue;
+    }
+    const mm = /^(\*{0,2})(\w+)\s*(?::\s*([^=]+?))?\s*(?:=\s*(.+))?$/.exec(p);
+    if (!mm) {
+      parts.push(p);
+      continue;
+    }
+    const [, star, pn, type, def] = mm;
+    const info: string[] = [];
+    if (star === "*") info.push("いくつでも・タプルで受け取る");
+    if (star === "**") info.push("名前つきでいくつでも・辞書で受け取る");
+    if (type) info.push(type.trim());
+    if (def !== undefined) {
+      info.push(`省略すると ${def.trim()}`);
+      if (/^(\[\s*\]|\{\s*\}|list\(\)|dict\(\)|set\(\))$/.test(def.trim())) notes.push(`※ ${pn} の省略時の値 ${def.trim()} は呼ぶたびに同じものが使い回されます（None にして中で作るのが安全）`);
+    }
+    parts.push(`${star}${pn}${info.length ? `（${info.join("、")}）` : ""}`);
+  }
+  const special = SPECIAL_DEFS[name];
+  const kind = special ? `${special}（${name}）を` : `${isAsync ? "非同期の" : ""}関数 ${name} を`;
+  const extra = [parts.length ? `受け取るもの：${parts.join("、")}` : "", ret ? `返すもの：${ret.trim()}` : ""].filter(Boolean).join("／");
+  let text = `${kind}定義します${extra ? `（${extra}）` : ""}`;
+  if (notes.length) text += `　${notes.join("。")}`;
+  if (inlineBody) text += `　中身：${python(inlineBody) ?? cut(inlineBody)}`;
+  return text;
+}
+
 function returns(expr: string, lang: ExplainLang): string {
+  if (/^None$/.test(expr.trim())) return "「何もない」という値（None）を返して関数を終わります";
+  const many = splitArgs(expr);
+  if (lang === "python" && many.length > 1 && !/^[[({]/.test(expr.trim())) {
+    return `${many.map((x) => {
+      const n = nounOf(x, lang);
+      return n ? `『${n}』` : cut(x, 12);
+    }).join(" と ")} をまとめて（タプルで）返します`;
+  }
   const n = nounOf(expr, lang);
   return n ? `${n}を返します` : `${cut(expr)} を返します`;
 }
@@ -214,11 +284,7 @@ function python(line: string): string | null {
     const one = mods.length === 1 ? moduleMeaning(mods[0], "python") : null;
     return `${mods.join("・")}${one ? `（${one}）` : ""} を読み込みます`;
   }
-  if ((m = /^(async\s+)?def\s+(\w+)\s*\((.*)\)\s*(->\s*[^:]+)?:\s*$/.exec(s))) {
-    const params = splitArgs(m[3]).filter((p) => p && p !== "self" && p !== "cls").map((p) => p.split(/[:=]/)[0].trim());
-    const kind = m[2] === "__init__" ? "作るときに最初に動く処理を" : `関数 ${m[2]} を`;
-    return params.length ? `${kind}定義します（受け取るもの：${cut(params.join("、"), 30)}）` : `${kind}定義します`;
-  }
+  if ((m = /^(async\s+)?def\s+(\w+)\s*\((.*)\)\s*(?:->\s*([^:]+?))?\s*:\s*(\S.*)?$/.exec(s))) return pyDef(m[2], m[3], m[4], !!m[1], m[5]);
   if ((m = /^class\s+(\w+)\s*(\((.*)\))?\s*:/.exec(s))) return m[3] ? `${m[3]} をもとにしたクラス ${m[1]} を定義します` : `クラス ${m[1]} を定義します`;
   if ((m = /^for\s+(.+?)\s+in\s+range\((.*)\)\s*:/.exec(s))) {
     const r = describeRange(splitArgs(m[2]));
@@ -483,6 +549,13 @@ function shell(line: string): string | null {
 // ───────── 代入（言語共通）
 
 function assignment(s: string, lang: ExplainLang): string | null {
+  const r = assignmentRaw(s, lang);
+  const t = /^(?:const |let )?([A-Za-z_]\w*(?:\s*,\s*\*?[A-Za-z_]\w*)+)\s*=(?!=)/.exec(s);
+  if (r && t) return r.replace(`${t[1]} に `, `${t[1]} にそれぞれ（順に分けて）`);
+  return r;
+}
+
+function assignmentRaw(s: string, lang: ExplainLang): string | null {
   let m: RegExpExecArray | null;
   const opnd = (e: string) => {
     const n = nounOf(e, lang);
@@ -530,6 +603,12 @@ export function isTrivial(line: string): boolean {
 }
 
 export function explainLine(line: string, lang: ExplainLang): string | null {
+  const r = explainLineRaw(line, lang);
+  // 「x > 0なら」「-xを」のように英数字のすぐ後ろに日本語が続くときは空白を入れる
+  return r ? r.replace(/([A-Za-z0-9_)\]"'])(?=[をなとがでにのは])/g, "$1 ") : r;
+}
+
+function explainLineRaw(line: string, lang: ExplainLang): string | null {
   if (isTrivial(line)) return null;
   // 行末のコメントは取り除いてから見る
   const code = line.replace(/\s+(#|\/\/)\s.*$/, "");

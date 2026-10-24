@@ -42,6 +42,25 @@ export interface ApiTable {
   modules: Record<string, string>;
 }
 
+/** "%Y-%m-%d %H:%M:%S" → 「年-月-日 時:分:秒」 */
+const DATE_CODES: Record<string, string> = {
+  Y: "年(4桁)", y: "年(2桁)", m: "月", d: "日", H: "時", I: "時(12時間)", M: "分", S: "秒", f: "マイクロ秒", p: "午前/午後",
+  a: "曜日(略)", A: "曜日", b: "月名(略)", B: "月名", j: "年の何日目", w: "曜日の番号", Z: "タイムゾーン名", z: "時差", "%": "%",
+};
+export function dateFormat(raw: string | undefined): string | null {
+  const m = /^\s*[rbu]?(["'])(.*)\1\s*$/.exec(raw ?? "");
+  if (!m || !m[2].includes("%")) return null;
+  return `「${m[2].replace(/%([A-Za-z%])/g, (_, c) => DATE_CODES[c] ?? `%${c}`)}」`;
+}
+const withDate = (tpl: string, idx: number) => (c: ApiCtx): ApiEntry => {
+  const f = dateFormat(c.raw[idx]);
+  if (!f) return tpl;
+  const args = [...c.args];
+  args[idx] = f;
+  c.args = args;
+  return tpl;
+};
+
 const isOn = (v: string | undefined) => v !== undefined && !/^(False|false|0|None|null)$/.test(v.trim());
 
 // ═════════════════════════ Python
@@ -117,7 +136,7 @@ const pyTime: Record<string, ApiEntry> = {
   process_time: "このプログラムが CPU を使った時間（秒）",
   localtime: ["{0?{0} 秒の|今の}日時（年・月・日…の組）", null, "今の日時を調べる"],
   gmtime: "{0?{0} 秒の|今の}世界標準時の日時",
-  strftime: ["{1?{1}|今の日時} を {0} の形にした文字", null, "日時を文字にする"],
+  strftime: withDate("{1?{1}|今の日時} を {0} の形にした文字", 0),
   ctime: "{0?{0} 秒の|今の}日時を読める文字にしたもの",
   time_ns: "今の時刻（ナノ秒）",
 };
@@ -212,13 +231,18 @@ const pyBuiltins: Record<string, ApiEntry> = {
 };
 
 const pyModulesFuncs: Record<string, ApiEntry> = {
-  "datetime.datetime.now": "今の日時", "datetime.now": "今の日時",
+  "datetime.datetime.now": "今の日時{0?（タイムゾーン {0}）|（パソコンの地域の時刻）}", "datetime.now": "今の日時{0?（タイムゾーン {0}）|（パソコンの地域の時刻）}",
   "datetime.datetime.today": "今の日時", "datetime.today": "今の日時",
   "datetime.date.today": "今日の日付", "date.today": "今日の日付",
   "datetime.datetime": "{0} 年 {1} 月 {2} 日{3? {3} 時|}{4? {4} 分|}の日時", "datetime": "{0} 年 {1} 月 {2} 日{3? {3} 時|}{4? {4} 分|}の日時",
   "datetime.date": "{0} 年 {1} 月 {2} 日の日付", "date": "{0} 年 {1} 月 {2} 日の日付",
   "datetime.timedelta": "{*} の時間の長さ", "timedelta": "{*} の時間の長さ",
-  "datetime.datetime.strptime": "文字 {0} を {1} の形として読んだ日時", "datetime.strptime": "文字 {0} を {1} の形として読んだ日時",
+  "datetime.datetime.strptime": withDate("文字 {0} を {1} の形として読んだ日時", 1), "datetime.strptime": withDate("文字 {0} を {1} の形として読んだ日時", 1),
+  "datetime.datetime.utcnow": "今の世界標準時（UTC）の日時（※ Python 3.12 から非推奨。datetime.now(timezone.utc) を使いましょう）",
+  "datetime.utcnow": "今の世界標準時（UTC）の日時（※ Python 3.12 から非推奨。datetime.now(timezone.utc) を使いましょう）",
+  "datetime.datetime.utcfromtimestamp": "{0} 秒の世界標準時の日時（※ Python 3.12 から非推奨）",
+  "zoneinfo.ZoneInfo": "タイムゾーン {0}", ZoneInfo: "タイムゾーン {0}",
+  "datetime.timezone": "時差 {0} のタイムゾーン", timezone: "時差 {0} のタイムゾーン",
   "datetime.datetime.fromtimestamp": "{0} 秒を日時にしたもの", "datetime.fromtimestamp": "{0} 秒を日時にしたもの",
   "os.getcwd": "今いるフォルダの場所",
   "os.listdir": "{0?フォルダ {0}|今のフォルダ} の中身の名前の一覧",
@@ -369,6 +393,7 @@ const pyModulesFuncs: Record<string, ApiEntry> = {
 };
 
 const pyConsts: Record<string, string> = {
+  "timezone.utc": "世界標準時（UTC）", "datetime.timezone.utc": "世界標準時（UTC）", "datetime.UTC": "世界標準時（UTC）", UTC: "世界標準時（UTC）",
   "sys.argv": "コマンドから渡された引数の一覧", "sys.path": "モジュールを探す場所の一覧", "sys.version": "Python のバージョン",
   "sys.platform": "動いている OS の名前", "sys.maxsize": "整数の大きな上限の目安",
   "os.environ": "環境変数の一覧", "os.sep": "フォルダの区切り文字", "os.name": "OS の種類",
@@ -465,7 +490,9 @@ const pyMethods: Record<string, ApiEntry> = {
   seek: [null, "!{o} の読み書きの位置を {0} にします"],
   flush: [null, "!{o} にためていた内容を書き出します"],
   // 日時
-  strftime: "{o} を {0} の形の文字にしたもの",
+  strftime: withDate("{o} を {0} の形の文字にしたもの", 0),
+  __next__: "{o} の次の要素（ふつうは next( ) を使います）",
+  astimezone: "{o} をタイムゾーン {0?{0}|（パソコンの地域）} の時刻に直したもの",
   isoformat: "{o} を「年-月-日」の形の文字にしたもの",
   timestamp: "{o} を 1970 年からの秒数にしたもの",
   weekday: "{o} の曜日の番号（月曜が 0）",
@@ -497,7 +524,7 @@ const pyMethods: Record<string, ApiEntry> = {
   send: "{o} に {0} を送って受け取った次の値",
   quantize: "{o} を {0} のけたに丸めた値{@rounding?（丸め方 {@rounding}）|}",
   invoke: [null, "!{o} を押したことにします"],
-  now: "今の日時",
+  now: "今の日時{0?（タイムゾーン {0}）|（パソコンの地域の時刻）}",
   today: "今日の日付",
   // 数
   is_integer: "{o} が整数の値か",

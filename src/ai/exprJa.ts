@@ -222,6 +222,9 @@ function show(raw: string): string {
   const lit = stringLit(t);
   if (lit !== null) return lit === "" ? "空の文字" : `「${lit.length > 16 ? lit.slice(0, 15) + "…" : lit}」`;
   if (/^KeyCode\.\w+$/.test(t)) return t.slice(8);
+  if (/^\*\*\w/.test(t)) return `${cut(t.slice(2), 14)} の中身（名前つきでばらして）`;
+  if (/^\*\w/.test(t)) return `${cut(t.slice(1), 14)} の中身（ばらして）`;
+  if (/^None$/.test(t)) return "None（何もない）";
   if (/^-?\d+(\.\d+)?[fFdDmMlL]$/.test(t)) return t.slice(0, -1);
   if (/^ForceMode2?D?\.\w+$/.test(t)) return t.replace(/^ForceMode2?D?\./, "");
   if (/^Space\.(World|Self)$/.test(t)) return t.endsWith("World") ? "世界" : "自分";
@@ -283,7 +286,12 @@ function render(raw: string, lang: ExprLang, depth: number): string {
 }
 
 function describeExprInner(expr: string, lang: ExprLang, depth: number): ExprMeaning | null {
-  let s = stripParens(expr.replace(/;\s*$/, ""));
+  const raw0 = expr.replace(/;\s*$/, "").trim();
+  if (lang === "python" && /^\(.+\sfor\s.+\sin\s.+\)$/s.test(raw0) && matchClose(raw0, 0) === raw0.length - 1) {
+    const g = conditionalAndComprehension(raw0, lang, depth);
+    if (g) return g;
+  }
+  let s = stripParens(raw0);
   if (!s || s.length > 200) return null;
   const table = API[lang];
   // await / new
@@ -324,6 +332,8 @@ function describeExprInner(expr: string, lang: ExprLang, depth: number): ExprMea
     const body = describeExprInner(m[2], lang, depth + 1)?.noun;
     return { noun: `${params ? `${params} を受け取って ` : ""}${body ? `『${body}』` : cut(m[2], 20)} を返す小さな関数`, verb: null };
   }
+  const special = conditionalAndComprehension(s, lang, depth);
+  if (special) return special;
   const bin = binary(s, lang, depth);
   if (bin) return bin;
   const tail = parseTail(s);
@@ -338,7 +348,7 @@ function describeExprInner(expr: string, lang: ExprLang, depth: number): ExprMea
   for (const a of rawArgs) {
     const k = lang === "python" ? /^(\w+)\s*=(?!=)\s*(.+)$/s.exec(a) : null;
     if (k) kw[k[1]] = k[2];
-    else if (!/^\*\*?\w/.test(a) || lang !== "python") pos.push(a.replace(/^(ref|out|in)\s+(var\s+)?/, ""));
+    else pos.push(a.replace(/^(ref|out|in)\s+(var\s+)?/, ""));
   }
   const c: ApiCtx = {
     o: hit.obj !== null ? render(hit.obj, lang, depth) : null,
@@ -356,7 +366,7 @@ function describeExprInner(expr: string, lang: ExprLang, depth: number): ExprMea
 /** 「』 を」→「』を」のように、かっこの後ろの余分な空白を詰める */
 function tidy(s: string | null): string | null {
   if (!s) return s;
-  return s.replace(/([』」）)]) +(?=[をのにとでがはへやも、。])/g, "$1").replace(/\s{2,}/g, " ").trim();
+  return s.replace(/([』」）)]) +(?=[をのにとでがはへやも、。])/g, "$1").replace(/ +([、。])/g, "$1").replace(/\s{2,}/g, " ").trim();
 }
 
 /** トップレベルの演算子で 2 つに分ける（いちばん弱い演算子から） */
@@ -405,6 +415,7 @@ const OP_NOUN: Record<string, string> = {
   "==": "{a} が {b} と等しいか", "===": "{a} が {b} と等しいか", "!=": "{a} が {b} と違うか", "!==": "{a} が {b} と違うか",
   ">": "{a} が {b} より大きいか", "<": "{a} が {b} より小さいか", ">=": "{a} が {b} 以上か", "<=": "{a} が {b} 以下か",
   "in": "{a} が {b} に入っているか", "not in": "{a} が {b} に入っていないか",
+  "is": "{a} が {b} そのものか", "is not": "{a} が {b} ではないか",
 };
 
 const NEW_NAMES: Record<string, string> = {
@@ -427,7 +438,7 @@ function binary(s: string, lang: ExprLang, depth: number): ExprMeaning | null {
   // 論理演算子をふくむ式はここでは扱わない
   if (splitOp(s, lang === "python" ? [" and ", " or "] : ["&&", "||"])) return null;
   const groups: [string[], boolean][] = [
-    [lang === "python" ? ["not in", "in", "==", "!=", ">=", "<=", ">", "<"] : ["===", "!==", "==", "!=", ">=", "<=", ">", "<"], false],
+    [lang === "python" ? ["not in", "is not", "is", "in", "==", "!=", ">=", "<=", ">", "<"] : ["===", "!==", "==", "!=", ">=", "<=", ">", "<"], false],
     [["+", "-"], true],
     [["//", "*", "/", "%"], true],
     [["**"], false],
@@ -439,11 +450,61 @@ function binary(s: string, lang: ExprLang, depth: number): ExprMeaning | null {
     if (op === "**" && lang !== "python" && lang !== "js") return null;
     const ld = describeExprInner(l, lang, depth + 1)?.noun;
     const rd = describeExprInner(r, lang, depth + 1)?.noun;
-    if (!ld && !rd && op !== "in" && op !== "not in") return null;
+    if (!ld && !rd && !["in", "not in", "is", "is not"].includes(op)) return null;
     const side = (raw: string, d: string | null | undefined) => (d ? (d.length <= 30 ? `『${d}』` : show(raw)) : show(raw));
+    if ((op === "is" || op === "is not") && r === "None") return { noun: `${side(l, ld)} が${op === "is" ? "「何もない」（None）" : "「何もない」（None）ではない"}か`, verb: null };
     const tpl = OP_NOUN[op];
     if (!tpl) return null;
     return { noun: tidy(tpl.replace("{a}", side(l, ld)).replace("{b}", side(r, rd))), verb: null };
+  }
+  return null;
+}
+
+/** 条件の部分を「〜」の形に（「か」で終わる名詞なら外す） */
+function condPart(raw: string, lang: ExprLang, depth: number): string {
+  const n = describeExprInner(raw, lang, depth + 1)?.noun;
+  if (n && /(かどうか|か)$/.test(n)) return n.replace(/\s*(かどうか|か)$/, "");
+  return show(raw) + " ";
+}
+
+function valPart(raw: string, lang: ExprLang, depth: number): string {
+  const n = describeExprInner(raw, lang, depth + 1)?.noun;
+  return n && n.length <= 30 && !n.includes("『") ? `『${n}』` : show(raw);
+}
+
+/** 条件式（a if c else b / c ? a : b）・内包表記（[x for x in …]）・and / or */
+function conditionalAndComprehension(s: string, lang: ExprLang, depth: number): ExprMeaning | null {
+  if (depth > 2) return null;
+  // 論理演算（いちばん弱いので先に）
+  const or = splitOp(s, lang === "python" ? [" or "] : lang === "ruby" ? [" or ", "||"] : ["||"], false);
+  if (or && !(lang === "python" && splitOp(s, [" if "]))) return { noun: tidy(`${condPart(or[0], lang, depth)}、または ${condPart(or[2], lang, depth)}か`), verb: null };
+  const and = splitOp(s, lang === "python" ? [" and "] : lang === "ruby" ? [" and ", "&&"] : ["&&"], false);
+  if (and && !(lang === "python" && splitOp(s, [" if "]))) return { noun: tidy(`${condPart(and[0], lang, depth)}、かつ ${condPart(and[2], lang, depth)}か`), verb: null };
+  let m: RegExpExecArray | null;
+  if (lang === "python") {
+    // 内包表記
+    if ((m = /^([[{(])(.+)\s+for\s+(.+?)\s+in\s+(.+?)(?:\s+if\s+(.+))?([\]})])$/s.exec(s)) && matchClose(s, 0) === s.length - 1 && !/\sfor\s/.test(m[4])) {
+      const [, open, body, v, src, cond] = m;
+      const kv = open === "{" ? splitOp(body, [":"], false) : null;
+      const what = kv ? `キー ${show(kv[0])}・値 ${show(kv[2])}` : body.trim() === v.trim() ? v.trim() : valPart(body, lang, depth);
+      const kind = open === "[" ? "リスト" : open === "(" ? "ジェネレーター（必要なときに 1 つずつ作る）" : kv ? "辞書" : "集合";
+      const from = valPart(src, lang, depth);
+      const only = cond ? `「${condPart(cond, lang, depth).trim()}」のときだけ ` : "";
+      return { noun: tidy(`${from} の中身を 1 つずつ ${v.trim()} として、${only}${what} を集めた${kind}`), verb: null };
+    }
+    // 条件式（三項演算子）
+    const ifs = splitOp(s, [" if "], false);
+    if (ifs) {
+      const els = splitOp(ifs[2], [" else "], false);
+      if (els) return { noun: tidy(`${condPart(els[0], lang, depth)}なら ${valPart(ifs[0], lang, depth)}、そうでなければ ${valPart(els[2], lang, depth)}`), verb: null };
+    }
+    return null;
+  }
+  // c ? a : b
+  const q = splitOp(s, ["?"], false);
+  if (q && !/^[.?]/.test(q[2]) && !q[0].endsWith("?")) {
+    const colon = splitOp(q[2], [":"], false);
+    if (colon && !q[2].startsWith(":")) return { noun: tidy(`${condPart(q[0], lang, depth)}なら ${valPart(colon[0], lang, depth)}、そうでなければ ${valPart(colon[2], lang, depth)}`), verb: null };
   }
   return null;
 }
