@@ -7,6 +7,7 @@ import { calc, countChars, dateFormats, fixZenkakuInCode, hanKanaToZen, hanToZen
 import { commentSyntax, languageOf } from "../ai/plan";
 import type { EditorHost } from "../editor/types";
 import { registerSlash, type SlashCommand } from "./slash";
+import { startTour } from "./tour";
 import { DICT_LANGUAGES, dictLanguageFor, plainCode, searchDict, toSnippetTemplate } from "../dict";
 import { quickPick } from "./palette";
 import { toast } from "./toast";
@@ -94,6 +95,15 @@ export function registerBuiltinSlash(d: SlashDeps) {
       desc: () => "基本の使い方・便利機能・困ったとき",
       command: "help.open",
       run: () => d.openHelp(),
+    },
+    {
+      name: "tutorial",
+      aliases: ["チュートリアル", "ちゅーとりある", "ツアー", "案内", "あんない", "はじめて", "初めて", "tour", "chuutoriaru", "annai"],
+      group: G.help,
+      icon: "help",
+      title: () => "チュートリアル（画面の案内）",
+      desc: () => "画面の部品を順番に囲んで、何ができるかを紹介します",
+      run: () => startTour(),
     },
     {
       name: "faq",

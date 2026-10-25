@@ -4309,3 +4309,27 @@ html.has-bg .pane-bar {
 .cm-inline-problem {
   opacity: 0.9;
 }
+
+/* ───── チュートリアル */
+.tour { position: fixed; inset: 0; z-index: 3000; pointer-events: none; }
+.tour-shade { position: absolute; inset: 0; background: rgba(4, 8, 20, 0.62); pointer-events: auto; transition: background 0.2s; }
+.tour-shade.clear { background: transparent; }
+.tour-ring {
+  position: absolute; display: none; border-radius: 10px; border: 2px solid var(--accent);
+  box-shadow: 0 0 0 9999px rgba(4, 8, 20, 0.62), 0 0 0 5px var(--accent-soft), 0 0 22px var(--accent-line);
+  transition: left 0.25s ease, top 0.25s ease, width 0.25s ease, height 0.25s ease;
+  animation: tour-pulse 1.8s ease-in-out infinite;
+}
+@keyframes tour-pulse { 50% { box-shadow: 0 0 0 9999px rgba(4, 8, 20, 0.62), 0 0 0 9px var(--accent-soft), 0 0 30px var(--accent-line); } }
+.tour-card {
+  position: absolute; pointer-events: auto; width: max-content; min-width: 260px; padding: 16px 18px 14px;
+  background: var(--surface); color: var(--text); border: 1px solid var(--accent-line); border-radius: 12px; box-shadow: var(--shadow-pop);
+  transition: left 0.25s ease, top 0.25s ease;
+}
+.tour-title { margin: 0 0 6px; font-size: 15px; color: var(--accent); }
+.tour-body { margin: 0 0 14px; font-size: 13px; line-height: 1.75; }
+.tour-actions { display: flex; align-items: center; gap: 8px; }
+.tour-gap { flex: 1; }
+.tour-count { font-size: 12px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.tour-skip { color: var(--text-muted); }
+@media (prefers-reduced-motion: reduce) { .tour-ring, .tour-card { transition: none; animation: none; } }

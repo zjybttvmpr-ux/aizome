@@ -16,6 +16,7 @@ import { createExtensionsView } from "./ui/extensionsView";
 import { settingsPage } from "./ui/settingsPage";
 import { describeAiError, ensureLocalAi, useModelFile } from "./ai/localAi";
 import { askAboutMemory, watchAiMemory } from "./ui/aiMemory";
+import { startTourIfFirstTime } from "./ui/tour";
 import { checkForUpdates, openUpdateDialog, startUpdateChecks, type UpdateDeps } from "./ui/updates";
 import type { UpdateInfo } from "./core/platform";
 import { applyTheme, listThemes } from "./ui/themes";
@@ -2910,6 +2911,7 @@ export class App {
     });
     completer.onStatus((s) => this.renderAi(s));
     watchAiMemory();
+    startTourIfFirstTime();
     bus.on("settings:changed", ({ key }) => {
       if (key.startsWith("editor.")) {
         this.editor.applySettings();

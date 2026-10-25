@@ -122,6 +122,8 @@ export interface Settings {
   "ui.errorButton": boolean;
   /** ファイル名の右の「説明／値／自動判定／なし」 */
   "ui.sideSwitch": boolean;
+  /** はじめてのチュートリアルを見終わった（スキップした） */
+  "ui.tourDone": boolean;
   /** ステータスバーに選んだ文字数 */
   "ui.selectionCount": boolean;
   /** エクスプローラーの「グループ」 */
@@ -226,6 +228,7 @@ export const defaults: Settings = {
   "ui.dictButton": true,
   "ui.errorButton": true,
   "ui.sideSwitch": true,
+  "ui.tourDone": false,
   "ui.selectionCount": true,
   "ui.fileGroups": true,
   "ui.saveHistory": true,
