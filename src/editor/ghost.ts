@@ -117,11 +117,62 @@ let acceptWhenReady = 0;
 /** Tab で先に試す処理（エラーの直し方など）。true を返したら Tab はそこで使われる */
 export const tabHooks: ((view: EditorView) => boolean)[] = [];
 
+/** AI の候補を Tab 2 回で入れるときの、2 回目までの時間（ミリ秒） */
+const DOUBLE_TAB_MS = 450;
+let armedAt = 0;
+let armedView: EditorView | null = null;
+let armTimer: number | undefined;
+let listTimer: number | undefined;
+
+/** 1 回目の Tab：AI の候補に「もう一度 Tab で入る」印を付ける */
+function arm(view: EditorView) {
+  armedAt = Date.now();
+  armedView = view;
+  view.dom.classList.add("ghost-armed");
+  window.clearTimeout(armTimer);
+  armTimer = window.setTimeout(disarm, DOUBLE_TAB_MS + 50);
+}
+
+function disarm() {
+  armedAt = 0;
+  window.clearTimeout(armTimer);
+  armedView?.dom.classList.remove("ghost-armed");
+  armedView = null;
+}
+
 function onTab(view: EditorView): boolean {
   const listKey = settings.get("editor.listKey") === "tab";
   const status = completionStatus(view.state);
-  if (listKey && status === "active") return acceptCompletion(view);
-  if (accept(view)) return true;
+  const ghost = view.state.field(ghostField, false);
+  if (settings.get("ai.acceptKey") === "double") {
+    // Tab 1 回は候補の一覧（変換）、すばやく 2 回で AI の候補
+    if (ghost && armedAt && Date.now() - armedAt < DOUBLE_TAB_MS && armedView === view) {
+      disarm();
+      window.clearTimeout(listTimer);
+      listTimer = undefined;
+      if (completionStatus(view.state) !== null) closeCompletion(view);
+      return accept(view);
+    }
+    if (listKey && status === "active") {
+      if (!ghost) return acceptCompletion(view);
+      // AI の候補も出ているときは、2 回目が来ないのを確かめてから一覧の項目を入れる
+      arm(view);
+      const doc = view.state.doc;
+      window.clearTimeout(listTimer);
+      listTimer = window.setTimeout(() => {
+        listTimer = undefined;
+        if (view.state.doc === doc && completionStatus(view.state) === "active") acceptCompletion(view);
+      }, DOUBLE_TAB_MS);
+      return true;
+    }
+    if (ghost) {
+      arm(view);
+      return true;
+    }
+  } else {
+    if (listKey && status === "active") return acceptCompletion(view);
+    if (accept(view)) return true;
+  }
   // ひな形の入力欄を移動しているときは、そちらに任せる
   if (hasNextSnippetField(view.state)) return false;
   for (const hook of tabHooks) if (hook(view)) return true;
@@ -286,6 +337,7 @@ const scheduler = ViewPlugin.fromClass(
       const after = u.state.field(ghostField, false);
       const accepted = u.transactions.some((tr) => tr.isUserEvent("input.complete"));
       if (before && !after && !accepted && u.docChanged) reject(before.key);
+      if (armedView === u.view && (u.docChanged || u.selectionSet)) disarm();
 
       // 文字入力・改行・貼り付け・削除のあとに補完する（候補の確定そのものは除く）
       const typed = u.transactions.some((tr) => (tr.isUserEvent("input") && !tr.isUserEvent("input.complete")) || tr.isUserEvent("delete"));

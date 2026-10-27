@@ -423,6 +423,14 @@ function sections(): Section[] {
           ]),
           t("set.listKeyHelp"),
         ),
+        row(
+          t("set.aiAcceptKey"),
+          select("ai.acceptKey", [
+            { value: "double", label: t("set.aiAcceptKey.double") },
+            { value: "single", label: t("set.aiAcceptKey.single") },
+          ]),
+          t("set.aiAcceptKeyHelp"),
+        ),
         row(t("set.zenkaku"), toggle("editor.zenkaku"), t("set.zenkakuHelp"), true),
         row(
           t("side.label"),

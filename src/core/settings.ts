@@ -58,6 +58,8 @@ export interface Settings {
   "editor.explain": "off" | "rules" | "ai";
   "editor.suggestList": "smart" | "off";
   "editor.listKey": "tab" | "enter";
+  /** AI の候補（薄い文字）を入れるキー：Tab 2 回か、Tab 1 回か */
+  "ai.acceptKey": "double" | "single";
   "editor.zenkaku": boolean;
   /** 行の右に出すもの：説明／値（値を見るの結果）／自動判定（AI の予想）／なし */
   "editor.sideView": "explain" | "values" | "output" | "auto" | "off";
@@ -198,6 +200,7 @@ export const defaults: Settings = {
   "editor.explain": "ai",
   "editor.suggestList": "smart",
   "editor.listKey": "tab",
+  "ai.acceptKey": "double",
   "editor.zenkaku": true,
   "editor.sideView": "explain",
   "run.cwd": "file",

@@ -4377,3 +4377,16 @@ html.has-bg .pane-bar {
 /* 設定：いつも使うアプリにする */
 .os-default { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
 .os-default .field-row { flex-wrap: wrap; gap: 6px; }
+
+/* AI の候補：Tab を 1 回押したところ（もう一度押すと入る） */
+.ghost-armed .cm-ghost {
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-radius: 3px;
+}
+.ghost-armed .cm-ghost::after {
+  content: "  ⇥ もう一度 Tab";
+  font-size: 0.8em;
+  color: var(--text-muted);
+  white-space: pre;
+}
