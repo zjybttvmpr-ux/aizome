@@ -164,7 +164,7 @@ export class App {
       onRenamed: (from, to) => this.handleRenamed(from, to),
       onDeleted: (p) => this.handleDeleted(p),
       onChanged: () => void this.reindex(),
-      extraMenu: (p) => (settings.get("ui.fileGroups") ? this.groups.menuItemsFor(p) : []),
+      extraMenu: (p, isDir, paths) => (settings.get("ui.fileGroups") ? this.groups.menuItemsFor(p, isDir, paths, (x) => this.tree.isDir(x)) : []),
     });
     this.groups = createFileGroups({
       root: () => this.root,
@@ -173,6 +173,7 @@ export class App {
       closeFiles: (paths) => {
         for (const d of [...this.docs]) if (d.path && paths.includes(d.path)) void this.closeDoc(d.id);
       },
+      openPaths: () => this.docs.map((d) => d.path).filter((p): p is string => !!p),
     });
     this.history = createSaveHistory({
       home: () => this.sys.home,

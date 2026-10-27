@@ -7,6 +7,7 @@ import { basename, relative, isInside } from "../core/paths";
 import { icon } from "./icons";
 import { inputBox, confirmBox } from "./dialog";
 import { toast } from "./toast";
+import { fs } from "../core/platform";
 
 export interface FileGroup {
   name: string;
@@ -19,6 +20,41 @@ export interface FileGroupsDeps {
   openFile: (path: string) => void;
   activePath: () => string | null;
   closeFiles: (paths: string[]) => void;
+  /** いま開いているファイル（保存してあるものだけ） */
+  openPaths?: () => string[];
+}
+
+/** フォルダの中のファイルを集めるときに飛ばすフォルダ */
+const SKIP_DIRS = /^(\.git|\.svn|node_modules|__pycache__|\.venv|venv|Library|Temp|Logs|obj|bin|build|dist|target|\.idea|\.vs|\.vscode)$/;
+const MAX_FILES = 300;
+
+/** フォルダの中のファイル（下のフォルダもふくめて、最大 300 個） */
+async function filesIn(dir: string, depth = 0, out: string[] = []): Promise<string[]> {
+  if (depth > 6 || out.length >= MAX_FILES) return out;
+  let entries: Awaited<ReturnType<typeof fs.listDir>> = [];
+  try {
+    entries = await fs.listDir(dir);
+  } catch {
+    return out;
+  }
+  for (const e of entries) {
+    if (out.length >= MAX_FILES) break;
+    if (e.name.startsWith(".")) continue;
+    if (e.isDir) {
+      if (!SKIP_DIRS.test(e.name)) await filesIn(e.path, depth + 1, out);
+    } else if (!/\.(meta|pyc|exe|dll|obj|o|class)$/i.test(e.name)) out.push(e.path);
+  }
+  return out;
+}
+
+/** ドラッグや右クリックで渡されたもの（"dir:" 付きはフォルダ）を、ファイルの一覧にする */
+async function expand(items: string[]): Promise<string[]> {
+  const out: string[] = [];
+  for (const it of items) {
+    if (it.startsWith("dir:")) out.push(...(await filesIn(it.slice(4))));
+    else if (it) out.push(it);
+  }
+  return [...new Set(out)];
 }
 
 /** ファイルツリーからドラッグするときの種類 */
@@ -50,25 +86,38 @@ export function createFileGroups(deps: FileGroupsDeps) {
     render();
   };
 
-  async function newGroup(withFile?: string): Promise<void> {
-    const name = await inputBox({ title: t("groups.new"), placeholder: t("groups.placeholder"), okLabel: t("groups.create") });
+  async function newGroup(withFile?: string | string[], suggested?: string): Promise<void> {
+    const files = await expand(typeof withFile === "string" ? [withFile] : withFile ?? []);
+    const name = await inputBox({ title: files.length > 1 ? t("groups.newMany", { n: String(files.length) }) : t("groups.new"), value: suggested ?? "", placeholder: t("groups.placeholder"), okLabel: t("groups.create") });
     if (!name?.trim()) return;
     const groups = load();
     if (groups.some((g) => g.name === name.trim())) return toast(t("groups.exists", { name }), "warn");
-    groups.push({ name: name.trim(), files: withFile ? [withFile] : [], open: true });
+    groups.push({ name: name.trim(), files, open: true });
     el.classList.add("open");
     settings.set("explorer.groupsOpen", true);
     save(groups);
+    if (files.length > 1) toast(t("groups.addedMany", { n: String(files.length), name: name.trim() }), "success", 3000);
   }
 
   function addTo(groupName: string, path: string) {
+    void addMany(groupName, [path]);
+  }
+
+  /** まとめてグループに入れる（フォルダは中のファイルごと） */
+  async function addMany(groupName: string, items: string[]) {
+    const paths = await expand(items);
     const groups = load();
     const g = groups.find((x) => x.name === groupName);
-    if (!g) return;
-    if (!g.files.includes(path)) g.files.push(path);
+    if (!g || !paths.length) {
+      if (!paths.length) toast(t("groups.nothing"), "info");
+      return;
+    }
+    const fresh = paths.filter((p) => !g.files.includes(p));
+    g.files.push(...fresh);
     g.open = true;
     save(groups);
-    toast(t("groups.added", { file: basename(path), name: groupName }), "success", 2500);
+    if (paths.length === 1) toast(fresh.length ? t("groups.added", { file: basename(paths[0]), name: groupName }) : t("groups.already", { name: groupName }), fresh.length ? "success" : "info", 2500);
+    else toast(t("groups.addedManySkip", { n: String(fresh.length), name: groupName, skip: String(paths.length - fresh.length) }), "success", 3500);
   }
 
   addBtn.addEventListener("click", () => void newGroup(deps.activePath() ?? undefined));
@@ -84,6 +133,14 @@ export function createFileGroups(deps: FileGroupsDeps) {
         run: () => {
           const p = deps.activePath();
           if (p) addTo(g.name, p);
+          else toast(t("groups.noActive"), "info");
+        },
+      },
+      {
+        label: t("groups.addOpen"),
+        run: () => {
+          const list = deps.openPaths?.() ?? [];
+          if (list.length) void addMany(g.name, list);
           else toast(t("groups.noActive"), "info");
         },
       },
@@ -133,11 +190,13 @@ export function createFileGroups(deps: FileGroupsDeps) {
     target.addEventListener("dragleave", () => target.classList.remove("drop"));
     target.addEventListener("drop", (e) => {
       target.classList.remove("drop");
-      const path = e.dataTransfer?.getData(DRAG_TYPE);
-      if (!path) return;
+      const data = e.dataTransfer?.getData(DRAG_TYPE);
+      if (!data) return;
       e.preventDefault();
-      if (groupName) addTo(groupName, path);
-      else void newGroup(path);
+      const items = data.split("\n").filter(Boolean);
+      const folder = items.length === 1 && items[0].startsWith("dir:") ? basename(items[0].slice(4)) : undefined;
+      if (groupName) void addMany(groupName, items);
+      else void newGroup(items, folder);
     });
   }
   acceptDrop(head, null);
@@ -202,11 +261,17 @@ export function createFileGroups(deps: FileGroupsDeps) {
     }
   }
 
-  /** ファイルツリーの右クリックに足す項目 */
-  function menuItemsFor(path: string): { label: string; run: () => void }[] {
-    const items = load().map((g) => ({ label: t("groups.addTo", { name: g.name }), run: () => addTo(g.name, path) }));
-    items.push({ label: t("groups.newWith"), run: () => void newGroup(path) });
-    return items;
+  /** ファイルツリーの右クリックに足す項目（選んでいるものすべて・フォルダは中のファイルごと） */
+  function menuItemsFor(path: string, isDir = false, selected: string[] = [path], dirOf: (p: string) => boolean = () => isDir): { label: string; run: () => void }[] {
+    const list = selected.length ? selected : [path];
+    const items = list.map((p) => (dirOf(p) ? `dir:${p}` : p));
+    const many = list.length > 1;
+    const folderOnly = !many && isDir;
+    const label = (key: string, name?: string) =>
+      t(many ? `${key}Many` : folderOnly ? `${key}Folder` : key, { name: name ?? "", n: String(list.length) });
+    const out = load().map((g) => ({ label: label("groups.addTo", g.name), run: () => void addMany(g.name, items) }));
+    out.push({ label: label("groups.newWith"), run: () => void newGroup(items, folderOnly ? basename(path) : undefined) });
+    return out;
   }
 
   return { el, render, menuItemsFor, newGroup };

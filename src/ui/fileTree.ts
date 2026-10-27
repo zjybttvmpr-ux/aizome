@@ -12,8 +12,8 @@ export interface FileTreeDeps {
   onRenamed: (from: string, to: string) => void;
   onDeleted: (path: string) => void;
   onChanged: () => void;
-  /** 右クリックに足す項目（グループに追加など） */
-  extraMenu?: (path: string, isDir: boolean) => { label: string; run: () => void }[];
+  /** 右クリックに足す項目（グループに追加など）。paths は選んでいるものすべて */
+  extraMenu?: (path: string, isDir: boolean, paths: string[]) => { label: string; run: () => void }[];
 }
 
 export interface MenuItem {
@@ -92,6 +92,9 @@ export class FileTree {
   private root: string | null = null;
   private expanded = new Set<string>();
   private selected: string | null = null;
+  /** Ctrl / Shift を押しながら選んだもの（まとめてグループに入れる用） */
+  private multi = new Set<string>();
+  private anchor: string | null = null;
   private activeFile: string | null = null;
   private gitFiles = new Map<string, string>();
   private gitDirs = new Set<string>();
@@ -173,7 +176,7 @@ export class FileTree {
     const row = h(
       "div",
       {
-        class: "tree-row" + (e.isDir ? " dir" : "") + (e.name.startsWith(".") ? " hidden-file" : "") + (this.selected === e.path ? " selected" : ""),
+        class: "tree-row" + (e.isDir ? " dir" : "") + (e.name.startsWith(".") ? " hidden-file" : "") + ((this.multi.size ? this.multi.has(e.path) : this.selected === e.path) ? " selected" : ""),
         role: "treeitem",
         "aria-expanded": e.isDir ? String(open) : undefined,
         tabindex: -1,
@@ -189,10 +192,25 @@ export class FileTree {
     const wrap = h("div", { class: "tree-node" }, row);
     if (open) wrap.append(await this.renderDir(e.path, depth + 1));
 
-    row.addEventListener("click", async () => {
+    row.addEventListener("click", async (ev) => {
+      // Ctrl（Mac は ⌘）で 1 つずつ足す・外す、Shift で範囲をまとめて選ぶ
+      if (ev.ctrlKey || ev.metaKey || ev.shiftKey) {
+        ev.preventDefault();
+        if (ev.shiftKey && this.anchor) this.selectRange(this.anchor, e.path);
+        else {
+          if (!this.multi.size && this.selected && this.selected !== e.path) this.multi.add(this.selected);
+          if (this.multi.has(e.path)) this.multi.delete(e.path);
+          else this.multi.add(e.path);
+          this.anchor = e.path;
+        }
+        this.selected = e.path;
+        this.paintSelection();
+        return;
+      }
+      this.multi.clear();
+      this.anchor = e.path;
       this.selected = e.path;
-      this.el.querySelectorAll(".tree-row.selected").forEach((r) => r.classList.remove("selected"));
-      row.classList.add("selected");
+      this.paintSelection();
       if (e.isDir) {
         if (this.expanded.has(e.path)) this.expanded.delete(e.path);
         else this.expanded.add(e.path);
@@ -202,14 +220,14 @@ export class FileTree {
         this.deps.openFile(e.path);
       }
     });
-    // グループへドラッグで入れられるように
-    if (!e.isDir) {
-      row.draggable = true;
-      row.addEventListener("dragstart", (ev) => {
-        ev.dataTransfer?.setData("text/x-aizome-path", e.path);
-        ev.dataTransfer?.setData("text/plain", e.path);
-      });
-    }
+    // グループへドラッグで入れられるように（選んでいるものはまとめて・フォルダは中のファイルごと）
+    row.draggable = true;
+    row.addEventListener("dragstart", (ev) => {
+      const paths = this.multi.has(e.path) && this.multi.size > 1 ? this.selectedPaths() : [e.path];
+      const data = paths.map((p) => (this.isDirPath(p) ? `dir:${p}` : p)).join("\n");
+      ev.dataTransfer?.setData("text/x-aizome-path", data);
+      ev.dataTransfer?.setData("text/plain", paths.join("\n"));
+    });
     row.addEventListener("contextmenu", (ev) => {
       ev.preventDefault();
       ev.stopPropagation();
@@ -229,8 +247,47 @@ export class FileTree {
       items.push({ label: t("tree.delete"), run: () => this.remove(path), danger: true });
     }
     items.push({ label: t("tree.copyPath"), run: () => navigator.clipboard?.writeText(path) });
-    if (!isDir && this.deps.extraMenu) items.push(...this.deps.extraMenu(path, isDir));
+    const paths = this.multi.has(path) && this.multi.size > 1 ? this.selectedPaths() : [path];
+    const extra = this.deps.extraMenu?.(path, isDir, paths) ?? [];
+    if (extra.length) items.push({ label: "", sep: true }, ...extra);
     contextMenu(x, y, items);
+  }
+
+  /** 選んでいるもの（画面の上から順） */
+  selectedPaths(): string[] {
+    const order = [...this.el.querySelectorAll<HTMLElement>(".tree-row")].map((r) => r.dataset.path ?? "");
+    const set = this.multi.size ? this.multi : new Set(this.selected ? [this.selected] : []);
+    return order.filter((p) => set.has(p));
+  }
+
+  isDir(path: string): boolean {
+    return this.isDirPath(path);
+  }
+
+  private isDirPath(path: string): boolean {
+    return !!this.el.querySelector(`.tree-row.dir[data-path="${CSS.escape(path)}"]`);
+  }
+
+  private selectRange(from: string, to: string) {
+    const order = [...this.el.querySelectorAll<HTMLElement>(".tree-row")].map((r) => r.dataset.path ?? "");
+    let a = order.indexOf(from);
+    let b = order.indexOf(to);
+    if (a < 0 || b < 0) return;
+    if (a > b) [a, b] = [b, a];
+    this.multi = new Set(order.slice(a, b + 1));
+  }
+
+  private paintSelection() {
+    this.el.querySelectorAll<HTMLElement>(".tree-row").forEach((r) => {
+      const p = r.dataset.path ?? "";
+      r.classList.toggle("selected", this.multi.size ? this.multi.has(p) : p === this.selected);
+    });
+  }
+
+  /** まとめて選んでいるのをやめる */
+  clearSelection() {
+    this.multi.clear();
+    this.paintSelection();
   }
 
   /** 選択中のフォルダ（なければルート） */
