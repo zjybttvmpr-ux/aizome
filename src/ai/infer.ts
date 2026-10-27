@@ -1,4 +1,5 @@
 // 自動判定モード：実行せずに、変数に何が入るかとエラーになりそうな行を予想する（画面に依存しない部分）
+import { jaReason } from "./jaError";
 import { languageOf } from "./plan";
 
 export interface InferVar {
@@ -37,7 +38,7 @@ export function buildInferPrompt(code: string, filename: string): string {
     "",
     "出力は、次の 2 種類の行だけにしてください。前置きや説明の文章は書かないでください。",
     "V|行番号|変数名|値",
-    "E|行番号|起きそうなエラーと原因（30 文字くらい）",
+    "E|行番号|起きそうなエラーと原因（30 文字くらい。必ず日本語で書く）",
     "",
     "例：",
     "V|1|a|[]",
@@ -54,7 +55,7 @@ export function buildInferPrompt(code: string, filename: string): string {
 const V_LINE = /^\s*V\s*[|｜]\s*(\d+)\s*[|｜]\s*([A-Za-z_][\w.]*(?:\[[^\]]*\])?)\s*[|｜]\s*(.+?)\s*$/;
 const E_LINE = /^\s*E\s*[|｜]\s*(\d+)\s*[|｜]\s*(.+?)\s*$/;
 
-export function parseInfer(answer: string, lineCount: number): InferResult {
+export function parseInfer(answer: string, lineCount: number, lang: string | null = null): InferResult {
   const vars: InferVar[] = [];
   const risks: InferRisk[] = [];
   for (const row of answer.split("\n")) {
@@ -67,7 +68,7 @@ export function parseInfer(answer: string, lineCount: number): InferResult {
     const e = E_LINE.exec(row);
     if (e) {
       const line = Number(e[1]);
-      if (line >= 1 && line <= lineCount && !/^(なし|特になし|none)$/i.test(e[2])) risks.push({ line, reason: e[2].slice(0, 80) });
+      if (line >= 1 && line <= lineCount && !/^(なし|特になし|none)$/i.test(e[2])) risks.push({ line, reason: jaReason(e[2], lang).slice(0, 90) });
     }
   }
   return { vars, risks };

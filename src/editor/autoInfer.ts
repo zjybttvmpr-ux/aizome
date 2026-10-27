@@ -13,7 +13,7 @@ import { forEachView, sideMode, sideModeChanged, trackView } from "./sideMode";
 import { bus } from "../core/events";
 import { traceAt, traceTimeAt } from "./valueLens";
 import { inferBusy, setInferBusy } from "./inferState";
-import { predictedProblems, syntaxProblems } from "./liveCheck";
+import { checkLangOfState, predictedProblems, syntaxProblems } from "./liveCheck";
 import { t } from "../core/i18n";
 
 /** AI の予想が新しくなった合図（行の説明もこれで描き直す） */
@@ -78,7 +78,7 @@ async function analyze(view: EditorView) {
     });
     cancelRunning = null;
     if (stopped) return;
-    const result = parseInfer(answer, view.state.doc.lines);
+    const result = parseInfer(answer, view.state.doc.lines, checkLangOfState(view.state));
     cache.set(key, result);
     while (cache.size > 30) cache.delete(cache.keys().next().value as string);
     view.dispatch({ effects: inferUpdated.of(null) });
