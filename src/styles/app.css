@@ -4333,3 +4333,10 @@ html.has-bg .pane-bar {
 .tour-count { font-size: 12px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
 .tour-skip { color: var(--text-muted); }
 @media (prefers-reduced-motion: reduce) { .tour-ring, .tour-card { transition: none; animation: none; } }
+
+/* 自動判定：「ファイルがないと〜かもしれない」くらいの控えめな注意 */
+.cm-risk.soft {
+  color: var(--text-muted);
+  opacity: 0.8;
+  font-weight: 400;
+}

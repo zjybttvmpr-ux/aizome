@@ -11,6 +11,8 @@ import { cutAtDedent, fileHeader, languageOf, planCompletion } from "../ai/plan"
 
 /** 開いているファイルの名前（補完で「何語のファイルか」を AI に伝えるため） */
 export const docFilename = Facet.define<string, string>({ combine: (v) => v[0] ?? "" });
+/** 開いているファイルの ID（保存してあるファイルなら、その場所のフルパス） */
+export const docId = Facet.define<string, string>({ combine: (v) => v[0] ?? "" });
 
 /** 言語の付いていない文書（テキスト）や Markdown か */
 function isProseFile(view: EditorView): boolean {

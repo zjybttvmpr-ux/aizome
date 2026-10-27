@@ -25,7 +25,7 @@ import { ensureSyntaxTree, foldAll, unfoldAll } from "@codemirror/language";
 import { highlightTree, tagHighlighter, tags } from "@lezer/highlight";
 import { languages } from "@codemirror/language-data";
 import { editorTheme, syntaxColors } from "./theme";
-import { docFilename, ghostText, triggerCompletion } from "./ghost";
+import { docFilename, docId, ghostText, triggerCompletion } from "./ghost";
 import { buildLens } from "./buildLens";
 import { lineExplanations } from "./explain";
 import { smartCompletion } from "./smartComplete";
@@ -332,9 +332,9 @@ class CodeMirrorHost implements EditorHost {
     this.focusListeners.push(cb);
   }
 
-  private extensions(filename = ""): Extension[] {
+  private extensions(filename = "", id = ""): Extension[] {
     return [
-      nameSlot.of(docFilename.of(filename)),
+      nameSlot.of([docFilename.of(filename), docId.of(id)]),
       basicSetup,
       // 元に戻せる回数をほぼ無制限に（保存しても、あいぞめを閉じるまでは戻せる）
       history({ minDepth: 100000, newGroupDelay: 600 }),
@@ -388,7 +388,7 @@ class CodeMirrorHost implements EditorHost {
       this.docs.set(id, kept);
       this.docPane.set(id, this.isSplit() ? this.cur : 0);
     } else if (!this.docs.has(id)) {
-      const state = EditorState.create({ doc: text, extensions: this.extensions(filename) });
+      const state = EditorState.create({ doc: text, extensions: this.extensions(filename, id) });
       this.docs.set(id, { state, filename, language: detect(filename)?.name ?? "Plain Text", scrollTop: 0 });
       this.docPane.set(id, this.isSplit() ? this.cur : 0);
       void this.loadLanguage(id, filename);
@@ -430,7 +430,7 @@ class CodeMirrorHost implements EditorHost {
     if (!entry) return;
     this.docs.delete(oldId);
     entry.filename = filename;
-    const effects = nameSlot.reconfigure(docFilename.of(filename));
+    const effects = nameSlot.reconfigure([docFilename.of(filename), docId.of(newId)]);
     const view = this.viewOf(oldId);
     if (view) {
       view.dispatch({ effects });

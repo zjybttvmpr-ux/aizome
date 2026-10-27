@@ -6,7 +6,9 @@ import { Decoration, EditorView, ViewPlugin, WidgetType, hoverTooltip, type Deco
 import { settings } from "../core/settings";
 import { completer } from "../ai/completer";
 import { buildInferPrompt, hashText, lookupInferred, parseInfer, staticGuess, type InferResult } from "../ai/infer";
-import { docFilename } from "./ghost";
+import { docFilename, docId } from "./ghost";
+import { fs } from "../core/platform";
+import { dirname, join } from "../core/paths";
 import { forEachView, sideMode, sideModeChanged, trackView } from "./sideMode";
 import { bus } from "../core/events";
 import { traceAt, traceTimeAt } from "./valueLens";
@@ -23,7 +25,8 @@ export function riskLines(state: EditorState): Set<number> {
   if (sideMode() !== "auto") return new Set();
   const syntax = syntaxProblems(state);
   if (syntax.length) return new Set(syntax.map((s) => s.line));
-  return new Set([...predictedProblems(state).map((p) => p.line), ...(resultFor(state)?.risks.map((r) => r.line) ?? [])]);
+  const ai = (resultFor(state)?.risks ?? []).filter((r) => r.line <= state.doc.lines && fileRisk(state, r.line, r.reason) !== "hide");
+  return new Set([...predictedProblems(state).map((p) => p.line), ...ai.map((r) => r.line)]);
 }
 
 // ───────── AI の予想（コードごとに覚えておく）
@@ -92,22 +95,96 @@ class RiskWidget extends WidgetType {
   constructor(
     readonly text: string,
     readonly sure = false,
+    /** 「〜かもしれない」程度の控えめな注意（⚠ を付けない） */
+    readonly soft = false,
   ) {
     super();
   }
   eq(o: RiskWidget) {
-    return o.text === this.text && o.sure === this.sure;
+    return o.text === this.text && o.sure === this.sure && o.soft === this.soft;
   }
   toDOM() {
     const el = document.createElement("span");
-    el.className = this.sure ? "cm-risk sure" : "cm-risk";
-    el.textContent = `⚠ ${this.text}`;
+    el.className = this.soft ? "cm-risk soft" : this.sure ? "cm-risk sure" : "cm-risk";
+    el.textContent = this.soft ? `ⓘ ${this.text}` : `⚠ ${this.text}`;
     el.title = this.text;
     return el;
   }
   ignoreEvent() {
     return true;
   }
+}
+
+// ───────── ファイルが見つからないかも、という予想
+// AI は実行せずに読むので、open("data.txt") があるだけで「FileNotFoundError」と予想しがち。
+// 実際にファイルがあれば出さず、なければ「ないとエラーになる可能性があります」と控えめに出す
+
+const FILE_RISK = /FileNotFound|No such file|IOError|ファイル.{0,12}(ない|無い|見つから|存在しな|開けな)|(存在しない|見つからない).{0,6}ファイル/i;
+const FILE_IN_LINE = /(?:open|Path|read_csv|read_excel|read_json|loadtxt|genfromtxt|imread|load|File\.\w+|fopen|ifstream|FileReader|readFileSync|StreamReader)\s*\(\s*(?:file\s*=\s*)?[rbuf]?["']([^"']+)["']/i;
+const ANY_FILE = /["']([^"'\s]+\.[A-Za-z0-9]{1,6})["']/;
+const fileExists = new Map<string, boolean | "checking">();
+
+function isAbsolutePath(p: string) {
+  return /^([A-Za-z]:[\\/]|[\\/]{1,2}|~)/.test(p);
+}
+
+/** その行で開こうとしているファイル名 */
+function fileOnLine(text: string): string | null {
+  return FILE_IN_LINE.exec(text)?.[1] ?? ANY_FILE.exec(text)?.[1] ?? null;
+}
+
+/** ファイルがあるか（わからなければ null。調べ終わったら描き直す） */
+function existsNow(state: EditorState, file: string): boolean | null {
+  const id = state.facet(docId);
+  let full: string | null = null;
+  if (isAbsolutePath(file) && !file.startsWith("~")) full = file;
+  else if (isAbsolutePath(id)) full = join(dirname(id), file.replace(/^\.[\\/]/, ""));
+  if (!full) return null;
+  const known = fileExists.get(full);
+  if (known === true || known === false) return known;
+  if (known !== "checking") {
+    fileExists.set(full, "checking");
+    fs.exists(full)
+      .then((ok) => fileExists.set(full!, ok))
+      .catch(() => fileExists.delete(full!))
+      .finally(() => forEachView((v) => v.dispatch({ effects: inferUpdated.of(null) })));
+    // しばらくしたら調べ直す（あとからファイルを置いたときのため）
+    window.setTimeout(() => fileExists.delete(full!), 15000);
+  }
+  return null;
+}
+
+const ZERO_RISK = /ZeroDivision|0\s*で割|ゼロで割|ゼロ除算|division by zero|divide by zero/i;
+const INPUT_RISK = /ValueError|数字(以外|でない)|数値に変換できな/;
+
+/** 割り算の「割る数」（a / n なら n）。見つからなければ null */
+function divisorOnLine(text: string): string | null {
+  const code = text.replace(/(["'])(?:\\.|(?!\1).)*\1/g, '""').replace(/#.*$/, "");
+  const m = /[^/*]\s*(?:\/\/?|%)\s*(\([^()]*\)|-?[A-Za-z_][\w.]*(?:\[[^\]]*\])?(?:\([^()]*\))?|-?\d+(?:\.\d+)?)/.exec(" " + code);
+  return m?.[1] ?? null;
+}
+
+/**
+ * AI の予想が「値しだいで起きる」エラー（ファイルがない・0 で割る・数字でない入力）なら、
+ * ⚠ ではなく控えめな注意にする。確かめて大丈夫なら出さない（"hide"）。関係なければ null
+ */
+function fileRisk(state: EditorState, lineNo: number, reason: string): { text: string } | "hide" | null {
+  const lineText = state.doc.line(lineNo).text;
+  if (ZERO_RISK.test(reason)) {
+    const d = divisorOnLine(lineText);
+    if (d && /^-?\d+(\.\d+)?$/.test(d)) return Number(d) === 0 ? null : "hide";
+    return { text: d ? t("predict.zeroMaybe", { name: d }) : t("predict.zeroMaybeAny") };
+  }
+  if (INPUT_RISK.test(reason) && /\binput\s*\(|Console\.ReadLine|nextInt|scanf|prompt\s*\(/.test(lineText)) return { text: t("predict.inputMaybe") };
+  if (!FILE_RISK.test(reason)) return null;
+  const file = fileOnLine(state.doc.line(lineNo).text);
+  if (file) {
+    const ok = existsNow(state, file);
+    if (ok === true) return "hide";
+    if (ok === false) return { text: t("predict.fileMissing", { file }) };
+    return { text: t("predict.fileMaybe", { file }) };
+  }
+  return { text: t("predict.fileMaybeAny") };
 }
 
 function buildRisks(state: EditorState): DecorationSet {
@@ -131,9 +208,19 @@ function buildRisks(state: EditorState): DecorationSet {
   const all = [...predicted.map((p) => ({ line: p.line, reason: p.text, sure: true })), ...(result?.risks ?? []).map((r) => ({ line: r.line, reason: r.reason, sure: false }))].sort((a, b) => a.line - b.line);
   for (const r of all) {
     if (seen.has(r.line) || r.line > state.doc.lines) continue;
+    let text = r.reason;
+    let soft = false;
+    if (!r.sure) {
+      const f = fileRisk(state, r.line, r.reason);
+      if (f === "hide") continue;
+      if (f) {
+        text = f.text;
+        soft = true;
+      }
+    }
     seen.add(r.line);
     const line = state.doc.line(r.line);
-    b.add(line.to, line.to, Decoration.widget({ widget: new RiskWidget(r.reason, r.sure), side: 2 }));
+    b.add(line.to, line.to, Decoration.widget({ widget: new RiskWidget(text, r.sure, soft), side: 2 }));
   }
   return b.finish();
 
