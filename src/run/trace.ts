@@ -5,14 +5,13 @@ import { t } from "../core/i18n";
 
 /** トレーサー本体（Python）。ターミナルで python tracer.py 対象.py 記録.json と動かす */
 export const TRACER_PY = String.raw`# Aizome 値を見る（トレーサー）
-import sys, os, json, runpy, reprlib, types, traceback, re, linecache
+import sys, os, json, runpy, reprlib, types, traceback, re, linecache, ast, builtins, tokenize
 
 def main():
     target = os.path.abspath(sys.argv[1])
     out = sys.argv[2]
     # 3 つ目があれば「入力の登録」のファイル：input() に順に入れる
     if len(sys.argv) > 3 and sys.argv[3]:
-        import builtins
         with open(sys.argv[3], encoding="utf-8") as f:
             queue = f.read().replace("\r\n", "\n").split("\n")
         if queue and queue[-1] == "":
@@ -35,6 +34,9 @@ def main():
     last = {}
     state = {"events": 0, "truncated": False, "seq": 0, "recs": 0}
     outputs = {}
+    # 戻り値：呼び出し（関数・メソッド）ごとに、その行の実行で返ってきた値
+    returns = {}
+    calls = []
 
     class Tee:
         """画面に出す文字をそのまま出しつつ、どの行の実行で出たかを覚える"""
@@ -95,11 +97,70 @@ def main():
         out_text = "".join(outputs.pop(key, []))
         if out_text:
             rec["o"] = out_text[:400]
+        rv = returns.pop(key, None)
+        if rv:
+            rec["v"] = rv
         if len(e["recs"]) < 300 and state["recs"] < 60000:
             e["recs"].append(rec)
             state["recs"] += 1
         else:
             e["recs"][-1] = rec
+
+    def ret_hook(idx, value):
+        try:
+            f = sys._getframe(1)
+            seg, stmt = calls[idx]
+            # 1 行の命令として呼んだもの（print(…) や a.append(…)）が None を返すのは当たり前なので出さない
+            # range(10) や enumerate(…) のような「くり返し用の入れ物」は、値を見ても意味がないので出さない
+            if isinstance(value, (range, enumerate, zip, map, filter, reversed, types.GeneratorType)):
+                return value
+            if not (stmt and value is None):
+                lst = returns.setdefault(id(f), [])
+                text = show(value)
+                for item in lst:
+                    if item[0] == seg:
+                        item[1] = text
+                        item[2] += 1
+                        break
+                else:
+                    if len(lst) < 6:
+                        lst.append([seg, text, 1])
+        except Exception:
+            pass
+        return value
+    builtins.__aizome_ret__ = ret_hook
+
+    class Wrap(ast.NodeTransformer):
+        """すべての呼び出し f(x) を __aizome_ret__(番号, f(x)) にして、返ってきた値を覚える"""
+        def __init__(self, src):
+            self.src = src
+            self.stmt_calls = set()
+        def visit_Expr(self, node):
+            if isinstance(node.value, ast.Call):
+                self.stmt_calls.add(id(node.value))
+            return self.generic_visit(node)
+        def visit_Call(self, node):
+            stmt = id(node) in self.stmt_calls
+            self.generic_visit(node)
+            if isinstance(node.func, ast.Name) and node.func.id in ("super", "__aizome_ret__", "locals", "globals", "vars"):
+                return node
+            seg = ast.get_source_segment(self.src, node) or ""
+            seg = " ".join(seg.split())
+            calls.append((seg[:80], stmt))
+            new = ast.Call(func=ast.Name(id="__aizome_ret__", ctx=ast.Load()), args=[ast.Constant(len(calls) - 1), node], keywords=[])
+            return ast.copy_location(new, node)
+
+    def compiled():
+        try:
+            with tokenize.open(target) as f:
+                src = f.read()
+            tree = ast.parse(src, target)
+            tree = Wrap(src).visit(tree)
+            ast.fix_missing_locations(tree)
+            return compile(tree, target, "exec")
+        except Exception:
+            # 書きかえられないとき（文法のまちがいなど）は、そのまま実行する（エラーの表示は Python に任せる）
+            return None
 
     def local(frame, event, arg):
         state["events"] += 1
@@ -132,7 +193,20 @@ def main():
     sys.stdout = Tee(real_stdout)
     sys.settrace(glob)
     try:
-        runpy.run_path(target, run_name="__main__")
+        code = compiled()
+        if code is None:
+            runpy.run_path(target, run_name="__main__")
+        else:
+            # runpy と同じく、実行中は __main__ モジュールを差しかえる（dataclass や pickle が __main__ を見るため）
+            mod = types.ModuleType("__main__")
+            mod.__dict__.update({"__file__": target, "__builtins__": builtins, "__package__": None, "__spec__": None, "__loader__": None, "__cached__": None})
+            saved_main = sys.modules.get("__main__")
+            sys.modules["__main__"] = mod
+            try:
+                exec(code, mod.__dict__)
+            finally:
+                if saved_main is not None:
+                    sys.modules["__main__"] = saved_main
     except SystemExit:
         pass
     except BaseException as e:
@@ -178,6 +252,8 @@ export interface TraceRecord {
   s?: number;
   /** この実行で出た出力（print など） */
   o?: string;
+  /** この実行での呼び出しの戻り値：[呼び出し, 値, 回数] */
+  v?: [string, string, number][];
 }
 
 export interface TraceResult {
@@ -225,7 +301,25 @@ function oneLine(o: string, max = 60): string {
   return t.length > max ? t.slice(0, max) + "…" : t;
 }
 
+/** values：変数の値　output：呼び出しの戻り値（前は print の出力だった名残で output という名前） */
 export type TraceView = "values" | "output";
+
+/** 0.8414709848078965 → 0.8415 のように、長い小数を短く */
+function shortNum(v: string): string {
+  return /^-?\d+\.\d{5,}(e[-+]?\d+)?$/.test(v) ? String(Number(Number(v).toPrecision(4))) : v;
+}
+
+function cutCall(seg: string, max = 24): string {
+  return seg.length > max ? seg.slice(0, max - 1) + "…" : seg;
+}
+
+/** その回の戻り値を 1 行に（math.sin(i) → 0.8415　sq(i) → 1） */
+function returnsText(r: TraceRecord, max = 3): string {
+  const v = r.v ?? [];
+  const parts = v.slice(0, max).map(([seg, val, n]) => `${cutCall(seg)} → ${shortNum(val)}${n > 1 ? `（最後の値・${n} 回）` : ""}`);
+  if (v.length > max) parts.push(`ほか ${v.length - max} 個`);
+  return parts.join("　");
+}
 
 /** その行が、指定した瞬間（通し番号 time）までに最後に実行されたときの記録 */
 function recAt(recs: TraceRecord[], time: number): TraceRecord | null {
@@ -251,8 +345,8 @@ export function formatTrace(result: TraceResult, view: TraceView = "values", tim
     const detail =
       view === "output"
         ? recs
-            .filter((r) => r.o)
-            .map((r, i) => `${i + 1} 回目：${oneLine(r.o!, 200)}`)
+            .filter((r) => r.v?.length)
+            .map((r, i) => `${i + 1} 回目：${(r.v ?? []).map(([seg, val]) => `${seg} → ${val}`).join("　")}`)
             .join("\n")
         : recs
             .map((r, i) => {
@@ -267,7 +361,7 @@ export function formatTrace(result: TraceResult, view: TraceView = "values", tim
       if (!r) continue;
       const current = r.s === time;
       if (view === "output") {
-        if (r.o) out.set(line, { text: oneLine(r.o), detail, kind: current ? "current" : "past" });
+        if (r.v?.length) out.set(line, { text: returnsText(r), detail, kind: current ? "current" : "past" });
       } else {
         let text = varsText(r);
         // 今の行は、その回に出した文字（print の結果など）も添える
@@ -279,11 +373,16 @@ export function formatTrace(result: TraceResult, view: TraceView = "values", tim
     }
 
     if (view === "output") {
-      const outs = recs.filter((r) => r.o).map((r) => oneLine(r.o!, 30));
-      if (!outs.length) continue;
-      const n = recs.filter((r) => r.o).length;
-      const text = outs.length === 1 ? outs[0] : outs.slice(0, 4).join(" ｜ ") + (outs.length > 4 ? ` ｜ …（${n} 回）` : `（${n} 回）`);
-      out.set(line, { text, detail, kind: "output" });
+      // 呼び出しごとに、回ごとの戻り値を並べる（math.sin(i) → 0.0 → 0.8415 → …（10 回））
+      const segs: string[] = [];
+      for (const r of recs) for (const [seg] of r.v ?? []) if (!segs.includes(seg)) segs.push(seg);
+      if (!segs.length) continue;
+      const parts = segs.slice(0, 2).map((seg) => {
+        const values = recs.flatMap((r) => (r.v ?? []).filter((x) => x[0] === seg).map((x) => shortNum(x[1])));
+        return `${cutCall(seg)} → ${seqText(values, values.length)}`;
+      });
+      if (segs.length > 2) parts.push(`ほか ${segs.length - 2} 個`);
+      out.set(line, { text: parts.join("　"), detail, kind: "output" });
       continue;
     }
 
