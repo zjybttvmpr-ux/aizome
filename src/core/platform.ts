@@ -234,6 +234,10 @@ export const osIntegration = {
   onOpenPaths: (cb: () => void) => listen<string[]>("open:paths", () => cb()),
   status: () => invoke<{ supported: boolean; registered: boolean }>("os_integration_status"),
   set: (enabled: boolean) => invoke<void>("os_integration_set", { enabled }),
+  /** Windows の「既定のアプリ」の画面を開く */
+  openDefaultApps: () => invoke<void>("os_default_apps"),
+  /** その種類のファイルで「プログラムから開く」の画面を出す */
+  openWith: (ext: string) => invoke<void>("os_open_with", { ext }),
 };
 
 export const runtimes = {

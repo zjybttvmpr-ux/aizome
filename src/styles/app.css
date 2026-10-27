@@ -4373,3 +4373,7 @@ html.has-bg .pane-bar {
 .tree {
   min-height: 60%;
 }
+
+/* 設定：いつも使うアプリにする */
+.os-default { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
+.os-default .field-row { flex-wrap: wrap; gap: 6px; }

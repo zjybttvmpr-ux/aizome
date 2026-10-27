@@ -143,6 +143,8 @@ pub fn run() {
             os_integration::take_open_paths,
             os_integration::os_integration_status,
             os_integration::os_integration_set,
+            os_integration::os_default_apps,
+            os_integration::os_open_with,
             updater::update_install,
             extensions::ext_dir,
             extensions::ext_list,

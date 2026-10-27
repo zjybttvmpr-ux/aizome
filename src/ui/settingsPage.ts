@@ -13,7 +13,7 @@ import { completer } from "../ai/completer";
 import { describeAiError, ensureLocalAi, useModelFile, useModelsDir } from "../ai/localAi";
 import { listThemes } from "./themes";
 import { icon } from "./icons";
-import { confirmBox } from "./dialog";
+import { confirmBox, inputBox } from "./dialog";
 import { LANG_CHOICES } from "../core/langDirective";
 import { ENCODINGS } from "../core/encodings";
 
@@ -198,6 +198,7 @@ function osRow(): HTMLElement {
   const render = async () => {
     const st = await osIntegration.status().catch(() => ({ supported: false, registered: false }));
     clear(control);
+    r.querySelector(".os-default")?.remove();
     if (!st.supported) {
       control.append(h("span", { class: "set-help" }, t("set.osIntegrationAuto")));
       return;
@@ -213,6 +214,27 @@ function osRow(): HTMLElement {
         }
       }, st.registered ? "plain" : "primary"),
     );
+    if (!st.registered) return;
+    // いつも使うアプリ（既定のアプリ）にする：Windows では本人が選ぶ必要があるので、その画面を開く
+    const fail = (err: unknown) => toast(t("set.osDefaultFailed", { err: String(err) }), "error", 8000);
+    const types = h(
+      "div",
+      { class: "os-default" },
+      h("p", { class: "set-help" }, t("set.osDefaultHelp")),
+      h(
+        "div",
+        { class: "field-row" },
+        ...[".py", ".cs", ".js", ".txt", ".json", ".md"].map((ext) =>
+          button(ext, () => void osIntegration.openWith(ext).then(() => toast(t("set.osOpenWithHint", { ext }), "info", 12000)).catch(fail), "plain"),
+        ),
+        button(t("set.osOtherExt"), async () => {
+          const ext = await inputBox({ title: t("set.osOtherExt"), placeholder: ".cpp" });
+          if (ext) void osIntegration.openWith(ext).then(() => toast(t("set.osOpenWithHint", { ext }), "info", 12000)).catch(fail);
+        }, "plain"),
+      ),
+      h("div", { class: "field-row" }, button(t("set.osDefaultApps"), () => void osIntegration.openDefaultApps().then(() => toast(t("set.osDefaultAppsHint"), "info", 12000)).catch(fail), "primary")),
+    );
+    control.after(types);
   };
   void render();
   return r;

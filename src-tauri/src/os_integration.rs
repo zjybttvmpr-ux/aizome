@@ -77,6 +77,10 @@ mod win {
 
     const PROG_ID: &str = "Aizome.SourceFile";
     const CLASSES: &str = "Software\\Classes";
+    /// Windows の「既定のアプリ」の一覧に出すための登録場所
+    const CAPABILITIES: &str = "Software\\Aizome\\Capabilities";
+    const REGISTERED_APPS: &str = "Software\\RegisteredApplications";
+    pub const APP_NAME: &str = "Aizome";
 
     fn classes() -> std::io::Result<RegKey> {
         RegKey::predef(HKEY_CURRENT_USER).open_subkey_with_flags(CLASSES, winreg::enums::KEY_ALL_ACCESS)
@@ -111,6 +115,21 @@ mod win {
                     let (owp, _) = root.create_subkey(format!(".{ext}\\OpenWithProgids"))?;
                     owp.set_raw_value(PROG_ID, &RegValue { vtype: REG_NONE, bytes: vec![] })?;
                 }
+                // 「設定 → アプリ → 既定のアプリ」に Aizome を出す（ここに出ないと、いつも使うアプリに選べないことがある）
+                let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+                let (cap, _) = hkcu.create_subkey(CAPABILITIES)?;
+                cap.set_value("ApplicationName", &APP_NAME)?;
+                cap.set_value("ApplicationDescription", &"ローカル AI で補完する、日本語にやさしいコードエディタ")?;
+                cap.set_value("ApplicationIcon", &icon)?;
+                let (fa, _) = cap.create_subkey("FileAssociations")?;
+                for ext in EXTENSIONS {
+                    fa.set_value(format!(".{ext}"), &PROG_ID)?;
+                }
+                let (reg_apps, _) = hkcu.create_subkey(REGISTERED_APPS)?;
+                reg_apps.set_value(APP_NAME, &CAPABILITIES)?;
+                // ファイルの種類の説明（既定のアプリの画面に出る名前）
+                let (pid, _) = root.create_subkey(PROG_ID)?;
+                pid.set_value("FriendlyTypeName", &"Aizome で開くファイル")?;
                 // 右クリックメニュー：ファイル、フォルダ、フォルダの空いている所
                 for key in shell_keys {
                     let cmd = if key == "*" { &open_cmd } else { &dir_cmd };
@@ -131,6 +150,11 @@ mod win {
             }
             for key in shell_keys {
                 let _ = root.delete_subkey_all(format!("{key}\\shell\\Aizome"));
+            }
+            let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+            let _ = hkcu.delete_subkey_all("Software\\Aizome\\Capabilities");
+            if let Ok(k) = hkcu.open_subkey_with_flags(REGISTERED_APPS, winreg::enums::KEY_ALL_ACCESS) {
+                let _ = k.delete_value(APP_NAME);
             }
         }
         notify_shell();
@@ -213,6 +237,54 @@ pub async fn os_integration_set(app: AppHandle, enabled: bool) -> Result<(), Str
     #[cfg(not(windows))]
     {
         let _ = (app, enabled);
+        Err("UNSUPPORTED".into())
+    }
+}
+
+/// Windows の「既定のアプリ」の画面（Aizome のページ）を開く
+#[tauri::command(async)]
+pub fn os_default_apps() -> Result<(), String> {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        // Windows 11 は Aizome のページを直接、Windows 10 は既定のアプリの画面を開く
+        let uri = format!("ms-settings:defaultapps?registeredAppUser={}", win::APP_NAME);
+        std::process::Command::new("explorer.exe").arg(uri).creation_flags(0x0800_0000).spawn().map_err(|e| e.to_string())?;
+        return Ok(());
+    }
+    #[cfg(not(windows))]
+    Err("UNSUPPORTED".into())
+}
+
+/// 「プログラムから開く」の画面を、その種類のファイルで出す（「常にこのアプリを使う」を選べる）
+#[tauri::command(async)]
+pub fn os_open_with(app: AppHandle, ext: String) -> Result<(), String> {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        let ext: String = ext.trim_start_matches('.').chars().filter(|c| c.is_ascii_alphanumeric()).collect();
+        if ext.is_empty() {
+            return Err("BAD_EXT".into());
+        }
+        let dir = app.path().app_data_dir().map_err(|e| e.to_string())?.join("open-with");
+        std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+        let file = dir.join(format!("見本.{ext}"));
+        if !file.exists() {
+            std::fs::write(&file, b"").map_err(|e| e.to_string())?;
+        }
+        let sys = std::env::var("SystemRoot").unwrap_or_else(|_| "C:\\Windows".into());
+        let openwith = std::path::Path::new(&sys).join("System32").join("OpenWith.exe");
+        let r = if openwith.exists() {
+            std::process::Command::new(openwith).arg(&file).spawn()
+        } else {
+            std::process::Command::new("rundll32.exe").arg("shell32.dll,OpenAs_RunDLL").arg(&file).creation_flags(0x0800_0000).spawn()
+        };
+        r.map_err(|e| e.to_string())?;
+        return Ok(());
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = (app, ext);
         Err("UNSUPPORTED".into())
     }
 }
