@@ -170,6 +170,9 @@ function divisorOnLine(text: string): string | null {
  */
 function fileRisk(state: EditorState, lineNo: number, reason: string): { text: string } | "hide" | null {
   const lineText = state.doc.line(lineNo).text;
+  // sys.argv[1] など：引数を渡さずに実行したときだけ起きるので、注意にする
+  const argv = /\b(?:sys\.argv|process\.argv|args|argv|ARGV|os\.Args)\s*\[\s*\d+\s*\]/.exec(lineText);
+  if (argv && /Index|範囲|番号|argv|引数|out of/i.test(reason)) return { text: t("predict.argvMaybe", { expr: argv[0].replace(/\s+/g, "") }) };
   if (ZERO_RISK.test(reason)) {
     const d = divisorOnLine(lineText);
     if (d && /^-?\d+(\.\d+)?$/.test(d)) return Number(d) === 0 ? null : "hide";

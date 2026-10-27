@@ -21,6 +21,24 @@ export interface RuntimeExplain {
   fix?: { find: string; to: string; attr?: boolean };
   /** pip で入れるとよいライブラリ */
   install?: string;
+  /** まちがいではなく「こう実行するとエラーになる」くらいの注意（引数を渡さずに実行した など） */
+  soft?: boolean;
+}
+
+/** コマンドから渡す値（引数）を使う書き方：sys.argv[1]・args[0]・process.argv[2] など */
+const ARGV_USE = /\b(?:sys\.argv|process\.argv|args|argv|ARGV|os\.Args)\s*\[\s*(\d+)\s*\]/;
+const INDEX_ERR = /IndexError|IndexOutOfRange|ArrayIndexOutOfBounds|index out of range|out of bounds|index out of/i;
+
+/**
+ * 引数を渡さずに実行したために出た「番号が範囲の外」エラーなら、注意の説明にする（そうでなければ null）。
+ * 例：python grep.py だけで実行すると sys.argv[1] がない
+ */
+export function argvExplain(lineText: string | undefined, message: string): RuntimeExplain | null {
+  if (!lineText || !INDEX_ERR.test(message)) return null;
+  const m = ARGV_USE.exec(lineText);
+  if (!m) return null;
+  const expr = m[0].replace(/\s+/g, "");
+  return { text: t("rt.argv", { expr }), hint: t("rt.argvHint"), soft: true };
 }
 
 const PIP_NAMES: Record<string, string> = {
@@ -38,6 +56,10 @@ function guessName(name: string, source?: string): string | null {
 
 export function explainRuntime(err: RuntimeError, source?: string): RuntimeExplain {
   const type = err.type ?? /^(\w+):/.exec(err.message)?.[1] ?? "";
+  if (source && err.line) {
+    const soft = argvExplain(source.split("\n")[err.line - 1], `${type} ${err.message}`);
+    if (soft) return soft;
+  }
   const msg = err.message.replace(/^\w+:\s*/, "");
   const detail = err.detail ?? err.message;
   let mean = /Did you mean:? '([^']+)'\??/.exec(detail)?.[1] ?? /Did you mean '([^']+)'/.exec(detail)?.[1];

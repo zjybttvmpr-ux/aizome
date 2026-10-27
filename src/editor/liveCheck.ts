@@ -99,7 +99,7 @@ export function runtimeProblems(state: EditorState): Problem[] {
       fixes.push({ label: "rt.fixLabel", args: { to: ex.fix.to }, changes: [{ from, to, insert: ex.fix.to }] });
     }
   }
-  return [{ from, to: Math.min(to, line.to), kind: "runtime", severity: "error", msg: "rt.dynamic", args: { text: ex.text + (ex.hint ? `\n${ex.hint}` : ""), install: ex.install ?? "" }, fixes }];
+  return [{ from, to: Math.min(to, line.to), kind: "runtime", severity: ex.soft ? "warning" : "error", msg: "rt.dynamic", args: { text: ex.text + (ex.hint ? `\n${ex.hint}` : ""), install: ex.install ?? "" }, fixes }];
 }
 
 /** 実行・コンパイルで出たエラー（どの言語でも）を、波線と直し方にする */

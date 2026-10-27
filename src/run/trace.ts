@@ -424,7 +424,7 @@ export function formatTrace(result: TraceResult, view: TraceView = "values", tim
   }
   if (result.error?.line && (time === null || time >= maxTime(result))) {
     const ex = explainRuntime(result.error, source);
-    out.set(result.error.line, { text: `✖ ${ex.text}${ex.fix ? `　${t("rt.tabHint", { to: ex.fix.to })}` : ""}`, detail: `${ex.text}\n${ex.hint ? ex.hint + "\n" : ""}（${result.error.detail ?? result.error.message}）`, kind: "error" });
+    out.set(result.error.line, { text: `${ex.soft ? "ⓘ" : "✖"} ${ex.text}${ex.fix ? `　${t("rt.tabHint", { to: ex.fix.to })}` : ""}`, detail: `${ex.text}\n${ex.hint ? ex.hint + "\n" : ""}（${result.error.detail ?? result.error.message}）`, kind: ex.soft ? "past" : "error" });
   }
   return out;
 }

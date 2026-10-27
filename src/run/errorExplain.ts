@@ -1,7 +1,7 @@
 // 実行・コンパイルで出たエラーを、言語を問わず日本語にする。
 // ターミナルの出力から「どのファイルの何行目か」と「何のエラーか」を読み取り、行の右に出す説明と直し方を作る。
 import { settings } from "../core/settings";
-import { explainRuntime } from "./pyErrors";
+import { argvExplain, explainRuntime } from "./pyErrors";
 
 export interface Explained {
   text: string;
@@ -376,7 +376,10 @@ export function parseRunErrors(output: string, names: string[], lang: string | n
   const push = (file: string, line: number, col: number | null, msg: string, severity: "error" | "warning") => {
     if (!mine(file) || !line) return;
     if (out.some((e) => e.line === line && e.severity === "error" && severity === "warning")) return;
-    const ex = translateError(msg, lang, source);
+    // 引数を渡さずに実行したために出たエラーは、まちがいではないので「注意」に
+    const soft = argvExplain(source?.split("\n")[line - 1], msg);
+    if (soft) severity = "warning";
+    const ex = soft ?? translateError(msg, lang, source);
     const dup = out.findIndex((e) => e.line === line);
     if (dup >= 0) {
       if (out[dup].severity === "warning" && severity === "error") out.splice(dup, 1);
