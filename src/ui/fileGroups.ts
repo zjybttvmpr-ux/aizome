@@ -8,6 +8,7 @@ import { icon } from "./icons";
 import { inputBox, confirmBox } from "./dialog";
 import { toast } from "./toast";
 import { fs } from "../core/platform";
+import { contextMenu } from "./fileTree";
 
 export interface FileGroup {
   name: string;
@@ -122,6 +123,45 @@ export function createFileGroups(deps: FileGroupsDeps) {
 
   addBtn.addEventListener("click", () => void newGroup(deps.activePath() ?? undefined));
 
+  // ───── グループの中のファイルをまとめて選ぶ（Ctrl / Shift を押しながらクリック）
+  const picked = new Set<string>();
+  const pickKey = (g: string, f: string) => `${g}\u0000${f}`;
+  let pickAnchor: string | null = null;
+  const pickedIn = (g: string) => [...picked].filter((k) => k.startsWith(g + "\u0000")).map((k) => k.slice(g.length + 1));
+  function removeFiles(groupName: string, files: string[]) {
+    const groups = load();
+    const target = groups.find((x) => x.name === groupName);
+    if (target) target.files = target.files.filter((x) => !files.includes(x));
+    for (const f of files) picked.delete(pickKey(groupName, f));
+    save(groups);
+  }
+  function setOpenAll(open: boolean) {
+    save(load().map((g) => ({ ...g, open })));
+  }
+
+  // 「グループ」の見出しを右クリック：まとめて広げる・たたむ・消す
+  head.addEventListener("contextmenu", (e) => {
+    e.preventDefault();
+    const groups = load();
+    if (!groups.length) return;
+    contextMenu(e.clientX, e.clientY, [
+      { label: t("groups.expandAll"), run: () => setOpenAll(true) },
+      { label: t("groups.collapseAll"), run: () => setOpenAll(false) },
+      { label: t("groups.openEvery"), run: () => groups.forEach((g) => g.files.forEach((f) => deps.openFile(f))) },
+      ...(picked.size ? [{ label: t("tree.selectNone"), run: () => (picked.clear(), render()) }] : []),
+      { label: "", sep: true },
+      {
+        label: t("groups.deleteAll", { n: String(groups.length) }),
+        danger: true,
+        run: async () => {
+          if (!(await confirmBox(t("groups.deleteAllTitle", { n: String(groups.length) }), t("groups.deleteMessage"), t("groups.delete"), true))) return;
+          picked.clear();
+          save([]);
+        },
+      },
+    ]);
+  });
+
   function groupMenu(g: FileGroup, anchor: HTMLElement) {
     document.querySelector(".context-menu")?.remove();
     const r = anchor.getBoundingClientRect();
@@ -134,6 +174,24 @@ export function createFileGroups(deps: FileGroupsDeps) {
           const p = deps.activePath();
           if (p) addTo(g.name, p);
           else toast(t("groups.noActive"), "info");
+        },
+      },
+      {
+        label: t("groups.selectAllIn"),
+        run: () => {
+          for (const f of g.files) picked.add(pickKey(g.name, f));
+          const groups = load();
+          const target = groups.find((x) => x.name === g.name);
+          if (target) target.open = true;
+          save(groups);
+        },
+      },
+      {
+        label: t("groups.clear"),
+        run: async () => {
+          if (!g.files.length) return;
+          if (!(await confirmBox(t("groups.clearTitle", { name: g.name }), t("groups.deleteMessage"), t("groups.clear"), true))) return;
+          removeFiles(g.name, [...g.files]);
         },
       },
       {
@@ -240,7 +298,7 @@ export function createFileGroups(deps: FileGroupsDeps) {
         const remove = h("button", { class: "icon-btn group-remove", type: "button", title: t("groups.removeFile"), "aria-label": t("groups.removeFile"), html: icon("x", 11) });
         const row = h(
           "div",
-          { class: "group-file" + (f === active ? " active" : ""), title: f },
+          { class: "group-file" + (f === active ? " active" : "") + (picked.has(pickKey(g.name, f)) ? " selected" : ""), title: f },
           h("span", { html: icon("file", 13) }),
           h("span", { class: "group-file-name" }, basename(f)),
           h("span", { class: "group-file-dir" }, root && isInside(root, f) ? relative(root, f).split(/[\\/]/).slice(0, -1).join("/") : ""),
@@ -248,13 +306,38 @@ export function createFileGroups(deps: FileGroupsDeps) {
         );
         row.addEventListener("click", (e) => {
           if ((e.target as HTMLElement).closest(".group-remove")) return;
+          if (e.ctrlKey || e.metaKey || e.shiftKey) {
+            const k = pickKey(g.name, f);
+            if (e.shiftKey && pickAnchor?.startsWith(g.name + "\u0000")) {
+              const a = g.files.indexOf(pickAnchor.slice(g.name.length + 1));
+              const b = g.files.indexOf(f);
+              for (const x of g.files.slice(Math.min(a, b), Math.max(a, b) + 1)) picked.add(pickKey(g.name, x));
+            } else if (picked.has(k)) picked.delete(k);
+            else picked.add(k);
+            pickAnchor = k;
+            render();
+            return;
+          }
+          picked.clear();
+          pickAnchor = pickKey(g.name, f);
           deps.openFile(f);
+          render();
+        });
+        row.addEventListener("contextmenu", (e) => {
+          e.preventDefault();
+          const sel = picked.has(pickKey(g.name, f)) ? pickedIn(g.name) : [f];
+          const n = String(sel.length);
+          contextMenu(e.clientX, e.clientY, [
+            ...(sel.length > 1 ? [{ label: t("tree.selectedCount", { n }), note: true }] : []),
+            { label: sel.length > 1 ? t("tree.openMany", { n }) : t("groups.openFile"), run: () => sel.forEach((x) => deps.openFile(x)) },
+            { label: t("groups.selectAllIn"), run: () => (g.files.forEach((x) => picked.add(pickKey(g.name, x))), render()) },
+            ...(picked.size ? [{ label: t("tree.selectNone"), run: () => (picked.clear(), render()) }] : []),
+            { label: sel.length > 1 ? t("groups.removeMany", { n }) : t("groups.removeFile"), run: () => removeFiles(g.name, sel), danger: true },
+          ]);
         });
         remove.addEventListener("click", () => {
-          const groupsNow = load();
-          const target = groupsNow.find((x) => x.name === g.name);
-          if (target) target.files = target.files.filter((x) => x !== f);
-          save(groupsNow);
+          // まとめて選んでいるものの × なら、選んだものを全部外す
+          removeFiles(g.name, picked.has(pickKey(g.name, f)) ? pickedIn(g.name) : [f]);
         });
         body.append(row);
       }

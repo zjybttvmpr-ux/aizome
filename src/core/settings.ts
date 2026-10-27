@@ -131,6 +131,8 @@ export interface Settings {
   /** エクスプローラーの下の「保存記録」 */
   "ui.saveHistory": boolean;
   "explorer.groups": Record<string, { name: string; files: string[]; open?: boolean }[]>;
+  /** エクスプローラーの一覧から外したもの（フォルダごと。ファイルは消さない） */
+  "explorer.hidden": Record<string, string[]>;
   "explorer.groupsOpen": boolean;
   "explorer.historyOpen": boolean;
   /** 新しいファイル（保存前）を何語として扱うか（拡張子） */
@@ -233,6 +235,7 @@ export const defaults: Settings = {
   "ui.fileGroups": true,
   "ui.saveHistory": true,
   "explorer.groups": {},
+  "explorer.hidden": {},
   "explorer.groupsOpen": true,
   "explorer.historyOpen": true,
   "files.newFileLanguage": ".py",

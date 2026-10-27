@@ -4340,3 +4340,36 @@ html.has-bg .pane-bar {
   opacity: 0.8;
   font-weight: 400;
 }
+
+/* グループの中で、まとめて選んだファイル */
+.group-file.selected {
+  background: var(--accent-soft);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+/* エクスプローラーでまとめて選んだもの */
+.tree-row.selected {
+  box-shadow: inset 2px 0 0 var(--accent-line);
+}
+.tree:focus {
+  outline: none;
+}
+
+.tree-hidden-note {
+  display: block;
+  margin: 8px 10px;
+  padding: 4px 8px;
+  border: 1px dashed var(--border-strong);
+  border-radius: 6px;
+  background: none;
+  color: var(--text-muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+.tree-hidden-note:hover {
+  color: var(--text);
+  border-color: var(--accent-line);
+}
+.tree {
+  min-height: 60%;
+}

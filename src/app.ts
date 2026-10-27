@@ -164,6 +164,7 @@ export class App {
       onRenamed: (from, to) => this.handleRenamed(from, to),
       onDeleted: (p) => this.handleDeleted(p),
       onChanged: () => void this.reindex(),
+      unloadRoot: () => void this.unloadFolder(),
       extraMenu: (p, isDir, paths) => (settings.get("ui.fileGroups") ? this.groups.menuItemsFor(p, isDir, paths, (x) => this.tree.isDir(x)) : []),
     });
     this.groups = createFileGroups({
@@ -710,6 +711,7 @@ export class App {
         b("newFolder", t("tree.newFolder"), () => this.tree.newFolder()),
         b("refresh", t("tree.refresh"), () => void this.tree.refresh().then(() => this.reindex())),
         b("folderOpen", t("cmd.openFolder"), () => this.openFolder()),
+        b("x", t("tree.unload"), () => void this.unloadFolder()),
       );
     }
   }
@@ -741,6 +743,22 @@ export class App {
   async openFolder(path?: string) {
     const picked = path ?? (await dialog.pickFolder());
     if (picked) await this.setRoot(picked);
+  }
+
+  /** 開いているフォルダの読み込みを解除する（ファイルは消さない） */
+  async unloadFolder() {
+    if (!this.root) return;
+    for (const d of [...this.docs]) if (d.path && isInside(this.root, d.path)) await this.closeDoc(d.id);
+    if (this.docs.some((d) => d.path && this.root && isInside(this.root, d.path))) return;
+    const was = this.root;
+    this.root = null;
+    settings.set("workspace.last", "");
+    await this.tree.setRoot(null);
+    this.groups.render();
+    this.renderExplorerState();
+    this.fileIndex = [];
+    bus.emit("workspace:changed", { root: null });
+    toast(t("tree.unloaded", { name: basename(was) }), "info", 4000);
   }
 
   private async setRoot(root: string) {
@@ -2180,7 +2198,19 @@ export class App {
     items.push({ label: t("compare.menu"), run: () => void this.compareFiles(id) });
     if (this.runOutputs.get(id)?.prev) items.push({ label: t("runcmp.menu"), run: () => void this.compareRuns(id) });
     items.push({ label: t("tabs.close"), run: () => void this.closeDoc(id), danger: true });
+    const others = this.docs.filter((d) => d.id !== id);
+    const idx = this.docs.findIndex((d) => d.id === id);
+    const right = this.docs.slice(idx + 1);
+    const saved = this.docs.filter((d) => !d.dirty);
+    if (others.length) items.push({ label: t("tabs.closeOthers", { n: String(others.length) }), run: () => void this.closeMany(others.map((d) => d.id)) });
+    if (right.length) items.push({ label: t("tabs.closeRight", { n: String(right.length) }), run: () => void this.closeMany(right.map((d) => d.id)) });
+    if (saved.length && saved.length < this.docs.length) items.push({ label: t("tabs.closeSaved", { n: String(saved.length) }), run: () => void this.closeMany(saved.map((d) => d.id)) });
+    if (this.docs.length > 1) items.push({ label: t("tabs.closeAll", { n: String(this.docs.length) }), run: () => void this.closeMany(this.docs.map((d) => d.id)), danger: true });
     contextMenu(x, y, items);
+  }
+
+  private async closeMany(ids: string[]) {
+    for (const id of ids) await this.closeDoc(id);
   }
 
   private splitTab(id: string | null = this.activeId, side: "right" | "left" | "back" = "right") {
