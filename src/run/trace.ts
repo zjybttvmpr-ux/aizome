@@ -37,8 +37,6 @@ def main():
     # 戻り値：呼び出し（関数・メソッド）ごとに、その行の実行で返ってきた値
     returns = {}
     calls = []
-    # 1 行に式だけを書いたとき（m.group(1) や dat[0:4]）の、その式の値（対話モードのように見せる）
-    exprs = {}
 
     class Tee:
         """画面に出す文字をそのまま出しつつ、どの行の実行で出たかを覚える"""
@@ -111,9 +109,6 @@ def main():
         rv = returns.pop(key, None)
         if rv:
             rec["v"] = rv
-        ev = exprs.pop(key, None)
-        if ev is not None:
-            rec["e"] = ev
         if len(e["recs"]) < 300 and state["recs"] < 60000:
             e["recs"].append(rec)
             state["recs"] += 1
@@ -124,9 +119,6 @@ def main():
         try:
             f = sys._getframe(1)
             seg, stmt, whole = calls[idx]
-            # 1 行に式だけを書いた行は、その値を覚える（None は出さない）
-            if whole and value is not None:
-                exprs[id(f)] = show(value)
             # 1 行の命令として呼んだもの（print(…) や a.append(…)）が None を返すのは当たり前なので出さない
             # range(10) や enumerate(…) のような「くり返し用の入れ物」は、値を見ても意味がないので出さない
             if isinstance(value, (range, enumerate, zip, map, filter, reversed, types.GeneratorType)):
@@ -156,7 +148,7 @@ def main():
             if isinstance(node.value, ast.Call):
                 self.stmt_calls.add(id(node.value))
                 return self.generic_visit(node)
-            # 呼び出しでない式だけの行（m、dat[0:4]、m.lastindex、len(a) * 2 など）も、その値を覚える
+            # 呼び出しでない式だけの行（m、dat[0:4]、m.lastindex、len(a) * 2 など）も、戻り値の表示に出す
             # 文字だけの行（説明の文字列）や yield / await はそのまま
             if isinstance(node.value, (ast.Constant, ast.Yield, ast.YieldFrom, ast.Await, ast.JoinedStr)):
                 return self.generic_visit(node)
@@ -280,8 +272,6 @@ export interface TraceRecord {
   o?: string;
   /** この実行での呼び出しの戻り値：[呼び出し, 値, 回数] */
   v?: [string, string, number][];
-  /** 式だけの行（m.group(1) など）の、その式の値 */
-  e?: string;
 }
 
 export interface TraceResult {
@@ -379,8 +369,7 @@ export function formatTrace(result: TraceResult, view: TraceView = "values", tim
         : recs
             .map((r, i) => {
               const label = i === recs.length - 1 && entry.n > recs.length ? `${entry.n} 回目` : `${i + 1} 回目`;
-              const vt = [r.e !== undefined ? `→ ${r.e}` : "", varsText(r)].filter(Boolean).join("　");
-              return `${label}：${vt || "（変化なし）"}`;
+              return `${label}：${varsText(r) || "（変化なし）"}`;
             })
             .join("\n");
 
@@ -392,7 +381,7 @@ export function formatTrace(result: TraceResult, view: TraceView = "values", tim
       if (view === "output") {
         if (r.v?.length) out.set(line, { text: returnsText(r), detail, kind: current ? "current" : "past" });
       } else {
-        let text = r.e !== undefined ? [`→ ${shortNum(r.e)}`, Object.keys(r.c).length ? varsText(r) : ""].filter(Boolean).join("　") : varsText(r);
+        let text = varsText(r);
         // 今の行は、その回に出した文字（print の結果など）も添える
         if (current && r.o) text = text ? `${text}　→ ${oneLine(r.o, 40)}` : `→ ${oneLine(r.o, 60)}`;
         // 今の行以外は「その行が最後に動いたときの値」なので薄く
@@ -417,13 +406,6 @@ export function formatTrace(result: TraceResult, view: TraceView = "values", tim
 
     const names: string[] = [];
     for (const r of recs) for (const k of Object.keys(r.c)) if (!names.includes(k)) names.push(k);
-    // 式だけの行（m.group(1) など）は、その式の値を先に（くり返しなら回ごとに）
-    const evals = recs.filter((r) => r.e !== undefined).map((r) => shortNum(r.e!));
-    if (evals.length) {
-      const vt = names.length ? `　${names.slice(0, 2).map((k) => `${k} = ${recs.filter((r) => k in r.c).map((r) => r.c[k]).pop()}`).join("　")}` : "";
-      out.set(line, { text: `→ ${seqText(evals, evals.length === recs.length ? entry.n : evals.length)}${vt}`, detail, kind: "value" });
-      continue;
-    }
     const describe = (field: "c" | "r", keys: string[]) => {
       const parts = keys.slice(0, 3).map((k) => {
         const values = recs.filter((r) => k in r[field]).map((r) => r[field][k]);
