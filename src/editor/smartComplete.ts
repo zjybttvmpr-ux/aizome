@@ -11,7 +11,7 @@ import {
   type CompletionResult,
   type CompletionSource,
 } from "@codemirror/autocomplete";
-import type { Extension } from "@codemirror/state";
+import { EditorState, type Extension } from "@codemirror/state";
 import { settings } from "../core/settings";
 import { bus } from "../core/events";
 import { t } from "../core/i18n";
@@ -154,8 +154,33 @@ async function smartSource(ctx: CompletionContext): Promise<CompletionResult | n
   return { from, options, validFor: /^[\w$]*$/ };
 }
 
+/**
+ * 単語の途中で候補を選んだとき、カーソルの後ろに残っている文字が候補と重なっていれば消す。
+ * 例：「print」の r を消して「p▮int」→ 候補の print を選ぶと「printint」になってしまうのを「print」に
+ * （候補の一覧・import の補完・ひな形など、確定のしかたに関係なく働く）
+ */
+export const replaceRestOfWord = EditorState.transactionFilter.of((tr) => {
+  if (!tr.docChanged || !tr.isUserEvent("input.complete")) return tr;
+  const head = tr.newSelection.main.head;
+  let target: { toA: number; toB: number; text: string } | null = null;
+  tr.changes.iterChanges((_fromA, toA, fromB, toB, inserted) => {
+    if (fromB <= head && head <= toB) target = { toA, toB, text: inserted.toString() };
+  });
+  if (!target) return tr;
+  const { toA, toB, text } = target as { toA: number; toB: number; text: string };
+  const old = tr.startState.doc;
+  const rest = /^[\w$]+/.exec(old.sliceString(toA, Math.min(old.length, toA + 80)))?.[0];
+  if (!rest) return tr;
+  // 名前だけ（print / math.sqrt / print( / print()）の候補のときだけ。複数行のひな形などはそのまま
+  const word = /^([\w$.]+)(\(\)?)?$/.exec(text.trim())?.[1];
+  if (!word) return tr;
+  const tail = word.split(".").pop() ?? word;
+  if (!tail.toLowerCase().includes(rest.toLowerCase())) return tr;
+  return [tr, { changes: { from: toB, to: toB + rest.length }, sequential: true }];
+});
+
 export function smartCompletion(): Extension {
-  return autocompletion({ override: [smartSource], filterStrict: true, maxRenderedOptions: 40 });
+  return [autocompletion({ override: [smartSource], filterStrict: true, maxRenderedOptions: 40 }), replaceRestOfWord];
 }
 
 /** 一覧の下に「どのキーで入力できるか」を出す */
