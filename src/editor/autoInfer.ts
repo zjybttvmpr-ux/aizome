@@ -325,9 +325,28 @@ const hoverSource: Parameters<typeof hoverTooltip>[0] = (view, pos) => {
         const lines: string[] = [];
         for (let n = 1; n <= lineNo; n++) lines.push(view.state.doc.line(n).text);
         const guess = staticGuess(lines, word.text, lineNo);
-        if (!guess) return null;
-        body = guess;
-        source = inferBusy ? "コードから読み取った見当（AI が考え中…）" : "コードから読み取った見当";
+        if (inferred && "unknown" in inferred) {
+          // AI が値を予想できなかった：わからないことをはっきり伝える
+          body = `わかりません（AI にも予想できませんでした）${guess ? `\nコードからわかること：${guess.replace(/・(実際の値は|いくつになるかは)、実行しないとわかりません$/, "")}` : ""}\n実際の値は「値を見る（F6）」で実行するとわかります`;
+          source = `✦ AI の予想（${inferred.unknown} 行目）・実行はしていません`;
+        } else if (guess) {
+          body = guess;
+          source = inferBusy ? "コードから読み取った見当（AI が考え中…）" : "コードから読み取った見当・実行はしていません";
+        } else if (inferBusy) {
+          body = "AI が考え中です。少し待ってから、もう一度マウスを乗せてください";
+          source = "✦ AI の予想";
+        } else {
+          const all = view.state.doc.toString();
+          const n = word.text;
+          // モジュール・関数・クラスの名前は値ではないので出さない
+          if (new RegExp(`^\\s*(import\\s+[\\w.,\\s]*\\b${n}\\b|from\\s+\\S+\\s+import\\s+.*\\b${n}\\b|.*\\bas\\s+${n}\\b|(async\\s+)?def\\s+${n}\\b|class\\s+${n}\\b)`, "m").test(all)) return null;
+          // 関数の引数
+          const param = new RegExp(`^\\s*(?:async\\s+)?def\\s+(\\w+)\\s*\\([^)]*\\b${n}\\b`, "m").exec(lines.join("\n"));
+          body = param
+            ? `わかりません：関数 ${param[1]} の引数なので、呼ぶときに渡す値で変わります`
+            : "わかりません：この時点の値は、コードを読むだけでは決められません\n実際の値は「値を見る（F6）」で実行するとわかります";
+          source = resultFor(view.state) ? "✦ AI の予想にもありませんでした" : "コードから読み取った見当";
+        }
       }
     }
     return {

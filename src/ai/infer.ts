@@ -85,17 +85,23 @@ const UNKNOWN_VALUE = /^[\s「『"']*(none|null|nil|undefined|unknown|不明|わ
  * - 値が「None」「不明」なのに、その行で None を入れていない（小さいモデルは、わからないと None と書く）
  * - その行にその変数が出てこない（行番号のずれ）
  */
-export function lookupInferred(result: InferResult | null, name: string, line: number, lines?: string[]): { value: string; from: number } | { later: number } | null {
+export function lookupInferred(result: InferResult | null, name: string, line: number, lines?: string[]): { value: string; from: number } | { later: number } | { unknown: number } | null {
   if (!result) return null;
+  let unknownAt = 0;
   const word = new RegExp(`(^|[^\\w.])${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`);
   const hits = result.vars.filter((v) => {
     if (v.name !== name && v.name.split(/[.[]/)[0] !== name) return false;
     if (!lines) return true;
     const text = lines[v.line - 1] ?? "";
     if (!word.test(text)) return false;
-    if (UNKNOWN_VALUE.test(v.value) && !/\b(None|null|nil|undefined)\b/.test(text)) return false;
+    if (UNKNOWN_VALUE.test(v.value) && !/\b(None|null|nil|undefined)\b/.test(text)) {
+      if (v.line <= line) unknownAt = Math.max(unknownAt, v.line);
+      return false;
+    }
     return true;
   });
+  // AI が「わからない」と答えた（その後に値の予想もない）
+  if (unknownAt && !hits.some((v) => v.line <= line && v.line >= unknownAt)) return { unknown: unknownAt };
   if (!hits.length) return null;
   const before = hits.filter((v) => v.line <= line).sort((a, b) => b.line - a.line)[0];
   if (before) return { value: before.value, from: before.line };
@@ -135,8 +141,10 @@ export function staticGuess(lines: string[], name: string, line: number): string
     }
     if (/\bopen\s*\(|\.read(lines)?\s*\(|csv\.reader|json\.load|requests\./.test(rhs)) return `ファイル・通信の内容に依存（${i + 1} 行目）`;
     if (/\brandom\./.test(rhs)) return `ランダム（${rhs}・${i + 1} 行目）`;
-    if (op !== "=") return `${name} ${op} ${rhs}（${i + 1} 行目で更新）`;
-    return `${rhs}（${i + 1} 行目で代入）`;
+    if (op !== "=") return `${name} ${op} ${rhs}（${i + 1} 行目で更新）・いくつになるかは、実行しないとわかりません`;
+    // 数・文字・True などそのままの値ならそれを、式なら「その結果」と、わからないことを伝える
+    if (/^(-?\d+(\.\d+)?|True|False|None|null|true|false|(["'])(?:\\.|(?!\3).)*\3|\[[^\]]*\]|\{[^}]*\}|\([^()]*\))$/.test(rhs)) return `${rhs}（${i + 1} 行目で代入）`;
+    return `${rhs} の結果（${i + 1} 行目で代入）・実際の値は、実行しないとわかりません`;
   }
   return null;
 }
