@@ -34,6 +34,7 @@ export function buildInferPrompt(code: string, filename: string): string {
     "   - くり返しの中なら「0 → 1 → … → 9」のように変化を書く。リストなどは最後の中身。",
     "   - input() で受け取る値は「ユーザーの入力に依存（整数）」のように書く。入力から計算できるなら「n * 2（n はユーザーの入力）」のような式で書く。",
     "   - ファイルや通信から読む値は「ファイルの内容に依存（文字列のリスト）」のように書く。",
+    "   - 値がわからないときは、None と書かずに、その V 行を書かない（本当に None が入るときだけ None と書く）。",
     "2. 実行するとエラーになりそうな行と、その原因を短く書く（なければ書かない）。",
     "",
     "出力は、次の 2 種類の行だけにしてください。前置きや説明の文章は書かないでください。",
@@ -75,9 +76,26 @@ export function parseInfer(answer: string, lineCount: number, lang: string | nul
 }
 
 /** その行の時点で、その変数に入っている（と AI が予想した）値 */
-export function lookupInferred(result: InferResult | null, name: string, line: number): { value: string; from: number } | { later: number } | null {
+/** AI が「わからない」ときに書きがちな値（None と書いてくることが多い） */
+const UNKNOWN_VALUE = /^[\s「『"']*(none|null|nil|undefined|unknown|不明|わからない|わかりません|未定|\?+|-+|なし)[\s」』"']*$/i;
+
+/**
+ * その行の時点で、その変数に入っている（と AI が予想した）値。
+ * lines（コードの各行）を渡すと、あやしい予想を除く：
+ * - 値が「None」「不明」なのに、その行で None を入れていない（小さいモデルは、わからないと None と書く）
+ * - その行にその変数が出てこない（行番号のずれ）
+ */
+export function lookupInferred(result: InferResult | null, name: string, line: number, lines?: string[]): { value: string; from: number } | { later: number } | null {
   if (!result) return null;
-  const hits = result.vars.filter((v) => v.name === name || v.name.split(/[.[]/)[0] === name);
+  const word = new RegExp(`(^|[^\\w.])${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`);
+  const hits = result.vars.filter((v) => {
+    if (v.name !== name && v.name.split(/[.[]/)[0] !== name) return false;
+    if (!lines) return true;
+    const text = lines[v.line - 1] ?? "";
+    if (!word.test(text)) return false;
+    if (UNKNOWN_VALUE.test(v.value) && !/\b(None|null|nil|undefined)\b/.test(text)) return false;
+    return true;
+  });
   if (!hits.length) return null;
   const before = hits.filter((v) => v.line <= line).sort((a, b) => b.line - a.line)[0];
   if (before) return { value: before.value, from: before.line };

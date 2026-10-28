@@ -312,7 +312,9 @@ const hoverSource: Parameters<typeof hoverTooltip>[0] = (view, pos) => {
         source = "";
       }
     } else {
-      const inferred = lookupInferred(resultFor(view.state), word.text, lineNo);
+      const docLines: string[] = [];
+      for (let n = 1; n <= view.state.doc.lines && n <= 2000; n++) docLines.push(view.state.doc.line(n).text);
+      const inferred = lookupInferred(resultFor(view.state), word.text, lineNo, docLines);
       if (inferred && "value" in inferred) {
         body = inferred.value;
         source = `✦ AI の予想（${inferred.from} 行目で入る値）・実行はしていません`;
