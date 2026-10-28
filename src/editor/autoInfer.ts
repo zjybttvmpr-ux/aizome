@@ -9,6 +9,7 @@ import { buildInferPrompt, hashText, lookupInferred, parseInfer, staticGuess, ty
 import { docFilename, docId } from "./ghost";
 import { fs } from "../core/platform";
 import { dirname, join } from "../core/paths";
+import { simulateValue } from "../ai/simulate";
 import { forEachView, sideMode, sideModeChanged, trackView } from "./sideMode";
 import { bus } from "../core/events";
 import { traceAt, traceTimeAt } from "./valueLens";
@@ -315,7 +316,12 @@ const hoverSource: Parameters<typeof hoverTooltip>[0] = (view, pos) => {
       const docLines: string[] = [];
       for (let n = 1; n <= view.state.doc.lines && n <= 2000; n++) docLines.push(view.state.doc.line(n).text);
       const inferred = lookupInferred(resultFor(view.state), word.text, lineNo, docLines);
-      if (inferred && "value" in inferred) {
+      // かんたんなコードなら、上から順に計算した値（AI の予想より確か）
+      const sim = settings.get("editor.liveCheck") !== false ? simulateValue(docLines, word.text, lineNo) : null;
+      if (sim) {
+        body = sim.text;
+        source = "コードを上から順に計算した予想・実行はしていません（入力や乱数があると変わります）";
+      } else if (inferred && "value" in inferred) {
         body = inferred.value;
         source = `✦ AI の予想（${inferred.from} 行目で入る値）・実行はしていません`;
       } else if (inferred && "later" in inferred) {
