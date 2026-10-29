@@ -202,7 +202,7 @@ export const defaults: Settings = {
   "editor.explain": "ai",
   "editor.suggestList": "smart",
   "editor.listKey": "tab",
-  "ai.acceptKey": "rshift",
+  "ai.acceptKey": "double",
   "editor.zenkaku": true,
   "editor.sideView": "explain",
   "run.cwd": "file",
@@ -262,7 +262,6 @@ function load(): Settings {
       // 前は、変えていない設定も既定値ごと保存していた。そのため既定値を変えても（AI の候補を入れるキー：
       // Tab 2 回 → 右 Shift など）前の値のままになっていた。前のころの既定値は 1 回だけ消して、今の既定値にする
       if (!saved["_v"]) {
-        if (saved["ai.acceptKey"] === "double") delete saved["ai.acceptKey"];
         for (const k of Object.keys(saved)) if (k in defaults && JSON.stringify(saved[k]) === JSON.stringify(defaults[k as keyof Settings])) delete saved[k];
       }
       delete saved["_v"];

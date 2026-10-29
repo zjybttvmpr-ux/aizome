@@ -18,7 +18,7 @@ const ja: Dict = {
   "explorer.empty": "フォルダを開くと、ここにファイルが表示されます。",
 
   "welcome.lead": "ローカルAIと一緒に書く、静かなエディタ",
-  "welcome.aiHint": "入力を止めると AI の候補が薄く表示されます。右 Shift で確定、Esc で消せます。",
+  "welcome.aiHint": "入力を止めると AI の候補が薄く表示されます。Tab をすばやく 2 回で確定、Esc で消せます。",
 
   "cmd.openFolder": "フォルダを開く",
   "cmd.newFile": "新しいファイル",
@@ -487,10 +487,10 @@ const ja: Dict = {
   "set.listKeyHelp": "一覧が出ているときに Tab を押すと、選んでいる項目をそのまま入力します。一覧が出ていても AI の候補を確定したいときは Alt+Enter。",
   "set.aiAcceptKey": "AI の候補を入れるキー",
   "set.aiAcceptKey.rshift": "右 Shift（1 回押して離す）",
-  "set.aiAcceptKey.double": "Tab をすばやく 2 回",
+  "set.aiAcceptKey.double": "Tab をすばやく 2 回（おすすめ）",
   "set.aiAcceptKey.single": "Tab 1 回",
-  "set.aiAcceptKeyHelp": "「右 Shift」なら、Tab は候補の一覧（変換）と字下げだけに使われ、AI の薄い文字は右 Shift を 1 回押して離したときだけ入ります（Shift+A のように大文字を打つときは入りません）。Alt+Enter でも入れられます",
-  "complete.hintTab": "Tab で入力　↑↓ で選ぶ　右 Shift か Alt+Enter で AI の候補　Esc で閉じる",
+  "set.aiAcceptKeyHelp": "「Tab をすばやく 2 回」なら、Tab 1 回は候補の一覧（変換）と字下げに使われ、すばやく 2 回押すと AI の薄い文字が入ります。「右 Shift」なら、Tab は候補の一覧（変換）と字下げだけに使われ、AI の薄い文字は右 Shift を 1 回押して離したときだけ入ります（Shift+A のように大文字を打つときは入りません）。Alt+Enter でも入れられます",
+  "complete.hintTab": "Tab で入力　↑↓ で選ぶ　Tab 2 回か Alt+Enter で AI の候補　Esc で閉じる",
   "complete.hintEnter": "Enter で入力　↑↓ で選ぶ　Esc で閉じる",
   "slash.placeholder": "便利機能を探す（例：/日付、/計算 1+2、/エラー、/help）",
   "slash.hintAll": "/ 便利機能の一覧",
