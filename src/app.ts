@@ -59,6 +59,7 @@ import { ENCODINGS, encodingById, encodingLabel } from "./core/encodings";
 import { INPUT_WRAPPER_PY, presetCount, type InputPreset } from "./run/inputs";
 import { editInputPreset } from "./ui/inputPresets";
 import { hashText } from "./ai/infer";
+import { instrument, parseTraceLog, traceLangOf, type TraceLang } from "./run/instrument";
 import { TRACER_PY, busiestLine, enclosingLoops, formatTrace, loopPositions, stepLoop, stepTimes, type TraceResult } from "./run/trace";
 import { inferBusy, onInferBusy } from "./editor/inferState";
 import { definitionSearchRegex, setDefinitionFallback } from "./editor/definition";
@@ -1528,8 +1529,12 @@ export class App {
     }
     const ext = extname(this.appliedName.get(doc.id) ?? this.effectiveName(doc));
     if (ext !== ".py" && ext !== ".pyw") {
-      toast(t("trace.onlyPython"), "info", 6000);
-      return;
+      const lang = traceLangOf(ext);
+      if (!lang) {
+        toast(t("trace.unsupported", { ext: ext || "?" }), "info", 6000);
+        return;
+      }
+      return this.traceOther(doc, lang);
     }
     const target = await this.prepareRunTarget(doc);
     if (!target) return;
@@ -1572,26 +1577,99 @@ export class App {
       try {
         const result = JSON.parse(await fs.readFile(out)) as TraceResult;
         void fs.remove(out).catch(() => {});
-        if (!this.docs.some((d) => d.id === doc.id)) return;
-        if (this.editor.getText(doc.id) !== startText) {
-          toast(t("trace.changed"), "warn", 6000);
-          return;
-        }
-        const values = formatTrace(result);
-        if (this.activeId !== doc.id) this.activate(doc.id);
-        void values;
-        this.traceRaw.set(doc.id, result);
-        this.traceStep = null;
-        this.valuesShown.add(doc.id);
-        // 行の右の表示を「値」に切り替える（「出力」を見ているときはそのまま）
-        const mode = settings.get("editor.sideView");
-        if (mode !== "values" && mode !== "output") settings.set("editor.sideView", "values");
-        else this.refreshTrace(doc.id);
-        toast(t(result.truncated ? "trace.truncated" : "trace.done", { n: String(values.size) }), result.error ? "warn" : "success", 7000);
+        this.applyTrace(doc.id, result, startText);
       } catch (err) {
         toast(t("trace.failed", { err: String(err) }), "error");
       }
     }, 500);
+  }
+
+  /** 記録した値を、行の右に出す（どの言語でも） */
+  private applyTrace(docId: string, result: TraceResult, startText: string) {
+    if (!this.docs.some((d) => d.id === docId)) return;
+    if (this.editor.getText(docId) !== startText) {
+      toast(t("trace.changed"), "warn", 6000);
+      return;
+    }
+    const values = formatTrace(result);
+    if (this.activeId !== docId) this.activate(docId);
+    this.traceRaw.set(docId, result);
+    this.traceStep = null;
+    this.valuesShown.add(docId);
+    // 行の右の表示を「値」に切り替える（「戻り値」を見ているときはそのまま）
+    const mode = settings.get("editor.sideView");
+    if (mode !== "values" && mode !== "output") settings.set("editor.sideView", "values");
+    else this.refreshTrace(docId);
+    toast(t(result.truncated ? "trace.truncated" : "trace.done", { n: String(values.size) }), result.error ? "warn" : "success", 7000);
+  }
+
+  /** Python 以外の「値を見る」で、実行が終わるのを待っているもの（キーはタブの ID） */
+  private otherTraces = new Map<string, { log: string; dir: string; startText: string }>();
+
+  /**
+   * Python 以外の「値を見る」：変数に値を入れる行のうしろに「記録する 1 文」を足したコピーを、一時的な場所で実行する。
+   * 実行する場所（相対パスのファイルの読み書き）は、ふだんの実行と同じ
+   */
+  private async traceOther(doc: Doc, lang: TraceLang) {
+    const target = await this.prepareRunTarget(doc);
+    if (!target) return;
+    let src: string;
+    try {
+      src = await fs.readFile(target.path);
+    } catch (err) {
+      toast(t("trace.failed", { err: String(err) }), "error");
+      return;
+    }
+    if (lang === "cs" && /\bMonoBehaviour\b|using\s+UnityEngine\b/.test(src)) {
+      toast(t("trace.unity"), "info", 9000);
+      return;
+    }
+    const base = basename(target.path).replace(/\.aizome-run(?=\.)/, "");
+    const dir = join(join(join(this.sys.home, ".aizome"), "trace-run"), String(Date.now()));
+    const log = join(dir, "values.log");
+    const inst = instrument(src, lang, log, basename(doc.path ?? doc.name));
+    if (!inst) {
+      toast(t("trace.nothing"), "info", 7000);
+      return;
+    }
+    const file = join(dir, base);
+    try {
+      await fs.createDir(dir);
+      await fs.writeFile(file, inst.code);
+    } catch (err) {
+      toast(t("file.saveFailed", { name: base, err: String(err) }), "error");
+      return;
+    }
+    const startText = this.editor.getText(doc.id);
+    this.otherTraces.set(doc.id, { log, dir, startText });
+    this.editor.showValues(doc.id, null);
+    this.editor.showRunErrors(doc.id, []);
+    const stem = stripExt(base);
+    const fileDir = target.cwd ?? dirname(target.path);
+    // ふだんと同じ場所で動かす（ファイルは一時的な場所のコピーをフルパスで）
+    await this.runPath(file, { fileDir, file, fileBase: file, fileNoExt: join(dir, stem), fileBaseNoExt: stem }, target.cleanup, await this.inputsFileFor(doc), { key: doc.id, name: doc.name });
+    this.pairRunsIfSplit();
+    toast(t("trace.runningOther"), "info", 5000);
+  }
+
+  /** Python 以外の「値を見る」の実行が終わったら、記録を読む */
+  private async finishOtherTrace(key: string) {
+    const job = this.otherTraces.get(key);
+    if (!job) return;
+    this.otherTraces.delete(key);
+    let text = "";
+    try {
+      text = await fs.readFile(job.log);
+    } catch {
+      text = "";
+    }
+    void fs.remove(job.dir).catch(() => {});
+    const result = parseTraceLog(text);
+    if (!Object.keys(result.lines).length) {
+      toast(t("trace.noRecords"), "warn", 9000);
+      return;
+    }
+    this.applyTrace(key, result, job.startText);
   }
 
   /** ファイルごとの、最近 2 回の実行の出力 */
@@ -1599,6 +1677,7 @@ export class App {
 
   private rememberRun(key: string, text: string) {
     this.showRunErrorsFor(key, text);
+    if (this.otherTraces.has(key)) void this.finishOtherTrace(key);
     const r = this.runOutputs.get(key) ?? {};
     r.prev = r.last;
     r.last = { text, at: new Date() };
