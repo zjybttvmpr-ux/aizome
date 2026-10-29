@@ -144,7 +144,11 @@ function onTab(view: EditorView): boolean {
   const listKey = settings.get("editor.listKey") === "tab";
   const status = completionStatus(view.state);
   const ghost = view.state.field(ghostField, false);
-  if (settings.get("ai.acceptKey") === "double") {
+  const acceptKey = settings.get("ai.acceptKey");
+  if (acceptKey === "rshift") {
+    // AI の候補は右 Shift で入れるので、Tab は候補の一覧と字下げだけに使う
+    if (listKey && status === "active") return acceptCompletion(view);
+  } else if (acceptKey === "double") {
     // Tab 1 回は候補の一覧（変換）、すばやく 2 回で AI の候補
     if (ghost && armedAt && Date.now() - armedAt < DOUBLE_TAB_MS && armedView === view) {
       disarm();
@@ -359,8 +363,43 @@ const scheduler = ViewPlugin.fromClass(
   },
 );
 
+/** 右 Shift を 1 回だけ押して離したら（ほかのキーと一緒に押していなければ）AI の候補を入れる */
+let rshiftDown = false;
+let rshiftUsed = false;
+const rightShift = EditorView.domEventHandlers({
+  keydown(e) {
+    if (e.code === "ShiftRight") {
+      if (!e.repeat) {
+        rshiftDown = true;
+        rshiftUsed = false;
+      }
+    } else if (rshiftDown) rshiftUsed = true; // Shift+A のように大文字などを打った
+    return false;
+  },
+  keyup(e, view) {
+    if (e.code !== "ShiftRight") return false;
+    const wasClean = rshiftDown && !rshiftUsed;
+    rshiftDown = false;
+    if (!wasClean || settings.get("ai.acceptKey") !== "rshift") return false;
+    if (!view.state.field(ghostField, false)) return false;
+    if (completionStatus(view.state) !== null) closeCompletion(view);
+    accept(view);
+    e.preventDefault();
+    return true;
+  },
+  blur() {
+    rshiftDown = false;
+    return false;
+  },
+  mousedown() {
+    if (rshiftDown) rshiftUsed = true; // Shift+クリックで範囲を選んだ
+    return false;
+  },
+});
+
 export function ghostText(): Extension {
   return [
+    rightShift,
     ghostField,
     scheduler,
     acceptLater,

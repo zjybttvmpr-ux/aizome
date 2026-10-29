@@ -426,6 +426,7 @@ function sections(): Section[] {
         row(
           t("set.aiAcceptKey"),
           select("ai.acceptKey", [
+            { value: "rshift", label: t("set.aiAcceptKey.rshift") },
             { value: "double", label: t("set.aiAcceptKey.double") },
             { value: "single", label: t("set.aiAcceptKey.single") },
           ]),

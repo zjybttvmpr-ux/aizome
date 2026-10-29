@@ -4,7 +4,7 @@ import { t } from "../core/i18n";
 import { settings } from "../core/settings";
 import { modal } from "./dialog";
 
-export type ExportFormat = "pdf" | "docx" | "html" | "txt";
+export type ExportFormat = "pdf" | "docx" | "html" | "txt" | "md";
 export type Seg = { text: string; cls: string };
 
 export interface ExportOptions {
@@ -118,6 +118,7 @@ export function askExportOptions(fileName: string): Promise<ExportOptions | null
       ["docx", t("export.docx")],
       ["html", t("export.html")],
       ["txt", t("export.txt")],
+      ["md", t("export.md")],
     ], (v) => {
       o.format = v;
       refresh();
@@ -239,6 +240,34 @@ export function exportText(lines: Seg[][], o: ExportOptions, meta: { name: strin
   const body = rows.map((l, i) => (o.lineNumbers ? `${String(i + 1).padStart(width, " ")} | ${l}` : l));
   const head = o.header ? [`${meta.name}    ${meta.path}    ${meta.date}`, "=".repeat(Math.min(80, Math.max(20, meta.name.length + 10))), ""] : [];
   return [...head, ...body].join("\r\n") + "\r\n";
+}
+
+// ───────── Markdown（.md）
+
+/** 拡張子 → Markdown のコードブロックに書く言語名 */
+const MD_LANG: Record<string, string> = {
+  py: "python", pyw: "python", js: "javascript", mjs: "javascript", cjs: "javascript", jsx: "jsx", ts: "typescript", mts: "typescript", tsx: "tsx",
+  java: "java", cs: "csharp", c: "c", h: "c", cpp: "cpp", cc: "cpp", cxx: "cpp", hpp: "cpp", go: "go", rs: "rust", rb: "ruby", php: "php",
+  lua: "lua", kt: "kotlin", kts: "kotlin", swift: "swift", dart: "dart", html: "html", htm: "html", css: "css", scss: "scss", json: "json",
+  yaml: "yaml", yml: "yaml", toml: "toml", xml: "xml", sql: "sql", sh: "bash", bash: "bash", zsh: "bash", ps1: "powershell", bat: "bat",
+  r: "r", vue: "vue", svelte: "svelte", ini: "ini", txt: "text",
+};
+
+/**
+ * Markdown にする。Markdown のファイルはそのまま、コードは見出し＋コードブロック（言語名つき）にする。
+ * 行番号を付けるときは、コードブロックの中に「 1 | 」の形で入れる
+ */
+export function exportMarkdown(lines: Seg[][], o: ExportOptions, meta: { name: string; path: string; date: string }, tab = 4): string {
+  const rows = normalize(lines, tab).map((segs) => segs.map((s) => s.text).join(""));
+  const ext = (meta.name.split(".").pop() ?? "").toLowerCase();
+  if (ext === "md" || ext === "markdown") return rows.join("\n").replace(/\s*$/, "") + "\n";
+  const width = String(rows.length).length;
+  const body = rows.map((l, i) => (o.lineNumbers ? `${String(i + 1).padStart(width, " ")} | ${l}` : l));
+  // コードの中にある ``` より長い囲みにする
+  const longest = Math.max(2, ...rows.map((l) => Math.max(0, ...(l.match(/`+/g) ?? []).map((m) => m.length))));
+  const fence = "`".repeat(longest + 1);
+  const head = o.header ? [`# ${meta.name}`, "", [meta.path ? `\`${meta.path}\`` : "", meta.date].filter(Boolean).join("　"), ""] : [];
+  return [...head, fence + (MD_LANG[ext] ?? ""), ...body, fence, ""].join("\n");
 }
 
 // ───────── Word（.docx）

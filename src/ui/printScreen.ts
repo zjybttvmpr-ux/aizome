@@ -3,7 +3,7 @@ import { h, clear } from "../core/dom";
 import { t } from "../core/i18n";
 import { settings } from "../core/settings";
 import { icon } from "./icons";
-import { defaultExportOptions, exportBody, exportCss, exportText, PAPER_MM, type ExportFormat, type ExportOptions, type Seg } from "./exportCode";
+import { defaultExportOptions, exportBody, exportCss, exportMarkdown, exportText, PAPER_MM, type ExportFormat, type ExportOptions, type Seg } from "./exportCode";
 
 export interface PrintScreenOptions {
   name: string;
@@ -65,6 +65,8 @@ export function openPrintScreen(opts: PrintScreenOptions) {
     });
     return h("label", { class: "export-check" }, box, h("span", {}, label));
   };
+  const paperChecks: HTMLElement[] = [];
+  const paperOnly = (el: HTMLElement) => (paperChecks.push(el), el);
   const row = (label: string, ...control: HTMLElement[]) => h("div", { class: "ps-row" }, h("div", { class: "ps-label" }, label), ...control);
 
   const formatSeg = seg<ExportFormat>(
@@ -74,6 +76,7 @@ export function openPrintScreen(opts: PrintScreenOptions) {
       ["docx", "Word"],
       ["html", "HTML"],
       ["txt", t("ps.fmt.txt")],
+      ["md", "Markdown"],
     ],
     (v) => (o.format = v),
   );
@@ -92,10 +95,10 @@ export function openPrintScreen(opts: PrintScreenOptions) {
       "div",
       { class: "ps-checks" },
       check("lineNumbers", t("export.lineNumbers")),
-      check("colors", t("export.colors")),
+      paperOnly(check("colors", t("export.colors"))),
       check("header", t("export.header")),
-      check("pageNumbers", t("export.pageNumbers")),
-      check("wrap", t("export.wrap")),
+      paperOnly(check("pageNumbers", t("export.pageNumbers"))),
+      paperOnly(check("wrap", t("export.wrap"))),
     ),
     note,
     h("div", { class: "ps-spacer" }),
@@ -174,10 +177,12 @@ export function openPrintScreen(opts: PrintScreenOptions) {
 
   let timer = 0;
   function changed() {
-    const paged = o.format !== "txt";
+    const paged = o.format !== "txt" && o.format !== "md";
     for (const r of pageRows) r.hidden = !paged;
+    // 色・ページ番号・折り返しは、紙の形（印刷・Word・HTML）のときだけ
+    for (const el of paperChecks) el.hidden = !paged;
     note.textContent = t(`export.note.${o.format}`);
-    goBtn.textContent = o.format === "pdf" ? t("ps.goPrint") : t("ps.goExport", { fmt: o.format === "docx" ? "Word" : o.format === "html" ? "HTML" : t("ps.fmt.txt") });
+    goBtn.textContent = o.format === "pdf" ? t("ps.goPrint") : t("ps.goExport", { fmt: o.format === "docx" ? "Word" : o.format === "html" ? "HTML" : o.format === "md" ? "Markdown" : t("ps.fmt.txt") });
     settings.set("export.options", { ...o } as never);
     window.clearTimeout(timer);
     timer = window.setTimeout(render, 60);
@@ -196,14 +201,14 @@ export function openPrintScreen(opts: PrintScreenOptions) {
     pages.className = "pages";
     shadow.append(pages);
     pagesBox = pages;
-    if (o.format === "txt") {
-      // テキストにはページがないので、1 枚の長い紙として見せる
+    if (o.format === "txt" || o.format === "md") {
+      // テキスト・Markdown にはページがないので、1 枚の長い紙として見せる（Markdown は書き出す文字そのもの）
       const sheet = document.createElement("pre");
       sheet.className = "txt";
-      sheet.textContent = exportText(opts.lines, o, meta, opts.tab).replace(/\r\n/g, "\n");
+      sheet.textContent = (o.format === "md" ? exportMarkdown(opts.lines, o, meta, opts.tab) : exportText(opts.lines, o, meta, opts.tab)).replace(/\r\n/g, "\n");
       pages.append(sheet);
       pageWidthPx = 760;
-      info.textContent = t("ps.infoText", { n: String(opts.lines.length) });
+      info.textContent = t(o.format === "md" ? "ps.infoMd" : "ps.infoText", { n: String(opts.lines.length) });
       applyZoom();
       return;
     }

@@ -46,7 +46,7 @@ import { OutlineView } from "./ui/outlineView";
 import { buildOutline, currentSymbol, outlineLangOf, type OutlineItem } from "./editor/outline";
 import { formatBraces, formatJson, formatPlain, formatPython } from "./editor/format";
 import { BUILD_TARGETS, RUN_TOOLS, fillBuild, isUnityScript, javaMainClass, type Toolchain } from "./run/build";
-import { exportBody, exportCss, exportDocx, exportHtmlDocument, exportText, toBase64, type ExportOptions } from "./ui/exportCode";
+import { exportBody, exportCss, exportDocx, exportHtmlDocument, exportMarkdown, exportText, toBase64, type ExportOptions } from "./ui/exportCode";
 import { clipHistory, clipLabel, startClipWatch } from "./core/clipHistory";
 import { buildFromJapanese } from "./ui/jpBuildDialog";
 import { sampleTemplate } from "./ai/jpBuild";
@@ -1936,13 +1936,15 @@ export class App {
         toast(t("export.pdfHint"), "info", 9000);
       },
       onExport: async (o) => {
-        const ext = o.format === "docx" ? ".docx" : o.format === "html" ? ".html" : ".txt";
-        const suggested = stripExt(doc.name) + (o.format === "txt" && extname(doc.name) === ".txt" ? "-印刷用" : "") + ext;
+        const ext = o.format === "docx" ? ".docx" : o.format === "html" ? ".html" : o.format === "md" ? ".md" : ".txt";
+        const same = (o.format === "txt" && extname(doc.name) === ".txt") || (o.format === "md" && /^\.(md|markdown)$/i.test(extname(doc.name)));
+        const suggested = stripExt(doc.name) + (same ? "-書き出し" : "") + ext;
         const path = await dialog.saveFile(doc.path ? join(dirname(doc.path), suggested) : suggested);
         if (!path) return false;
         try {
           if (o.format === "docx") await fs.writeBase64(path, toBase64(exportDocx(lines, o, meta, tab)));
           else if (o.format === "html") await fs.writeFile(path, exportHtmlDocument(lines, o, meta, tab));
+          else if (o.format === "md") await fs.writeFile(path, exportMarkdown(lines, o, meta, tab));
           else await fs.writeFile(path, exportText(lines, o, meta, tab));
           toast(t("export.saved", { path }), "success", 7000);
           return true;
