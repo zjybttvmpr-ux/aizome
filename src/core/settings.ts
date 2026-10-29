@@ -92,6 +92,8 @@ export interface Settings {
   "ai.syntaxTrim": boolean;
   /** グラフィック（GPU）を使わず CPU だけで AI を動かす（メモリが足りないとき用） */
   "ai.cpuOnly": boolean;
+  /** 書いている途中の AI の補完（薄い文字）だけを使う／止める（自動判定・説明・チャットはそのまま） */
+  "ai.inline": boolean;
   /** ###構築py### の行に「▶ 組み立てる」ボタン */
   "editor.buildLens": boolean;
   /** 変数にマウスを乗せたときの小窓（値・自動判定） */
@@ -217,6 +219,7 @@ export const defaults: Settings = {
   "ai.languageFilter": true,
   "ai.syntaxTrim": true,
   "ai.cpuOnly": false,
+  "ai.inline": true,
   "editor.buildLens": true,
   "editor.valueHover": true,
   "editor.gotoDefinition": true,

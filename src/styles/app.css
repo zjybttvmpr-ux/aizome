@@ -4394,3 +4394,23 @@ html.has-bg .pane-bar {
 /* 印刷・書き出し：形式のボタンが多いときは折り返す */
 .ps-seg { display: flex; flex-wrap: wrap; row-gap: 4px; }
 .ps-seg-item { white-space: nowrap; flex: 1 0 auto; min-width: 44px; padding: 0 8px; }
+
+/* AI の補完だけのオン・オフ（右上） */
+.inline-toggle {
+  height: 28px;
+  padding: 0 9px;
+  border: 1px solid var(--accent-line);
+  border-radius: 7px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font: inherit;
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.inline-toggle.off {
+  border-color: var(--border);
+  background: transparent;
+  color: var(--text-faint);
+  text-decoration: line-through;
+}

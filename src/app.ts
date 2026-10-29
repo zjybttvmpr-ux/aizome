@@ -129,6 +129,15 @@ export class App {
   private currentView: ViewName = "explorer";
   private workspaceLabel!: HTMLElement;
   private aiPill!: HTMLElement;
+  private inlineBtn!: HTMLElement;
+
+  private renderInlineBtn() {
+    const on = settings.get("ai.inline");
+    this.inlineBtn.classList.toggle("off", !on);
+    this.inlineBtn.textContent = on ? t("inline.on") : t("inline.off");
+    this.inlineBtn.title = on ? t("inline.onTitle") : t("inline.offTitle");
+    this.inlineBtn.setAttribute("aria-pressed", String(on));
+  }
   private statusLeft!: HTMLElement;
   private statusRight!: HTMLElement;
   private explorerEmpty!: HTMLElement;
@@ -390,6 +399,9 @@ export class App {
 
     this.workspaceLabel = h("span", { class: "workspace-name" });
     this.aiPill = h("button", { class: "ai-pill", onclick: () => this.onAiPillClick() });
+    // AI の補完（薄い文字）だけを切りかえるボタン（自動判定・説明・チャットはそのまま使える）
+    this.inlineBtn = h("button", { class: "inline-toggle", type: "button", onclick: () => settings.set("ai.inline", !settings.get("ai.inline")) });
+    this.renderInlineBtn();
     const paletteKey = formatKey("Mod-P");
 
     const menuBtn = h(
@@ -495,6 +507,7 @@ export class App {
         h("span", { class: "top-sep", "aria-hidden": "true" }),
         button("wand", t("cmd.slash"), () => void openSlashPalette("/", () => this.quickOpen()), "top-tool"),
         button("help", `${t("cmd.help")} (F1)`, () => helpPage.open(), "top-tool"),
+        this.inlineBtn,
         this.aiPill,
       ),
     );
@@ -2795,6 +2808,7 @@ export class App {
       run: (line, col) => this.editor.goTo(Number(line) || 1, Number(col) || 1),
     });
     reg("ai.toggle", "cmd.aiToggle", () => settings.set("ai.enabled", !settings.get("ai.enabled")));
+    reg("ai.toggleInline", "cmd.aiToggleInline", () => settings.set("ai.inline", !settings.get("ai.inline")), "Mod-Alt-Space");
     reg("ai.trigger", "cmd.aiTrigger", () => this.editor.triggerCompletion());
     reg("ext.reload", "cmd.reloadExtensions", () => this.extensions.reload());
     reg("search.inFiles", "cmd.searchInFiles", () => this.showView("search"), "Mod-Shift-F");
@@ -3036,6 +3050,11 @@ export class App {
         completer.setStatus(settings.get("ai.enabled") ? "idle" : "off");
       }
       if (key === "ai.model") this.renderAi(completer.status);
+      if (key === "ai.inline") {
+        this.renderInlineBtn();
+        if (!settings.get("ai.inline")) completer.cancelInline();
+        toast(t(settings.get("ai.inline") ? "inline.nowOn" : "inline.nowOff"), "info", 3500);
+      }
       if (key === "ui.language") toast(t("settings.languageChanged"), "info");
     });
   }

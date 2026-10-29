@@ -88,6 +88,11 @@ const ghostField = StateField.define<Ghost | null>({
 function accept(view: EditorView, part?: "word"): boolean {
   const g = view.state.field(ghostField, false);
   if (!g) return false;
+  // 補完をオフにしたあとに残っていた候補は入れずに消す
+  if (!settings.get("ai.inline")) {
+    view.dispatch({ effects: setGhost.of(null) });
+    return false;
+  }
   let text = g.text;
   if (part === "word") {
     const m = /^\s*[\w$]+|^\s*[^\w\s]+|^\s+/.exec(text);
@@ -320,7 +325,7 @@ async function requestCompletion(view: EditorView) {
 
 function schedule(view: EditorView, delay = completer.recommendedDelay()) {
   window.clearTimeout(timer);
-  if (!settings.get("ai.enabled")) return;
+  if (!settings.get("ai.enabled") || !settings.get("ai.inline")) return;
   timer = window.setTimeout(() => requestCompletion(view), delay);
 }
 
