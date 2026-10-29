@@ -369,7 +369,9 @@ export function formatTrace(result: TraceResult, view: TraceView = "values", tim
         : recs
             .map((r, i) => {
               const label = i === recs.length - 1 && entry.n > recs.length ? `${entry.n} 回目` : `${i + 1} 回目`;
-              return `${label}：${varsText(r) || "（変化なし）"}`;
+              const v = varsText(r);
+              const o = r.o ? `出力 → ${oneLine(r.o, 80)}` : "";
+              return `${label}：${[v, o].filter(Boolean).join("　") || "（変化なし）"}`;
             })
             .join("\n");
 
@@ -414,12 +416,18 @@ export function formatTrace(result: TraceResult, view: TraceView = "values", tim
       if (keys.length > 3) parts.push(`ほか ${keys.length - 3} 個`);
       return parts.join("　");
     };
+    // その行が画面に出した文字（print・console.log・printf など）
+    const outs = recs.filter((r) => r.o).map((r) => `「${oneLine(r.o!, 30)}」`);
+    const outRecs = recs.filter((r) => r.o).length;
+    const outText = outs.length ? `出力 → ${seqText(outs, outRecs === recs.length ? entry.n : outs.length)}` : "";
+    const join = (a: string) => [a, outText].filter(Boolean).join("　");
     if (names.length) {
-      out.set(line, { text: describe("c", names), detail, kind: "value" });
+      out.set(line, { text: join(describe("c", names)), detail, kind: "value" });
     } else {
       const refNames: string[] = [];
       for (const r of recs) for (const k of Object.keys(r.r)) if (!refNames.includes(k)) refNames.push(k);
-      if (refNames.length) out.set(line, { text: describe("r", refNames), detail, kind: "ref" });
+      if (refNames.length) out.set(line, { text: join(describe("r", refNames)), detail, kind: "ref" });
+      else if (outText) out.set(line, { text: outText, detail, kind: "value" });
     }
   }
   if (result.error?.line && (time === null || time >= maxTime(result))) {

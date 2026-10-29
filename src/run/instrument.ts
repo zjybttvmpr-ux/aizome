@@ -115,6 +115,53 @@ interface Insert {
   names: string[];
   /** 記録に使う行番号（1 始まり） */
   as: number;
+  /** 出力する行：前後に「ここからこの行の出力」の印を付ける */
+  wrap?: boolean;
+}
+
+/** 画面に出力する文（print・console.log・printf・fmt.Println・cout など） */
+const OUTPUT_CALL = /(^|[^\w.$])(console\.(log|info|warn|error|table)|process\.stdout\.write|System\.(out|err)\.print\w*|Console\.Write\w*|printf|puts|putchar|fputs|std::cout|cout|std::cerr|cerr|fmt\.(Print|Fprint)\w*|print(ln)?!?|eprint(ln)?!|echo|print_r|var_dump|printf|io\.write|p|pp|Debug\.Log\w*|stdout\.write)\b/;
+
+function outCall(lang: TraceLang, line: number): string {
+  if (lang === "java") return `__AizO.o(${line})`;
+  if (lang === "cs") return `__AizO.O(${line})`;
+  return `__aizO(${line})`;
+}
+
+/** 出力の印を出す小さな関数（言語ごと）。ESC ] 633;aiz;行番号 BEL はターミナルには見えない */
+function outHelper(lang: TraceLang, log: string): { head?: string; tail?: string; firstLine?: string } {
+  const P = strLit(log);
+  const M = MAX_EVENTS;
+  switch (lang) {
+    case "js":
+    case "ts": {
+      const a = lang === "ts" ? ": any" : "";
+      return { tail: `function __aizO(l${a}) { try { const g${a} = globalThis; if ((g.__azc || 0) > ${M}) return; g.process.stdout.write("\\x1b]633;aiz;" + l + "\\x07"); if (l) { const req${a} = g.process.getBuiltinModule ? g.process.getBuiltinModule : require; req("fs").appendFileSync("${P}", l + "\\t\\x01out\\t\\n"); } } catch (e) {} }\n` };
+    }
+    case "java":
+      return { tail: `class __AizO { static void o(int l) { if (__Aiz.c > ${M}) return; System.out.print("\\033]633;aiz;" + l + "\\007"); System.out.flush(); if (l == 0) return; try (java.io.FileWriter w = new java.io.FileWriter("${P}", java.nio.charset.StandardCharsets.UTF_8, true)) { w.write(l + "\\t\\001out\\t\\n"); } catch (Exception e) {} } }\n` };
+    case "cs":
+      return { tail: `static class __AizO { public static void O(int l) { System.Console.Out.Write("\\u001b]633;aiz;" + l + "\\u0007"); System.Console.Out.Flush(); if (l == 0) return; try { System.IO.File.AppendAllText("${P}", l + "\\t\\u0001out\\t\\n"); } catch { } } }\n` };
+    case "c":
+    case "cpp":
+      return { head: `#include <stdio.h>\n#define __aizO(l) do { printf("\\033]633;aiz;%d\\a", (int)(l)); if ((l) != 0) { FILE* __azo = fopen("${P}", "a"); if (__azo) { fprintf(__azo, "%d\\t\\001out\\t\\n", (int)(l)); fclose(__azo); } } } while (0)\n` };
+    case "go":
+      return { tail: `\nfunc __aizO(l int) {\n\tfmt.Fprintf(os.Stdout, "\\x1b]633;aiz;%d\\x07", l)\n\tif l == 0 {\n\t\treturn\n\t}\n\tif f, err := os.OpenFile("${P}", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644); err == nil {\n\t\tfmt.Fprintf(f, "%d\\t\\x01out\\t\\n", l)\n\t\tf.Close()\n\t}\n}\n` };
+    case "rust":
+      return { tail: `\n#[allow(dead_code)]\nfn __aizO(l: u32) { use std::io::Write; print!("\\x1b]633;aiz;{}\\x07", l); if l == 0 { return; } if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open("${P}") { let _ = writeln!(f, "{}\\t\\x01out\\t", l); } }\n` };
+    case "ruby":
+      return { firstLine: `def __aizO(l); $stdout.write("\\e]633;aiz;#{l}\\a"); File.open("${P}", "a") { |f| f.write("#{l}\\t\\x01out\\t\\n") } if l != 0; rescue; end; ` };
+    case "php":
+      return { firstLine: `function __aizO($l) { echo "\\033]633;aiz;" . $l . "\\007"; if ($l) @file_put_contents("${P}", $l . "\\t\\001out\\t\\n", FILE_APPEND); } ` };
+    case "lua":
+      return { firstLine: `local function __aizO(l) io.write("\\27]633;aiz;" .. l .. "\\7") if l ~= 0 then local f = io.open("${P}", "a") if f then f:write(l .. "\\t\\1out\\t\\n") f:close() end end end; ` };
+    case "kotlin":
+      return { firstLine: `fun __aizO(l: Int) { print("\\u001b]633;aiz;" + l + "\\u0007"); if (l != 0) try { java.io.File("${P}").appendText("" + l + "\\t\\u0001out\\t\\n") } catch (e: Exception) {} }; ` };
+    case "swift":
+      return { firstLine: `func __aizO(_ l: Int) { print("\\u{1B}]633;aiz;\\(l)\\u{07}", terminator: ""); if l != 0, let h = FileHandle(forWritingAtPath: "${P}") { h.seekToEndOfFile(); h.write("\\(l)\\t\\u{01}out\\t\\n".data(using: .utf8)!); h.closeFile() } }; ` };
+    case "dart":
+      return { tail: `void __aizO(int l) { __azio.stdout.write('\\x1B]633;aiz;$l\\x07'); if (l != 0) { try { __azio.File("${P}").writeAsStringSync('$l\\t\\x01out\\t\\n', mode: __azio.FileMode.append); } catch (e) {} } }\n` };
+  }
 }
 
 // ───────── 代入している名前を探す
@@ -441,6 +488,7 @@ export function instrument(src: string, lang: TraceLang, logPath: string, fileNa
             if (!semis || !/;/.test(body.replace(/(["'`])(?:\\.|(?!\1).)*\1/g, '""').replace(/\([^()]*\)/g, "()"))) {
               const names = targetsOf(s, lang, cTypes);
               if (names.length) inserts.push({ line: i, at: null, names, as: i + 1 });
+              if (OUTPUT_CALL.test(s) && !/^(return|throw|yield|else)\b|^}/.test(s)) inserts.push({ line: i, at: null, names: [], as: i + 1, wrap: true });
             }
           }
         }
@@ -473,6 +521,7 @@ export function instrument(src: string, lang: TraceLang, logPath: string, fileNa
           if (!inClassBody && !rhsBlock) {
             const names = targetsOf(s, lang, cTypes);
             if (names.length) inserts.push({ line: i, at: null, names, as: i + 1 });
+            if (OUTPUT_CALL.test(s) && !/^return\b/.test(s) && !/\b(if|unless|while|until)\b/.test(s)) inserts.push({ line: i, at: null, names: [], as: i + 1, wrap: true });
           }
         }
         if (lang === "ruby") {
@@ -496,7 +545,7 @@ export function instrument(src: string, lang: TraceLang, logPath: string, fileNa
   for (const [ln, list] of byLine) {
     let text = lines[ln];
     // 後ろの位置から入れる（前の位置がずれないように）
-    const sorted = [...list].sort((a, b) => (b.at ?? Infinity) - (a.at ?? Infinity));
+    const sorted = [...list].filter((x) => !x.wrap).sort((a, b) => (b.at ?? Infinity) - (a.at ?? Infinity));
     for (const ins of sorted) {
       const calls = ins.names.map((n) => callFor(lang, ins.as, n));
       points += calls.length;
@@ -510,11 +559,31 @@ export function instrument(src: string, lang: TraceLang, logPath: string, fileNa
         text = text.slice(0, ins.at) + " " + calls.join(sep) + (lang === "lua" || lang === "ruby" ? "" : ";") + text.slice(ins.at);
       }
     }
+    // 出力する行：前に「ここからこの行」、後ろに「ここまで」の印
+    const wrap = list.find((x) => x.wrap);
+    if (wrap) {
+      const indent = /^\s*/.exec(text)![0];
+      const e = codeEnd(text, lang);
+      const head = text.slice(indent.length, e).replace(/\s+$/, "");
+      const tail = text.slice(indent.length + head.length);
+      const s1 = lang === "lua" ? " " : "; ";
+      const endSemi = semis || lang === "dart" ? ";" : "";
+      const glue = semis ? (head.endsWith(";") ? " " : "; ") : s1;
+      text = indent + outCall(lang, wrap.as) + s1 + head + glue + outCall(lang, 0) + endSemi + tail;
+      points++;
+    }
     lines[ln] = text;
   }
 
   if (lang === "go" && !goImports(lines)) return null;
-  const h = helper(lang, logPath, fileName);
+  const h0 = helper(lang, logPath, fileName);
+  const o = outHelper(lang, logPath);
+  // 出力の印の関数も一緒に入れる（C・C++ は #line の前に）
+  const h = {
+    head: o.head ? (h0.head ? h0.head.replace(/#line 1 /, o.head + "#line 1 ") : o.head) : h0.head,
+    tail: (h0.tail ?? "") + (o.tail ?? "") || undefined,
+    firstLine: (h0.firstLine ?? "") + (o.firstLine ?? "") || undefined,
+  };
   if (h.firstLine) {
     // 最初の「ふつうの行」の前に（# から始まる行・import・<?php などはそのまま）
     let k = 0;
@@ -548,7 +617,21 @@ function prevNonBlank(lines: string[], i: number): string {
 // ───────── 記録を読む
 
 /** 記録（1 行に「行番号\t名前\t値」）を、行の右に出す形にする */
-export function parseTraceLog(text: string): TraceResult {
+/** ターミナルの出力（印つき）を、行ごとの出力に分ける（印を出した順） */
+export function splitLineOutputs(marked: string): { line: number; text: string }[] {
+  const out: { line: number; text: string }[] = [];
+  const parts = marked.split(/\u0000AZ(\d+)\u0000/);
+  // parts = [前, 行, 文, 行, 文, …]
+  for (let k = 1; k < parts.length; k += 2) {
+    const line = Number(parts[k]);
+    if (!line) continue;
+    out.push({ line, text: (parts[k + 1] ?? "").replace(/^\n+|\s+$/g, "") });
+  }
+  return out;
+}
+
+export function parseTraceLog(text: string, outputs: { line: number; text: string }[] = []): TraceResult {
+  let nextOut = 0;
   const result: TraceResult = { lines: {}, error: null, truncated: false };
   let seq = 0;
   let last: { line: number; rec: TraceRecord } | null = null;
@@ -558,6 +641,24 @@ export function parseTraceLog(text: string): TraceResult {
     if (!m) continue;
     count++;
     const line = Number(m[1]);
+    // 出力の印：その行の、その回の出力
+    if (m[2] === "\u0001out") {
+      let o = "";
+      // 印の順番どおりに対応させる（行番号が合うものを探す）
+      while (nextOut < outputs.length && outputs[nextOut].line !== line) nextOut++;
+      if (nextOut < outputs.length) o = outputs[nextOut++].text;
+      const entry = (result.lines[String(line)] ??= { n: 0, recs: [] });
+      if (last && last.line === line && !last.rec.o) {
+        if (o) last.rec.o = o;
+        continue;
+      }
+      entry.n++;
+      const rec: TraceRecord = { c: {}, r: {}, s: ++seq, ...(o ? { o } : {}) };
+      if (entry.recs.length < 300) entry.recs.push(rec);
+      else entry.recs[entry.recs.length - 1] = rec;
+      last = { line, rec };
+      continue;
+    }
     const value = m[3].length > 300 ? m[3].slice(0, 299) + "…" : m[3];
     // 同じ行の続けての記録（a, b = …）は 1 回の実行にまとめる
     if (last && last.line === line && !(m[2] in last.rec.c)) {

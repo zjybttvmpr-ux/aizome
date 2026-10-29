@@ -39,7 +39,8 @@ export interface TerminalDeps {
   openLocation: (path: string, line: number, col: number) => void;
   onVisibilityChange: (visible: boolean) => void;
   /** ファイルの実行が終わったとき、その出力（前回と比べるため） */
-  onRunOutput?: (key: string, text: string) => void;
+  /** marked は「値を見る」用の行の印（\u0000AZ行番号\u0000）を残したもの */
+  onRunOutput?: (key: string, text: string, marked: string) => void;
   /** 「前回と比べる」ボタン */
   compareRuns?: (key: string | null) => void;
 }
@@ -172,7 +173,9 @@ export class TerminalPanel {
       }
       cap.text += chunk.slice(0, j);
       this.captures.delete(id);
-      this.deps.onRunOutput?.(cap.key, plainText(cap.text));
+      // 「値を見る」がどの行の出力かを知らせる見えない印（ESC ] 633;aiz;行番号 BEL）は、文字の印にしてから整える
+      const marked = plainText(cap.text.replace(/\x1b\]633;aiz;(\d+)\x07/g, "\u0000AZ$1\u0000"));
+      this.deps.onRunOutput?.(cap.key, marked.replace(/\u0000AZ\d+\u0000/g, ""), marked);
       return;
     }
   }

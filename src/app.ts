@@ -59,7 +59,7 @@ import { ENCODINGS, encodingById, encodingLabel } from "./core/encodings";
 import { INPUT_WRAPPER_PY, presetCount, type InputPreset } from "./run/inputs";
 import { editInputPreset } from "./ui/inputPresets";
 import { hashText } from "./ai/infer";
-import { instrument, parseTraceLog, traceLangOf, type TraceLang } from "./run/instrument";
+import { instrument, parseTraceLog, splitLineOutputs, traceLangOf, type TraceLang } from "./run/instrument";
 import { TRACER_PY, busiestLine, enclosingLoops, formatTrace, loopPositions, stepLoop, stepTimes, type TraceResult } from "./run/trace";
 import { inferBusy, onInferBusy } from "./editor/inferState";
 import { definitionSearchRegex, setDefinitionFallback } from "./editor/definition";
@@ -200,7 +200,7 @@ export class App {
       openLocation: (p, l, c) => void this.openLocation(p, l, c),
       onVisibilityChange: (v) => this.el.classList.toggle("panel-open", v),
       explainError: () => void this.explainLastError(),
-      onRunOutput: (key, text) => this.rememberRun(key, text),
+      onRunOutput: (key, text, marked) => this.rememberRun(key, text, marked),
       compareRuns: (key) => void this.compareRuns(key),
     });
     this.extensions = new ExtensionHost({
@@ -1666,7 +1666,7 @@ export class App {
   }
 
   /** Python 以外の「値を見る」の実行が終わったら、記録を読む */
-  private async finishOtherTrace(key: string) {
+  private async finishOtherTrace(key: string, marked: string) {
     const job = this.otherTraces.get(key);
     if (!job) return;
     this.otherTraces.delete(key);
@@ -1677,7 +1677,7 @@ export class App {
       text = "";
     }
     void fs.remove(job.dir).catch(() => {});
-    const result = parseTraceLog(text);
+    const result = parseTraceLog(text, splitLineOutputs(marked));
     if (!Object.keys(result.lines).length) {
       toast(t("trace.noRecords"), "warn", 9000);
       return;
@@ -1688,9 +1688,9 @@ export class App {
   /** ファイルごとの、最近 2 回の実行の出力 */
   private runOutputs = new Map<string, { prev?: { text: string; at: Date }; last?: { text: string; at: Date } }>();
 
-  private rememberRun(key: string, text: string) {
+  private rememberRun(key: string, text: string, marked = text) {
     this.showRunErrorsFor(key, text);
-    if (this.otherTraces.has(key)) void this.finishOtherTrace(key);
+    if (this.otherTraces.has(key)) void this.finishOtherTrace(key, marked);
     const r = this.runOutputs.get(key) ?? {};
     r.prev = r.last;
     r.last = { text, at: new Date() };
