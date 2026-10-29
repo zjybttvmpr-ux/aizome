@@ -1,6 +1,7 @@
 // 自動判定モード：実行せずに、変数に何が入るかとエラーになりそうな行を予想する（画面に依存しない部分）
 import { jaReason } from "./jaError";
 import { languageOf } from "./plan";
+import { splitTop } from "./exprJa";
 
 export interface InferVar {
   line: number;
@@ -36,6 +37,7 @@ export function buildInferPrompt(code: string, filename: string): string {
     "   - ファイルや通信から読む値は「ファイルの内容に依存（文字列のリスト）」のように書く。",
     "   - 値がわからないときは、None と書かずに、その V 行を書かない（本当に None が入るときだけ None と書く）。",
     "2. 実行するとエラーになりそうな行と、その原因を短く書く（なければ書かない）。",
+    "   - 本当に実行するとエラーになるものだけ。書き方の好み・字下げ（Python 以外では字下げはエラーにならない）・正しい書式（%T %t %d など）は書かない。",
     "",
     "出力は、次の 2 種類の行だけにしてください。前置きや説明の文章は書かないでください。",
     "V|行番号|変数名|値",
@@ -154,4 +156,25 @@ export function hashText(s: string): string {
   let h = 5381;
   for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0;
   return (h >>> 0).toString(36) + ":" + s.length;
+}
+
+/**
+ * AI（小さいモデル）がよくまちがえる「エラーになりそう」を除く。
+ * - Python 以外で、字下げ（タブと空白がまざっている など）をエラーと言う
+ * - printf の書式（%T %t %d …）と値の数が合っているのに、書式のまちがいと言う
+ */
+export function implausibleRisk(lineText: string, reason: string, lang: string | null): boolean {
+  if (lang !== "python" && /インデント|字下げ|indent|タブ|空白|スペース/i.test(reason)) return true;
+  const m = /\b(?:printf|Printf|Sprintf|Fprintf|Errorf|Fatalf|Panicf|Logf|format|String\.format)\s*\((.*)\)\s*;?\s*$/.exec(lineText.trim());
+  if (m && /書式|フォーマット|format|%|型|verb|Printf/i.test(reason)) {
+    const args = splitTop(m[1]);
+    // Fprintf(os.Stdout, "…", …) は 2 つ目が書式
+    const fi = args.findIndex((a) => /^\s*["`]/.test(a));
+    if (fi >= 0) {
+      const fmt = args[fi];
+      const verbs = (fmt.replace(/%%/g, "").match(/%[-+#0 ]*(\d+|\*)?(\.\d*)?(?:hh|h|ll|l|L|z|j)?[a-zA-Z]/g) ?? []).length;
+      if (verbs === args.length - fi - 1) return true;
+    }
+  }
+  return false;
 }

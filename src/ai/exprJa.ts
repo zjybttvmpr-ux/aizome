@@ -319,6 +319,14 @@ function describeExprInner(expr: string, lang: ExprLang, depth: number): ExprMea
   // ! や not
   if ((m = /^(?:!|not\s+)(.+)$/.exec(s)) && lang !== "ruby") {
     const inner = describeExprInner(m[1], lang, depth);
+    // !(A || B) →「A」と「B」のどちらでもないか
+    const body = stripParens(m[1].trim());
+    const orParts = splitOp(body, lang === "python" ? [" or "] : ["||"], false);
+    if (orParts && inner?.noun) {
+      const a = condPart(orParts[0], lang, depth).trim();
+      const b = condPart(orParts[2], lang, depth).trim();
+      return { noun: `「${a}」と「${b}」のどちらでもないか`, verb: null };
+    }
     if (inner?.noun && /(か|かどうか)$/.test(inner.noun)) return { noun: `「${inner.noun.replace(/\s*(かどうか|か)$/, "")}」ではないか`, verb: null };
     return null;
   }
@@ -427,7 +435,7 @@ const NEW_NAMES: Record<string, string> = {
 };
 
 function binary(s: string, lang: ExprLang, depth: number): ExprMeaning | null {
-  if (depth > 2) return null;
+  if (depth > 4) return null;
   // 代入（= += など）は式ではない
   if (/(^|[^=!<>+\-*/%&|^])=(?!=)/.test(s.replace(/(["'`])(?:\\.|(?!\1).)*\1/g, '""')) && !/=>/.test(s)) return null;
   let mm: RegExpExecArray | null;
@@ -448,9 +456,19 @@ function binary(s: string, lang: ExprLang, depth: number): ExprMeaning | null {
     if (!sp) continue;
     const [l, op, r] = sp;
     if (op === "**" && lang !== "python" && lang !== "js") return null;
-    const ld = describeExprInner(l, lang, depth + 1)?.noun;
-    const rd = describeExprInner(r, lang, depth + 1)?.noun;
-    if (!ld && !rd && !["in", "not in", "is", "is not"].includes(op)) return null;
+    // 数・名前・文字だけの、短い足し算・引き算・掛け算（3*3 や i+1）は、式のまま見せる
+    const atom = (x: string) => /^(-?[\d.]+|[A-Za-z_][\w.]*|"[^"]*"|'[^']*')$/.test(x.trim());
+    const plainArith = (x: string): boolean => {
+      const sp2 = splitOp(x, ["+", "-", "*"], true);
+      return !!sp2 && x.length <= 16 && atom(sp2[2]) && (atom(sp2[0]) || plainArith(sp2[0]));
+    };
+    const ld = plainArith(l) ? null : describeExprInner(l, lang, depth + 1)?.noun;
+    const rd = plainArith(r) ? null : describeExprInner(r, lang, depth + 1)?.noun;
+    const compare = !rightmost && ops.includes("==");
+    // 比べる式（==・< など）は、両側が式のままでも「〜が〜と等しいか」の形にする
+    // 割り算・余り（2026%4 など）も、数と名前だけなら言葉にする
+    const divide = ["%", "/", "//"].includes(op) && atom(l) && atom(r);
+    if (!ld && !rd && !compare && !divide && !["in", "not in", "is", "is not"].includes(op)) return null;
     const side = (raw: string, d: string | null | undefined) => (d ? (d.length <= 30 ? `『${d}』` : show(raw)) : show(raw));
     if (op === "*") {
       const unit = /^time\.(Nanosecond|Microsecond|Millisecond|Second|Minute|Hour)$/;
@@ -482,7 +500,7 @@ function valPart(raw: string, lang: ExprLang, depth: number): string {
 
 /** 条件式（a if c else b / c ? a : b）・内包表記（[x for x in …]）・and / or */
 function conditionalAndComprehension(s: string, lang: ExprLang, depth: number): ExprMeaning | null {
-  if (depth > 2) return null;
+  if (depth > 4) return null;
   // 論理演算（いちばん弱いので先に）
   const or = splitOp(s, lang === "python" ? [" or "] : lang === "ruby" ? [" or ", "||"] : ["||"], false);
   if (or && !(lang === "python" && splitOp(s, [" if "]))) return { noun: tidy(`${condPart(or[0], lang, depth)}、または ${condPart(or[2], lang, depth)}か`), verb: null };

@@ -371,9 +371,11 @@ const scheduler = ViewPlugin.fromClass(
 /** 右 Shift を 1 回だけ押して離したら（ほかのキーと一緒に押していなければ）AI の候補を入れる */
 let rshiftDown = false;
 let rshiftUsed = false;
+// 日本語入力（IME）がオンのときなどに code が来ないこともあるので、右側の Shift（location 2）も見る
+const isRightShift = (e: KeyboardEvent) => e.code === "ShiftRight" || (e.keyCode === 16 && e.location === 2);
 const rightShift = EditorView.domEventHandlers({
   keydown(e) {
-    if (e.code === "ShiftRight") {
+    if (isRightShift(e)) {
       if (!e.repeat) {
         rshiftDown = true;
         rshiftUsed = false;
@@ -382,7 +384,7 @@ const rightShift = EditorView.domEventHandlers({
     return false;
   },
   keyup(e, view) {
-    if (e.code !== "ShiftRight") return false;
+    if (!isRightShift(e)) return false;
     const wasClean = rshiftDown && !rshiftUsed;
     rshiftDown = false;
     if (!wasClean || settings.get("ai.acceptKey") !== "rshift") return false;

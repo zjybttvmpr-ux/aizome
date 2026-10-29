@@ -5,7 +5,7 @@ import { Compartment, RangeSetBuilder, type EditorState, type Extension } from "
 import { Decoration, EditorView, ViewPlugin, WidgetType, hoverTooltip, type DecorationSet, type ViewUpdate } from "@codemirror/view";
 import { settings } from "../core/settings";
 import { completer } from "../ai/completer";
-import { buildInferPrompt, hashText, lookupInferred, parseInfer, staticGuess, type InferResult } from "../ai/infer";
+import { buildInferPrompt, hashText, implausibleRisk, lookupInferred, parseInfer, staticGuess, type InferResult } from "../ai/infer";
 import { docFilename, docId } from "./ghost";
 import { fs } from "../core/platform";
 import { dirname, join } from "../core/paths";
@@ -215,6 +215,7 @@ function buildRisks(state: EditorState): DecorationSet {
     let text = r.reason;
     let soft = false;
     if (!r.sure) {
+      if (implausibleRisk(state.doc.line(r.line).text, r.reason, checkLangOfState(state))) continue;
       const f = fileRisk(state, r.line, r.reason);
       if (f === "hide") continue;
       if (f) {

@@ -630,7 +630,7 @@ function explainLineRaw(line: string, lang: ExplainLang): string | null {
 
 /** printf 系の書式の 1 つ（%d・%.2f・%-5s・%T など）を、値の見せ方の説明に */
 function verbJa(flags: string, width: string, prec: string, verb: string, arg: string): string {
-  const a = arg ? cut(arg, 14) : "値";
+  const a = arg ? cut(arg, 80) : "値";
   const w = width ? (flags.includes("0") ? `${width} けたになるよう前を 0 で埋めた` : flags.includes("-") ? `${width} けたに左寄せでそろえた` : `${width} けたにそろえた`) : "";
   switch (verb) {
     case "v":
@@ -685,7 +685,7 @@ export function describeFormat(format: string, args: string[], lang: ExplainLang
     if (verb === "%") return "%";
     const arg = args[k++] ?? "";
     const n = arg ? nounOf(arg, lang) : null;
-    return `〔${verbJa(flags, width ?? "", prec ?? "", verb, n && n.length <= 14 ? n : arg)}〕`;
+    return `〔${verbJa(flags, width ?? "", prec ?? "", verb, n && n.length <= 80 ? n : arg)}〕`;
   });
   // 文字の中の \n は、読み取るときに「（改行）」になっている
   const newline = /(\\n|（改行）)$/.test(body);
@@ -744,7 +744,7 @@ function goLine(line: string): string | null {
     if (lit !== null) {
       const f = describeFormat(lit, args.slice(1));
       const tail = m[1] === "Fatalf" ? "表示して、プログラムを終わります" : m[1] === "Panicf" ? "表示して、プログラムを止めます（panic）" : "表示します";
-      return `「${cut(f.text, 60)}」と${tail}${f.newline ? "" : "（改行しない）"}`;
+      return `「${cut(f.text, 100)}」と${tail}${f.newline ? "" : "（改行しない）"}`;
     }
   }
   if ((m = /^fmt\.Fprintf\(\s*os\.(Stderr|Stdout)\s*,(.*)\)$/.exec(s))) {
