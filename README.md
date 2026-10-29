@@ -40,6 +40,12 @@
 - メニューの AI →「組み立て用のひな形を入れる」で見本が入ります
 - 小さいモデル（1.5b）だと組み立ての質が落ちます。できれば `qwen2.5-coder:7b` 以上を使ってください
 
+### 0.42.0：Go の行の説明をくわしく（%T などの書式も）
+
+- `fmt.Printf("%T\n", x)` →「〔x の型〕」と表示します、のように、**書式の %d・%s・%v・%+v・%#v・%T・%.2f・%5d・%-8s・%03d・%q・%t・%x・%c・%p・%e・%U** などが何を出すかを日本語にしました（`fmt.Sprintf`・`log.Printf`・C の `printf` も）。最後に \n がないときは「（改行しない）」と添えます
+- Go の書き方を幅広く説明：`var x int`（最初は 0）・`const`・`iota`・`type … struct` / `interface`・レシーバー付きのメソッド・いくつも返す関数・`make`（スライス・マップ・チャネル）・`append`・`v, ok := m[k]`・`n, err := …`・`if err != nil`・ポインタ（`&x`・`*p`）・チャネル（`ch <- v`・`<-ch`・`select`）・`go`・`defer`・`switch` / 型の switch / `fallthrough`・`for range`（`range 10` も）・`bufio.Scanner`・`time.Sleep(500 * time.Millisecond)` など
+- Go の標準パッケージ（strings・strconv・unicode・slices・maps・sync・json・http・os・time など）の関数の意味も足しました
+
 ### 0.41.0：Markdown で書き出し・AI の候補は右 Shift で
 
 - 印刷・書き出しの画面に **Markdown（.md）** を追加。見出し（ファイル名・場所・日時）と、言語名つきのコードブロック（```python など）にします。GitHub やノートアプリにそのまま貼れます。Markdown のファイルはそのまま書き出します

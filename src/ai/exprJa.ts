@@ -452,6 +452,14 @@ function binary(s: string, lang: ExprLang, depth: number): ExprMeaning | null {
     const rd = describeExprInner(r, lang, depth + 1)?.noun;
     if (!ld && !rd && !["in", "not in", "is", "is not"].includes(op)) return null;
     const side = (raw: string, d: string | null | undefined) => (d ? (d.length <= 30 ? `『${d}』` : show(raw)) : show(raw));
+    if (op === "*") {
+      const unit = /^time\.(Nanosecond|Microsecond|Millisecond|Second|Minute|Hour)$/;
+      const ja: Record<string, string> = { Nanosecond: "ナノ秒", Microsecond: "マイクロ秒", Millisecond: "ミリ秒", Second: "秒", Minute: "分", Hour: "時間" };
+      const ur = unit.exec(r);
+      const ul = unit.exec(l);
+      if (ur) return { noun: `${show(l)} ${ja[ur[1]]}`, verb: null };
+      if (ul) return { noun: `${show(r)} ${ja[ul[1]]}`, verb: null };
+    }
     if ((op === "is" || op === "is not") && r === "None") return { noun: `${side(l, ld)} が${op === "is" ? "「何もない」（None）" : "「何もない」（None）ではない"}か`, verb: null };
     const tpl = OP_NOUN[op];
     if (!tpl) return null;

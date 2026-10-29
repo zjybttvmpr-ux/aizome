@@ -3,9 +3,9 @@
 
 import { asCondition, joinLambdas, describeExpr, describeStatement, importedMeaning, moduleMeaning, type ExprLang } from "./exprJa";
 
-export type ExplainLang = "python" | "js" | "c" | "ruby" | "shell" | "other";
+export type ExplainLang = "python" | "js" | "c" | "go" | "ruby" | "shell" | "other";
 
-const exprLang = (l: ExplainLang): ExprLang | null => (l === "python" || l === "js" || l === "c" || l === "ruby" ? l : null);
+const exprLang = (l: ExplainLang): ExprLang | null => (l === "go" ? "c" : l === "python" || l === "js" || l === "c" || l === "ruby" ? l : null);
 
 /** 式の意味（名詞）。分からなければ null */
 function nounOf(expr: string, lang: ExplainLang): string | null {
@@ -38,7 +38,8 @@ export function langFromFilename(name: string): ExplainLang {
   const ext = name.toLowerCase().split(".").pop() ?? "";
   if (["py", "pyw"].includes(ext)) return "python";
   if (["js", "mjs", "cjs", "jsx", "ts", "mts", "tsx", "vue", "svelte"].includes(ext)) return "js";
-  if (["c", "h", "cpp", "cc", "cxx", "hpp", "java", "cs", "rs", "go", "kt", "kts", "swift", "dart", "php", "scala", "groovy", "zig"].includes(ext)) return "c";
+  if (ext === "go") return "go";
+  if (["c", "h", "cpp", "cc", "cxx", "hpp", "java", "cs", "rs", "kt", "kts", "swift", "dart", "php", "scala", "groovy", "zig"].includes(ext)) return "c";
   if (["rb"].includes(ext)) return "ruby";
   if (["sh", "bash", "zsh", "ps1", "bat", "cmd"].includes(ext)) return "shell";
   return "other";
@@ -411,7 +412,11 @@ function cLike(line: string): string | null {
   if ((m = /^(?:printf|puts)\((.*)\)$/.exec(s))) {
     const args = splitArgs(m[1]);
     const lit = stringLiteral(args[0] ?? "");
-    return lit !== null ? `「${cut(lit.replace(/%\w/g, "〔値〕"), 30)}」と表示します` : describeShown(args, "c");
+    if (lit !== null) {
+      const f = describeFormat(lit, args.slice(1), "c");
+      return `「${cut(f.text, 60)}」と表示します${f.newline ? "" : "（改行しない）"}`;
+    }
+    return describeShown(args, "c");
   }
   if ((m = /^Debug\.Log(Warning|Error)?(?:Format)?\((.*)\)$/.exec(s))) {
     const d = describeShown(splitArgs(m[2]), "c");
@@ -599,7 +604,7 @@ function assignmentRaw(s: string, lang: ExplainLang): string | null {
 /** 説明しない行（空行・コメント・かっこだけ・文字列の続き） */
 export function isTrivial(line: string): boolean {
   const s = line.trim();
-  return !s || /^(#(?!include|define|import|pragma|if|endif|region|endregion)|\/\/|\/\*|\*|<!--|--)/.test(s) || /^[)\]}>;,]+$/.test(s) || /^("""|''')/.test(s) || s.length > 220;
+  return !s || /^(#(?!include|define|import|pragma|if|endif|region|endregion)|\/\/|\/\*|\*(?![\w(])|<!--|--)/.test(s) || /^[)\]}>;,]+$/.test(s) || /^("""|''')/.test(s) || s.length > 220;
 }
 
 export function explainLine(line: string, lang: ExplainLang): string | null {
@@ -615,7 +620,298 @@ function explainLineRaw(line: string, lang: ExplainLang): string | null {
   if (lang === "python") return python(code);
   if (lang === "js") return js(code);
   if (lang === "c") return cLike(code);
+  if (lang === "go") return goLine(code) ?? cLike(code);
   if (lang === "ruby") return ruby(code);
   if (lang === "shell") return shell(code);
   return null;
+}
+
+// ───────── Go（書式の %d・%T、var・const・type・チャネル・defer など）
+
+/** printf 系の書式の 1 つ（%d・%.2f・%-5s・%T など）を、値の見せ方の説明に */
+function verbJa(flags: string, width: string, prec: string, verb: string, arg: string): string {
+  const a = arg ? cut(arg, 14) : "値";
+  const w = width ? (flags.includes("0") ? `${width} けたになるよう前を 0 で埋めた` : flags.includes("-") ? `${width} けたに左寄せでそろえた` : `${width} けたにそろえた`) : "";
+  switch (verb) {
+    case "v":
+      return flags.includes("+") ? `${a}（項目名つき）` : flags.includes("#") ? `${a}（Go の書き方で）` : a;
+    case "T":
+      return `${a} の型`;
+    case "d":
+    case "i":
+      return `${a}（${w}整数）`;
+    case "f":
+    case "F":
+      return prec ? `${a}（小数第 ${prec.slice(1) || 0} 位まで${w ? "・" + w.replace("た", "て") : ""}）` : `${a}（小数${w ? "・" + w.replace("た", "て") : ""}）`;
+    case "e":
+    case "E":
+      return `${a}（1.2e+03 のような指数の形）`;
+    case "g":
+    case "G":
+      return `${a}（短いほうの小数の形）`;
+    case "s":
+      return prec ? `${a}（先頭 ${prec.slice(1)} 文字）` : w ? `${a}（${w}文字）` : a;
+    case "q":
+      return `${a}（"" 付き）`;
+    case "t":
+      return `${a}（true か false）`;
+    case "c":
+      return `${a} の文字`;
+    case "x":
+    case "X":
+      return `${a}（16 進数）`;
+    case "o":
+    case "O":
+      return `${a}（8 進数）`;
+    case "b":
+      return `${a}（2 進数）`;
+    case "p":
+      return `${a} の場所（ポインタ）`;
+    case "U":
+      return `${a} の文字コード（U+…）`;
+    case "u":
+      return `${a}（0 以上の整数）`;
+    case "l":
+      return `${a}（整数）`;
+    default:
+      return a;
+  }
+}
+
+/** Printf の書式文字と引数から「「〔x の型〕 です」と表示します」のような説明を作る */
+export function describeFormat(format: string, args: string[], lang: ExplainLang = "go"): { text: string; newline: boolean } {
+  let k = 0;
+  const body = format.replace(/%([-+#0 ]*)(\d+|\*)?(\.\d*)?(?:hh|h|ll|l|L|z|j|t)?([a-zA-Z%])/g, (_m, flags: string, width: string | undefined, prec: string | undefined, verb: string) => {
+    if (verb === "%") return "%";
+    const arg = args[k++] ?? "";
+    const n = arg ? nounOf(arg, lang) : null;
+    return `〔${verbJa(flags, width ?? "", prec ?? "", verb, n && n.length <= 14 ? n : arg)}〕`;
+  });
+  // 文字の中の \n は、読み取るときに「（改行）」になっている
+  const newline = /(\\n|（改行）)$/.test(body);
+  const text = body.replace(/(\\n|（改行）)$/, "").replace(/\\n/g, "（改行）").replace(/\\t/g, "（タブ）");
+  return { text, newline };
+}
+
+const GO_ZERO: Record<string, string> = {
+  int: "0", int8: "0", int16: "0", int32: "0", int64: "0", uint: "0", uint8: "0", uint16: "0", uint32: "0", uint64: "0", byte: "0", rune: "0",
+  float32: "0", float64: "0", complex64: "0", complex128: "0", string: "空の文字（\"\"）", bool: "false", error: "nil（エラーなし）",
+};
+
+function goZero(type: string): string {
+  if (GO_ZERO[type]) return GO_ZERO[type];
+  if (/^(\*|\[\]|map\[|chan\b|func\b|interface)/.test(type)) return "nil（何もない）";
+  return "それぞれの項目が 0 や空の値";
+}
+
+/** Go の型を日本語で（[]int → int のスライス など） */
+function goType(t: string): string {
+  const s = t.trim();
+  let m: RegExpExecArray | null;
+  if ((m = /^\[\](.+)$/.exec(s))) return `${goType(m[1])} のスライス（伸び縮みする並び）`;
+  if ((m = /^\[(\d+)\](.+)$/.exec(s))) return `${goType(m[2])} が ${m[1]} 個の配列`;
+  if ((m = /^map\[(.+?)\](.+)$/.exec(s))) return `${goType(m[1])} をキー・${goType(m[2])} を値にするマップ`;
+  if ((m = /^chan\s+(.+)$/.exec(s))) return `${goType(m[1])} を送り合うチャネル`;
+  if ((m = /^\*(.+)$/.exec(s))) return `${goType(m[1])} の場所（ポインタ）`;
+  return s;
+}
+
+function goParams(p: string): string {
+  const parts = splitArgs(p);
+  // a, b int のように型をまとめて書く書き方
+  const out: string[] = [];
+  let pending: string[] = [];
+  for (const x of parts) {
+    const m = /^([A-Za-z_]\w*)\s+(.+)$/.exec(x.trim());
+    if (m) {
+      for (const n of pending) out.push(`${n}（${m[2]}）`);
+      pending = [];
+      out.push(`${m[1]}（${m[2].replace(/^\.\.\./, "いくつでも：")}）`);
+    } else if (/^[A-Za-z_]\w*$/.test(x.trim())) pending.push(x.trim());
+    else out.push(x.trim());
+  }
+  out.push(...pending);
+  return out.join("、");
+}
+
+function goLine(line: string): string | null {
+  const s = line.trim().replace(/;$/, "");
+  let m: RegExpExecArray | null;
+  // ── 表示・書式
+  if ((m = /^(?:fmt|log)\.(Printf|Fatalf|Panicf)\((.*)\)$/.exec(s))) {
+    const args = splitArgs(m[2]);
+    const lit = stringLiteral(args[0] ?? "");
+    if (lit !== null) {
+      const f = describeFormat(lit, args.slice(1));
+      const tail = m[1] === "Fatalf" ? "表示して、プログラムを終わります" : m[1] === "Panicf" ? "表示して、プログラムを止めます（panic）" : "表示します";
+      return `「${cut(f.text, 60)}」と${tail}${f.newline ? "" : "（改行しない）"}`;
+    }
+  }
+  if ((m = /^fmt\.Fprintf\(\s*os\.(Stderr|Stdout)\s*,(.*)\)$/.exec(s))) {
+    const args = splitArgs(m[2]);
+    const lit = stringLiteral(args[0] ?? "");
+    if (lit !== null) return `「${cut(describeFormat(lit, args.slice(1)).text, 60)}」を${m[1] === "Stderr" ? "エラーとして" : ""}表示します`;
+  }
+  if ((m = /^fmt\.Fprintln\(\s*os\.Stderr\s*,(.*)\)$/.exec(s))) return describeShown(splitArgs(m[1]), "c").replace("表示します", "エラーとして表示します");
+  if ((m = /^fmt\.Print(ln)?\((.*)\)$/.exec(s))) {
+    const d = describeShown(splitArgs(m[2]), "c");
+    return m[1] ? d : d.replace(/表示します$/, "表示します（改行しない）");
+  }
+  if ((m = /^log\.(Println|Print|Fatal|Fatalln)\((.*)\)$/.exec(s))) return describeShown(splitArgs(m[2]), "c").replace("表示します", /Fatal/.test(m[1]) ? "日時つきで表示して、プログラムを終わります" : "日時つきで表示します");
+  // ── パッケージ・import
+  if (/^import\s*\($/.test(s)) return "下の（ ）の中のパッケージを読み込みます";
+  if ((m = /^(?:import\s+)?(?:(\w+|\.|_)\s+)?"([\w./-]+)"$/.exec(s))) {
+    const mean = moduleMeaning(m[2], "c") ?? GO_PKG[m[2]];
+    const alias = m[1] === "_" ? "（中の初期化だけを使う）" : m[1] === "." ? "（パッケージ名なしで使えるように）" : m[1] ? `（${m[1]} という名前で）` : "";
+    return `${m[2]}${mean ? `（${mean}）` : ""} を読み込みます${alias}`;
+  }
+  // ── 型・変数・定数
+  if ((m = /^type\s+(\w+)(\[[^\]]+\])?\s+struct\s*\{\s*\}?$/.exec(s))) return `構造体（いくつかの値をまとめた型）${m[1]} を定義します${m[2] ? `（型 ${m[2].slice(1, -1)} を使う）` : ""}`;
+  if ((m = /^type\s+(\w+)\s+interface\s*\{\s*\}?$/.exec(s))) return `インターフェース ${m[1]}（持っていてほしいメソッドの決まり）を定義します`;
+  if ((m = /^type\s+(\w+)\s*=\s*(.+)$/.exec(s))) return `${m[2]} の別名 ${m[1]} を作ります`;
+  if ((m = /^type\s+(\w+)\s+(.+)$/.exec(s))) return `${goType(m[2])} をもとにした新しい型 ${m[1]} を定義します`;
+  if (/^type\s*\($/.test(s)) return "型をまとめて定義します";
+  if (/^var\s*\($/.test(s)) return "変数をまとめて作ります";
+  if (/^const\s*\($/.test(s)) return "定数（変えられない値）をまとめて作ります";
+  if ((m = /^(\w+)(?:\s+\w+)?\s*=\s*iota(.*)$/.exec(s))) return `${m[1]} から順に、0・1・2…と 1 ずつ増える番号（iota）${m[2].trim() ? `を ${m[2].trim()} した値` : ""}にします`;
+  if ((m = /^var\s+([\w\s,]+?)\s+([\w.*[\]]+(?:\[[^\]]*\][\w.*]+)?|map\[.+?\][\w.*[\]]+|chan\s+\w+|func\(.*\).*)$/.exec(s)) && !s.includes("=")) {
+    const names = m[1].split(",").map((x) => x.trim());
+    return `${goType(m[2])} 型の変数 ${names.join("・")} を作ります（最初は ${goZero(m[2])}）`;
+  }
+  if ((m = /^var\s+([\w\s,]+?)(?:\s+([\w.*[\]]+))?\s*=\s*(.+)$/.exec(s))) return goAssign(m[1], m[3], m[2]);
+  if ((m = /^const\s+(\w+)(?:\s+\w+)?\s*=\s*(.+)$/.exec(s))) return `変えられない値（定数）${m[1]} を ${cut(m[2], 20)} にします`;
+  // ── 関数・メソッド
+  if ((m = /^func\s+\((\w+)\s+(\*?)(\w+)(?:\[[^\]]*\])?\)\s+(\w+)\s*\((.*?)\)\s*(.*?)\s*\{?$/.exec(s))) {
+    const res = m[6].trim().replace(/^\(|\)$/g, "");
+    const extra = [m[5].trim() ? `受け取るもの：${goParams(m[5])}` : "", res ? `返すもの：${res}` : ""].filter(Boolean).join("／");
+    return `${m[3]} 型のメソッド ${m[4]} を定義します（${m[1]} で自分を使う${m[2] ? "・* なので中身を書きかえられる" : ""}${extra ? "／" + extra : ""}）`;
+  }
+  if ((m = /^func\s+(\w+)(\[[^\]]+\])?\s*\((.*?)\)\s*(.*?)\s*\{?$/.exec(s))) {
+    if (m[1] === "main") return "プログラムの入口（最初に動く関数）を定義します";
+    if (m[1] === "init") return "main より先に、自動で 1 回だけ動く関数（init）を定義します";
+    const res = m[4].trim().replace(/^\(|\)$/g, "");
+    const extra = [m[3].trim() ? `受け取るもの：${goParams(m[3])}` : "", res ? `返すもの：${res}` : ""].filter(Boolean).join("／");
+    return `${m[2] ? `型 ${m[2].slice(1, -1)} を使える` : ""}関数 ${m[1]} を定義します${extra ? `（${extra}）` : ""}`;
+  }
+  if ((m = /^(\w+)\s*:?=\s*func\s*\((.*?)\)\s*(.*?)\s*\{$/.exec(s))) {
+    const res = m[3].trim().replace(/^\(|\)$/g, "");
+    return `関数を作って ${m[1]} に入れます${m[2] || res ? `（${[m[2] ? `受け取るもの：${goParams(m[2])}` : "", res ? `返すもの：${res}` : ""].filter(Boolean).join("／")}）` : ""}`;
+  }
+  if (/^go\s+func\s*\(.*\)\s*\{$/.test(s)) return "下の関数を、別の流れ（ゴルーチン）で同時に動かします";
+  if ((m = /^go\s+(.+)$/.exec(s))) return `${cut(m[1], 24)} を、別の流れ（ゴルーチン）で同時に動かします`;
+  if (/^defer\s+func\s*\(.*\)\s*\{$/.test(s)) return "関数が終わるときに、下の処理を動かすよう予約します（defer）";
+  if ((m = /^defer\s+(.+)$/.exec(s))) {
+    return `関数が終わるときに ${cut(m[1], 24)} を動かすよう予約します（defer）`;
+  }
+  // ── チャネル
+  if ((m = /^([\w.[\]]+)\s*<-\s*(.+)$/.exec(s)) && !/:=|=/.test(s.split("<-")[0])) return `チャネル ${m[1]} に ${cut(m[2], 16)} を送ります（受け取る側が受け取るまで待つことがあります）`;
+  if ((m = /^<-\s*([\w.]+)$/.exec(s))) return `チャネル ${m[1]} から値が届くまで待ちます`;
+  if (/^select\s*\{$/.test(s)) return "下の case のうち、先に準備ができたチャネルの処理を 1 つ動かします";
+  if ((m = /^case\s+(\w+)(?:\s*,\s*(\w+))?\s*:?=\s*<-\s*([\w.]+)\s*:$/.exec(s))) return `チャネル ${m[3]} から受け取れたら（値は ${m[1]}${m[2] ? `、届いたかどうかは ${m[2]}` : ""}）`;
+  if ((m = /^case\s+<-\s*([\w.()]+)\s*:$/.exec(s))) return /time\.After/.test(m[1]) ? `${cut(m[1], 24)} の時間がたったら` : `チャネル ${m[1]} から受け取れたら`;
+  if ((m = /^case\s+([\w.]+)\s*<-\s*(.+):$/.exec(s))) return `チャネル ${m[1]} に ${cut(m[2], 14)} を送れたら`;
+  // ── switch
+  if ((m = /^switch\s+(\w+)\s*:=\s*(.+)\.\(type\)\s*\{$/.exec(s))) return `${m[2]} の型によって分けます（中身は ${m[1]} に入ります）`;
+  if ((m = /^switch\s+(.+)\.\(type\)\s*\{$/.exec(s))) return `${m[1]} の型によって分けます`;
+  if (/^switch\s*\{$/.test(s)) return "下の case の条件を上から順に調べて、最初に当てはまったものを動かします";
+  if ((m = /^switch\s+(?:(.+?);\s*)?(.+?)\s*\{$/.exec(s))) return `${m[1] ? `${cut(m[1], 16)} をしてから、` : ""}${cut(m[2], 20)} の値によって分けます`;
+  if (/^default\s*:$/.test(s)) return "どの case にも当てはまらないとき";
+  if (/^fallthrough$/.test(s)) return "次の case の中身も続けて動かします（fallthrough）";
+  if ((m = /^case\s+(.+):$/.exec(s))) {
+    const vals = splitArgs(m[1]);
+    if (vals.length === 1 && /[<>=!]=?|&&|\|\|/.test(vals[0])) return `もし ${condIf(vals[0], "go")}のとき`;
+    if (vals.every((v) => /^(\*?[\w.]+|\[\]\w+|map\[\w+\]\w+|nil)$/.test(v) && /^(int\d*|uint\d*|float\d+|string|bool|byte|rune|error|nil|\*?[A-Z]\w*(\.\w+)?|\[\]\w+|map\[\w+\]\w+)$/.test(v) && !/^[A-Z_]+$/.test(v)))
+      return `${vals.join("・")} 型のとき`;
+    return `${vals.map((v) => cut(v, 12)).join("・")} のとき`;
+  }
+  // ── if（エラーの確認など）
+  if (/^if\s+err\s*!=\s*nil\s*\{$/.test(s)) return "もしエラーがあったら（err が nil でなければ）";
+  if (/^if\s+err\s*==\s*nil\s*\{$/.test(s)) return "もしエラーがなければ";
+  if ((m = /^if\s+(\w+)\s*,\s*(\w+)\s*:=\s*(\w+)\[(.+)\]\s*;\s*!?\s*\2\s*\{$/.exec(s))) return s.includes("!" + m[2]) ? `もしマップ ${m[3]} に ${m[4]} がなければ` : `もしマップ ${m[3]} に ${m[4]} があれば（値は ${m[1]}）`;
+  if ((m = /^if\s+(\w+)\s*,\s*(\w+)\s*:=\s*(.+)\.\((.+)\)\s*;\s*\2\s*\{$/.exec(s))) return `もし ${m[3]} が ${m[4]} 型なら（中身は ${m[1]}）`;
+  if ((m = /^if\s+(.+?)\s*:=\s*(.+?)\s*;\s*(.+?)\s*\{$/.exec(s))) {
+    const what = nounOf(m[2], "go");
+    if (m[3].trim() === "err != nil") return `${what ?? cut(m[2], 20)}をしてみて、エラーがあったら`;
+    return `${what ? `${m[1]} に ${what}を入れて、` : `${cut(m[1], 10)} := ${cut(m[2], 16)} をしてから、`}もし ${condIf(m[3], "go")}なら`;
+  }
+  // ── for
+  if ((m = /^for\s+(\w+)\s*:=\s*range\s+(\d+)\s*\{$/.exec(s))) return `${m[1]} を 0 から ${Number(m[2]) - 1} まで変えながら繰り返します`;
+  if ((m = /^for\s+(\w+)\s*:=\s*range\s+(\w+)\s*\{$/.exec(s)) && /^[a-z]\w*$/.test(m[2]) && /^(n|num|count|size|times|max|limit|total)$/i.test(m[2])) return `${m[1]} を 0 から ${m[2]}−1 まで変えながら繰り返します`;
+  if ((m = /^for\s+range\s+(\d+)\s*\{$/.exec(s))) return `${m[1]} 回繰り返します`;
+  if ((m = /^for\s+(\w+)\.Scan\(\)\s*\{$/.exec(s))) return `${m[1]} で入力を 1 行ずつ読んで、読めるあいだ繰り返します`;
+  if ((m = /^for\s+(?:(\w+)\s*(?:,\s*(\w+))?\s*:?=\s*)?range\s+(.+?)\s*\{$/.exec(s))) {
+    const src = m[3];
+    if (!m[1]) return `${cut(src, 16)} の中身の数だけ繰り返します`;
+    const kv = /^(map|m)\b/.test(src) || /Map$|map$/.test(src);
+    if (m[1] === "_") return `${cut(src, 16)} の中身を 1 つずつ ${m[2]} に入れて繰り返します`;
+    if (!m[2]) return /^<-|^ch\b|chan/.test(src) ? `チャネル ${src} から届く値を 1 つずつ ${m[1]} に入れて繰り返します（閉じられるまで）` : `${cut(src, 16)} の${kv ? "キー" : "番号"}を 1 つずつ ${m[1]} に入れて繰り返します`;
+    return kv ? `${cut(src, 16)} のキーを ${m[1]}、値を ${m[2]} に入れて繰り返します` : `${cut(src, 16)} の番号（マップならキー）を ${m[1]}、中身を ${m[2]} に入れて 1 つずつ繰り返します`;
+  }
+  if ((m = /^(\w+):$/.exec(s))) return `ここに「${m[1]}」という名前（ラベル）を付けます（break ${m[1]} などで使う）`;
+  if ((m = /^(break|continue)\s+(\w+)$/.exec(s))) return m[1] === "break" ? `ラベル ${m[2]} の繰り返しを抜けます` : `ラベル ${m[2]} の繰り返しの次へ進みます`;
+  // ── return（いくつも返す）
+  if ((m = /^return\s+(.+)$/.exec(s))) {
+    const parts = splitArgs(m[1]);
+    if (parts.length === 2 && parts[1] === "nil") return `${nounOf(parts[0], "go") ?? cut(parts[0], 16)} を返します（エラーなし）`;
+    if (parts.length >= 2 && /^(nil|0|""|false)$/.test(parts[0]) && /err|errors\.New|fmt\.Errorf/.test(parts[parts.length - 1])) return `エラー ${cut(parts[parts.length - 1], 24)} を返します（結果はなし）`;
+    if (parts.length >= 2) return `${parts.map((p) => cut(p, 12)).join("・")} をまとめて返します`;
+  }
+  // ── そのほかの文
+  if ((m = /^\*(\w+)\s*=\s*(.+)$/.exec(s))) return `${m[1]} が指している先の値を ${cut(m[2], 16)} にします`;
+  if ((m = /^(\w+)\s*=\s*append\(\s*\1\s*,\s*(.+)\)$/.exec(s))) {
+    const more = splitArgs(m[2]);
+    return more.length === 1 && /\.\.\.$/.test(more[0]) ? `${m[1]} の最後に ${more[0].replace(/\.\.\.$/, "")} の中身をまとめて追加します` : `${m[1]} の最後に ${more.map((x) => cut(x, 12)).join("・")} を追加します`;
+  }
+  if ((m = /^([\w\s,]+?)\s*:=\s*(.+)$/.exec(s)) && !/^(if|for|switch|select)\b/.test(s)) return goAssign(m[1], m[2]);
+  if ((m = /^(\w+)\[(.+)\]\s*=\s*(.+)$/.exec(s))) return `${m[1]} の ${cut(m[2], 12)} に ${cut(m[3], 16)} を入れます`;
+  return null;
+}
+
+const GO_PKG: Record<string, string> = {
+  fmt: "表示と書式", os: "ファイル・引数など OS の機能", strings: "文字列の操作", strconv: "文字と数の変換", math: "数学の計算", "math/rand": "乱数",
+  "math/rand/v2": "乱数", time: "時間", sort: "並べかえ", slices: "スライスの便利な関数", maps: "マップの便利な関数", bufio: "まとめて読み書き（1 行ずつの入力など）",
+  errors: "エラーを作る・調べる", sync: "同時に動く流れの調整（WaitGroup・Mutex）", "net/http": "Web サーバー・通信", "encoding/json": "JSON の読み書き",
+  io: "読み書きの基本", "io/ioutil": "読み書きの便利な関数（古い）", log: "日時つきの表示（ログ）", unicode: "文字の種類（数字・英字など）", "unicode/utf8": "UTF-8 の文字",
+  bytes: "バイト列の操作", regexp: "正規表現", "path/filepath": "ファイルの場所（パス）", context: "処理の取り消し・時間切れ", flag: "コマンドの引数（-n など）",
+  "crypto/rand": "安全な乱数", reflect: "型や値を調べる", testing: "テスト", "container/heap": "優先度つきキュー", "container/list": "連結リスト",
+};
+
+/** Go の代入（a := …・a, err := …・var a = …） */
+function goAssign(targets: string, rhs: string, type?: string): string {
+  const names = targets.split(",").map((x) => x.trim()).filter(Boolean);
+  const r = rhs.trim();
+  let m: RegExpExecArray | null;
+  const one = names.length === 1 ? names[0] : null;
+  const into = (what: string) => (one ? `${one} に ${what}を入れます` : `${names.join("・")} に ${what}を入れます`);
+  if ((m = /^make\(\s*(\[\][^,]+|map\[.+?\][^,)]+|chan\s+[^,)]+)\s*(?:,\s*([^,)]+))?(?:\s*,\s*([^)]+))?\)$/.exec(r))) {
+    const t = m[1].trim();
+    if (t.startsWith("[]")) return into(`長さ ${m[2] ?? 0}${m[3] ? `・容量 ${m[3]}` : ""} の ${goType(t)}`);
+    if (t.startsWith("map")) return into(`${goType(t)}（空）`);
+    return into(`${goType(t)}${m[2] ? `（${m[2]} 個までためておける）` : "（ためておけない：受け取る側を待つ）"}`);
+  }
+  if ((m = /^(\[\d*\][\w.*]+|map\[.+?\][\w.*[\]]+)\{(.*)\}$/.exec(r))) return into(`${goType(m[1].replace(/^\[\d+\]/, (x) => (x === "[]" ? x : x)))}${m[2].trim() ? ` {${cut(m[2], 18)}}` : "（空）"}`);
+  if ((m = /^&(\w+(?:\.\w+)?)\{(.*)\}$/.exec(r))) return into(`${m[1]} を作って、その場所（ポインタ）`);
+  if ((m = /^([A-Z]\w*(?:\.[A-Z]\w*)?)\{(.*)\}$/.exec(r))) return into(`${m[1]} 型の値${m[2].trim() ? ` {${cut(m[2], 18)}}` : "（中身は 0 や空）"}`);
+  if ((m = /^&(\w+)$/.exec(r))) return into(`${m[1]} の場所（ポインタ）`);
+  if ((m = /^\*(\w+)$/.exec(r))) return into(`${m[1]} が指している先の値`);
+  if ((m = /^<-\s*([\w.]+)$/.exec(r))) return names.length === 2 ? `チャネル ${m[1]} から受け取った値を ${names[0]} に、受け取れたかどうか（閉じられていたら false）を ${names[1]} に入れます` : into(`チャネル ${m[1]} から受け取った値`);
+  if ((m = /^(\w+)\[(.+)\]$/.exec(r)) && names.length === 2) return `${m[1]} の ${cut(m[2], 12)} の値を ${names[0]} に、あったかどうか（true/false）を ${names[1]} に入れます`;
+  if ((m = /^(.+)\.\(([\w.*[\]]+)\)$/.exec(r))) return names.length === 2 ? `${cut(m[1], 12)} を ${m[2]} 型として取り出した値を ${names[0]} に、取り出せたかどうかを ${names[1]} に入れます` : into(`${cut(m[1], 12)} を ${m[2]} 型として取り出した値（ちがう型なら panic）`);
+  if ((m = /^(\w+)\[(.*?):(.*?)\]$/.exec(r))) return into(`${m[1]} の ${m[2] || "最初"} 番目から ${m[3] ? `${m[3]} 番目の手前` : "最後"}まで`);
+  if ((m = /^bufio\.NewScanner\(\s*os\.Stdin\s*\)$/.exec(r))) return into("キーボードの入力を 1 行ずつ読む道具（Scanner）");
+  if ((m = /^bufio\.NewReader\(\s*os\.Stdin\s*\)$/.exec(r))) return into("キーボードの入力を読む道具（Reader）");
+  // Sprintf：書式の説明
+  if ((m = /^fmt\.Sprintf\((.*)\)$/.exec(r))) {
+    const args = splitArgs(m[1]);
+    const lit = stringLiteral(args[0] ?? "");
+    if (lit !== null) return into(`「${cut(describeFormat(lit, args.slice(1)).text, 40)}」という文字`);
+  }
+  const noun = nounOf(r, "go");
+  // a, err := 〜：結果とエラー
+  if (names.length === 2 && /^err$/.test(names[1]) && noun) return `${names[0] === "_" ? "" : `${names[0]} に `}${noun.replace(/（とエラー）$/, "")}${names[0] === "_" ? "は使わず、" : "を、"}エラー（なければ nil）を err に入れます`;
+  if (noun) return into(noun);
+  if (type) return into(`${goType(type)} 型の ${cut(r, 16)}`);
+  if (names.length > 1) return `${names.join("・")} にそれぞれ（順に分けて）${cut(r, 18)} の結果を入れます`;
+  // 数や文字そのもの・計算などは、ふだんの代入の説明に任せる
+  return assignment(`${names[0]} = ${r}`, "go") ?? `${names[0]} に ${cut(r, 18)} の結果を入れます`;
 }
